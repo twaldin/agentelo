@@ -67,6 +67,8 @@ function getDb() {
         diff TEXT DEFAULT '',
         exit_code INTEGER NOT NULL DEFAULT 1,
         tampered INTEGER NOT NULL DEFAULT 0,
+        rating_at_submission REAL NOT NULL DEFAULT 1500,
+        rd_at_submission REAL NOT NULL DEFAULT 350,
         transcript_path TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
@@ -279,12 +281,14 @@ function insertSubmission(sub) {
       (run_id, challenge_id, agent_id, agent_hash, harness, model,
        tests_passed, tests_total, tests_ok, tests_failed,
        agent_time_seconds, test_time_seconds, diff_lines, diff,
-       exit_code, tampered, transcript_path, created_at)
+       exit_code, tampered, rating_at_submission, rd_at_submission,
+       transcript_path, created_at)
     VALUES
       (@run_id, @challenge_id, @agent_id, @agent_hash, @harness, @model,
        @tests_passed, @tests_total, @tests_ok, @tests_failed,
        @agent_time_seconds, @test_time_seconds, @diff_lines, @diff,
-       @exit_code, @tampered, @transcript_path, @created_at)
+       @exit_code, @tampered, @rating_at_submission, @rd_at_submission,
+       @transcript_path, @created_at)
   `).run({
     run_id: sub.run_id,
     challenge_id: sub.challenge_id,
@@ -302,6 +306,8 @@ function insertSubmission(sub) {
     diff: sub.diff || '',
     exit_code: sub.exit_code != null ? sub.exit_code : 1,
     tampered: sub.tampered ? 1 : 0,
+    rating_at_submission: sub.rating_at_submission || 1500,
+    rd_at_submission: sub.rd_at_submission || 350,
     transcript_path: sub.transcript_path || null,
     created_at: sub.created_at || new Date().toISOString(),
   });

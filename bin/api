@@ -172,6 +172,8 @@ async function processSubmission(body) {
     tests_failed:       body.tests_failed || 0,
     agent_time_seconds: body.agent_time_seconds || 0,
     test_time_seconds:  body.test_time_seconds  || 0,
+    rating_at_submission: agent.rating,
+    rd_at_submission:     agent.rd,
     diff_lines:         body.diff_lines  || 0,
     diff:               body.diff        || '',
     exit_code:          body.exit_code  != null ? body.exit_code : 1,
@@ -232,8 +234,11 @@ async function processSubmission(body) {
       else                   myScore = 0.5;
     }
 
-    games.push({ opponentRating: oppAgent.rating, opponentRd: oppAgent.rd, score: myScore });
-    opponentUpdates.push({ oppAgent, oSub, myScore });
+    // Use opponent's rating AT TIME OF THEIR SUBMISSION, not current rating
+    const oppRatingAtSubmission = oSub.rating_at_submission || oppAgent.rating;
+    const oppRdAtSubmission     = oSub.rd_at_submission     || oppAgent.rd;
+    games.push({ opponentRating: oppRatingAtSubmission, opponentRd: oppRdAtSubmission, score: myScore });
+    opponentUpdates.push({ oppAgent, oSub, myScore, oppRatingAtSubmission, oppRdAtSubmission });
   }
 
   // 8. Batch Glicko-2 update for submitting agent
@@ -244,16 +249,15 @@ async function processSubmission(body) {
   const myWins     = games.filter(g => g.score === 1).length;
   const myDeltaTotal = myNew.rating - agent.rating;
 
-  // 9. Insert game rows and update opponent ratings
+  // 9. Insert game rows for submitting agent ONLY — opponent attempts are frozen
   for (let i = 0; i < opponentUpdates.length; i++) {
-    const { oppAgent, oSub, myScore } = opponentUpdates[i];
-    const oppScore = myScore === 1 ? 0 : myScore === 0 ? 1 : 0.5;
+    const { oppAgent, oSub, myScore, oppRatingAtSubmission, oppRdAtSubmission } = opponentUpdates[i];
 
     // Per-game delta for submitting agent: prorate total delta evenly across opponents
     const perGameDelta = Math.round((myDeltaTotal / opponentUpdates.length) * 10) / 10;
     const myRatingAfterGame = Math.round((agent.rating + perGameDelta) * 10) / 10;
 
-    // Insert game row for submitting agent
+    // Insert game row for submitting agent only
     db.insertGame({
       challenge_id:          body.challenge_id,
       agent_id:              agent.id,
@@ -266,45 +270,9 @@ async function processSubmission(body) {
       rd_before:             agent.rd,
       rd_after:              myNew.rd,
       delta:                 perGameDelta,
-      opponent_rating:       oppAgent.rating,
-      opponent_rd:           oppAgent.rd,
+      opponent_rating:       oppRatingAtSubmission,
+      opponent_rd:           oppRdAtSubmission,
       opponent_model:        oppAgent.model,
-    });
-
-    // Compute opponent's new rating
-    const oppNew = updateRating(
-      { rating: oppAgent.rating, rd: oppAgent.rd, volatility: oppAgent.volatility },
-      [{ opponentRating: agent.rating, opponentRd: agent.rd, score: oppScore }]
-    );
-    const oppDelta = oppNew.rating - oppAgent.rating;
-
-    // Insert game row for opponent
-    db.insertGame({
-      challenge_id:          body.challenge_id,
-      agent_id:              oppAgent.id,
-      opponent_id:           agent.id,
-      submission_id:         oSub.id,
-      opponent_submission_id: mySub.id,
-      score:                 oppScore,
-      rating_before:         oppAgent.rating,
-      rating_after:          oppNew.rating,
-      rd_before:             oppAgent.rd,
-      rd_after:              oppNew.rd,
-      delta:                 oppDelta,
-      opponent_rating:       agent.rating,
-      opponent_rd:           agent.rd,
-      opponent_model:        agent.model,
-    });
-
-    // Update opponent agent
-    db.updateAgent({
-      id:                   oppAgent.id,
-      rating:               oppNew.rating,
-      rd:                   oppNew.rd,
-      volatility:           oppNew.volatility,
-      wins:                 oppScore === 1 ? oppAgent.wins + 1 : oppAgent.wins,
-      challenges_attempted: oppAgent.challenges_attempted,
-      current_hash:         oppAgent.current_hash,
     });
   }
 
