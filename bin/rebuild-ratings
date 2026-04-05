@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+'use strict';
+
+// Rebuild all ratings and games from submissions.
+// Replays every submission in chronological order using sequential Glicko-2.
+// Usage: node bin/rebuild-ratings
+
+const db = require('../core/db');
+const { updateRating, defaultRating } = require('../core/glicko2');
+
+console.log('[rebuild] Starting rating rebuild...');
+
+// 1. Clear all games and reset all agent ratings
+db.getDb().exec('DELETE FROM games');
+const agents = db.getAllAgents();
+for (const agent of agents) {
+  db.updateAgent({
+    id: agent.id,
+    rating: 1500,
+    rd: 350,
+    volatility: 0.06,
+    wins: 0,
+    challenges_attempted: 0,
+    current_hash: agent.current_hash,
+  });
+}
+console.log(`[rebuild] Reset ${agents.length} agents to 1500 ELO`);
+
+// 2. Get all submissions in chronological order
+const subs = db.getDb().prepare('SELECT * FROM submissions ORDER BY created_at ASC').all();
+console.log(`[rebuild] Replaying ${subs.length} submissions...`);
+
+let totalGames = 0;
+
+for (const sub of subs) {
+  const agent = db.getAgent(sub.agent_id);
+  if (!agent) { console.warn(`[rebuild] Agent not found: ${sub.agent_id}`); continue; }
+
+  // Find opponents: other agents' submissions on the same challenge, submitted BEFORE this one
+  const opponents = db.getDb().prepare(
+    'SELECT * FROM submissions WHERE challenge_id = ? AND agent_id != ? AND created_at <= ? ORDER BY created_at ASC'
+  ).all(sub.challenge_id, sub.agent_id, sub.created_at);
+
+  if (opponents.length === 0) {
+    // First submission on this challenge — no games, just increment challenges_attempted
+    db.updateAgent({
+      id: agent.id,
+      rating: agent.rating,
+      rd: agent.rd,
+      volatility: agent.volatility,
+      wins: agent.wins,
+      challenges_attempted: agent.challenges_attempted + 1,
+      current_hash: sub.agent_hash || agent.current_hash,
+    });
+    continue;
+  }
+
+  // Sequential Glicko-2: one game per opponent
+  let curRating = agent.rating;
+  let curRd     = agent.rd;
+  let curVol    = agent.volatility;
+  let wins      = 0;
+
+  for (const oSub of opponents) {
+    const oppAgent = db.getAgent(oSub.agent_id);
+    if (!oppAgent) continue;
+
+    // Compute score
+    let myScore;
+    const myPassed  = sub.tests_passed ? 1 : 0;
+    const oppPassed = oSub.tests_passed ? 1 : 0;
+
+    if (myPassed > oppPassed) {
+      myScore = 1;
+    } else if (myPassed < oppPassed) {
+      myScore = 0;
+    } else if (myPassed === 1) {
+      if ((sub.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
+      else if ((sub.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
+      else                                                                      myScore = 0.5;
+    } else {
+      const myOk  = sub.tests_ok || 0;
+      const oppOk = oSub.tests_ok || 0;
+      if (myOk > oppOk)      myScore = 1;
+      else if (myOk < oppOk) myScore = 0;
+      else if (myOk > 0 && (sub.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0)) myScore = 1;
+      else if (myOk > 0 && (sub.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
+      else                   myScore = 0.5;
+    }
+
+    const oppRating = oSub.rating_at_submission || 1500;
+    const oppRd     = oSub.rd_at_submission || 350;
+
+    const ratingBefore = curRating;
+    const rdBefore     = curRd;
+    const updated = updateRating(
+      { rating: curRating, rd: curRd, volatility: curVol },
+      [{ opponentRating: oppRating, opponentRd: oppRd, score: myScore }]
+    );
+    const delta = updated.rating - curRating;
+    curRating = updated.rating;
+    curRd     = updated.rd;
+    curVol    = updated.volatility;
+    if (myScore === 1) wins++;
+
+    db.insertGame({
+      challenge_id:          sub.challenge_id,
+      agent_id:              sub.agent_id,
+      opponent_id:           oSub.agent_id,
+      submission_id:         sub.id,
+      opponent_submission_id: oSub.id,
+      score:                 myScore,
+      rating_before:         ratingBefore,
+      rating_after:          curRating,
+      rd_before:             rdBefore,
+      rd_after:              curRd,
+      delta:                 Math.round(delta * 10) / 10,
+      opponent_rating:       oppRating,
+      opponent_rd:           oppRd,
+      opponent_model:        oppAgent.model,
+    });
+    totalGames++;
+  }
+
+  // Update agent with final rating after all games
+  db.updateAgent({
+    id: agent.id,
+    rating: curRating,
+    rd: curRd,
+    volatility: curVol,
+    wins: agent.wins + wins,
+    challenges_attempted: agent.challenges_attempted + 1,
+    current_hash: sub.agent_hash || agent.current_hash,
+  });
+}
+
+console.log(`[rebuild] Done. ${totalGames} games created from ${subs.length} submissions.`);
+
+// Print new leaderboard
+const final = db.getAllAgents().filter(a => a.challenges_attempted > 0).sort((a, b) => b.rating - a.rating);
+console.log('\n--- REBUILT LEADERBOARD ---');
+final.forEach((a, i) => {
+  console.log(`#${i+1} ${a.id.padEnd(40)} ELO: ${Math.round(a.rating).toString().padStart(4)}  W: ${a.wins}  CH: ${a.challenges_attempted}`);
+});

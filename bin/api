@@ -204,14 +204,19 @@ async function processSubmission(body) {
     return;
   }
 
-  // 7. Build games array for Glicko-2 batch update
-  const games           = [];
-  const opponentUpdates = [];
+  // 7. Sequential Glicko-2: one update per opponent, rating changes between games
+  //    Order by opponent submission time (earliest first)
+  const sortedOpponents = opponents
+    .map(oSub => ({ oSub, oppAgent: db.getAgent(oSub.agent_id) }))
+    .filter(o => o.oppAgent)
+    .sort((a, b) => (a.oSub.created_at || '').localeCompare(b.oSub.created_at || ''));
 
-  for (const oSub of opponents) {
-    const oppAgent = db.getAgent(oSub.agent_id);
-    if (!oppAgent) continue;
+  let curRating    = agent.rating;
+  let curRd        = agent.rd;
+  let curVol       = agent.volatility;
+  let totalWins    = 0;
 
+  for (const { oSub, oppAgent } of sortedOpponents) {
     let myScore;
     const myPassed  = body.tests_passed ? 1 : 0;
     const oppPassed = oSub.tests_passed ? 1 : 0;
@@ -221,12 +226,10 @@ async function processSubmission(body) {
     } else if (myPassed < oppPassed) {
       myScore = 0;
     } else if (myPassed === 1) {
-      // Both passed — faster wins
       if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
       else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
       else                                                                        myScore = 0.5;
     } else {
-      // Both failed — more tests passing = win, then faster wins
       const myOk  = body.tests_ok || 0;
       const oppOk = oSub.tests_ok || 0;
       if (myOk > oppOk)      myScore = 1;
@@ -236,30 +239,23 @@ async function processSubmission(body) {
       else                   myScore = 0.5;
     }
 
-    // Use opponent's rating AT TIME OF THEIR SUBMISSION, not current rating
-    const oppRatingAtSubmission = oSub.rating_at_submission || oppAgent.rating;
-    const oppRdAtSubmission     = oSub.rd_at_submission     || oppAgent.rd;
-    games.push({ opponentRating: oppRatingAtSubmission, opponentRd: oppRdAtSubmission, score: myScore });
-    opponentUpdates.push({ oppAgent, oSub, myScore, oppRatingAtSubmission, oppRdAtSubmission });
-  }
+    // Use opponent's frozen rating at their submission time
+    const oppRating = oSub.rating_at_submission || oppAgent.rating;
+    const oppRd     = oSub.rd_at_submission     || oppAgent.rd;
 
-  // 8. Batch Glicko-2 update for submitting agent
-  const myNew  = updateRating(
-    { rating: agent.rating, rd: agent.rd, volatility: agent.volatility },
-    games
-  );
-  const myWins     = games.filter(g => g.score === 1).length;
-  const myDeltaTotal = myNew.rating - agent.rating;
+    // Single-game Glicko-2 update
+    const ratingBefore = curRating;
+    const rdBefore     = curRd;
+    const updated = updateRating(
+      { rating: curRating, rd: curRd, volatility: curVol },
+      [{ opponentRating: oppRating, opponentRd: oppRd, score: myScore }]
+    );
+    const delta = updated.rating - curRating;
+    curRating = updated.rating;
+    curRd     = updated.rd;
+    curVol    = updated.volatility;
+    if (myScore === 1) totalWins++;
 
-  // 9. Insert game rows for submitting agent ONLY — opponent attempts are frozen
-  for (let i = 0; i < opponentUpdates.length; i++) {
-    const { oppAgent, oSub, myScore, oppRatingAtSubmission, oppRdAtSubmission } = opponentUpdates[i];
-
-    // Per-game delta for submitting agent: prorate total delta evenly across opponents
-    const perGameDelta = Math.round((myDeltaTotal / opponentUpdates.length) * 10) / 10;
-    const myRatingAfterGame = Math.round((agent.rating + perGameDelta) * 10) / 10;
-
-    // Insert game row for submitting agent only
     db.insertGame({
       challenge_id:          body.challenge_id,
       agent_id:              agent.id,
@@ -267,24 +263,24 @@ async function processSubmission(body) {
       submission_id:         mySub.id,
       opponent_submission_id: oSub.id,
       score:                 myScore,
-      rating_before:         agent.rating,
-      rating_after:          myRatingAfterGame,
-      rd_before:             agent.rd,
-      rd_after:              myNew.rd,
-      delta:                 perGameDelta,
-      opponent_rating:       oppRatingAtSubmission,
-      opponent_rd:           oppRdAtSubmission,
+      rating_before:         ratingBefore,
+      rating_after:          curRating,
+      rd_before:             rdBefore,
+      rd_after:              curRd,
+      delta:                 Math.round(delta * 10) / 10,
+      opponent_rating:       oppRating,
+      opponent_rd:           oppRd,
       opponent_model:        oppAgent.model,
     });
   }
 
-  // 10. Update submitting agent
+  // 10. Update submitting agent with final sequential rating
   db.updateAgent({
     id:                   agent.id,
-    rating:               myNew.rating,
-    rd:                   myNew.rd,
-    volatility:           myNew.volatility,
-    wins:                 agent.wins + myWins,
+    rating:               curRating,
+    rd:                   curRd,
+    volatility:           curVol,
+    wins:                 agent.wins + totalWins,
     challenges_attempted: agent.challenges_attempted + 1,
     current_hash:         body.agent_hash,
   });
