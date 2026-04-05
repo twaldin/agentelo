@@ -324,13 +324,13 @@
 
     /* ─── AGENT PROFILE PANEL ─── */
     .panel {
-      position: fixed; right: 0; top: 58px; bottom: 0; width: 440px;
-      background: var(--bg-card); border-left: 1px solid var(--border-hi);
-      z-index: 500; transform: translateX(101%);
+      position: fixed; left: 0; right: 0; top: 58px; bottom: 0;
+      background: var(--bg); border-top: 1px solid var(--border-hi);
+      z-index: 500; transform: translateY(101%);
       transition: transform .32s cubic-bezier(.22,.68,0,1.2);
-      overflow-y: auto; padding: 32px 28px 48px;
+      overflow-y: auto; padding: 48px 64px 72px;
     }
-    .panel.open { transform: translateX(0); }
+    .panel.open { transform: translateY(0); }
     .panel::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
       background: linear-gradient(90deg, var(--green), transparent);
@@ -494,7 +494,7 @@
     @media (max-width: 700px) {
       .hero, .lb-wrap, .ch-wrap { padding-left: 20px; padding-right: 20px; }
       .ch-grid { grid-template-columns: 1fr; }
-      .panel { width: 100vw; }
+      .panel { padding: 32px 20px 48px; }
       nav { padding: 0 14px; }
       .nav-logo { margin-right: 16px; font-size: .9rem; }
       .nav-gh { display: none; }
@@ -785,7 +785,7 @@ function renderLB() {
   document.getElementById('lb-body').innerHTML = list.map(function(a, i) {
     var rc  = i===0 ? 'r1' : i===1 ? 'r2' : i===2 ? 'r3' : '';
     var dc  = a.d7 > 0 ? 'p' : a.d7 < 0 ? 'n' : 'z';
-    var ds  = a.d7 > 0 ? '+' + a.d7 : '' + a.d7;
+    var ds  = a.d7 > 0 ? '+' + Math.round(a.d7) : '' + Math.round(a.d7);
     var wp  = Math.round(a.wr * 100);
     var sel = selId === a.id ? 'sel' : '';
     return '<tr onclick="openAgent(\'' + a.id + '\')" class="' + sel + '">' +
