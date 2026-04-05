@@ -393,6 +393,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     });
 
     const finishedAt = new Date().toISOString();
+    const agentTimeSeconds = (new Date(finishedAt) - new Date(startedAt)) / 1000;
 
     // Clean up tmux viewer if any
     try {
@@ -470,13 +471,16 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     const result = {
       run_id: runId,
       challenge_id: challenge.id,
+      repo: challenge.repo,
       harness,
       model,
       agent_hash: agentHash,
       started_at: startedAt,
       finished_at: finishedAt,
       tests_passed: scoreResult.tests_passed,
-      time_seconds: scoreResult.time_seconds,
+      time_seconds: agentTimeSeconds,
+      agent_time_seconds: agentTimeSeconds,
+      test_time_seconds: scoreResult.time_seconds,
       exit_code: scoreResult.exit_code,
       diff_lines: scoreResult.diff_lines,
       diff,

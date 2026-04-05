@@ -31,6 +31,7 @@ function getDb() {
         model TEXT NOT NULL,
         tests_passed INTEGER NOT NULL DEFAULT 0,
         time_seconds REAL NOT NULL DEFAULT 0,
+        agent_time_seconds REAL NOT NULL DEFAULT 0,
         diff_lines INTEGER NOT NULL DEFAULT 0,
         tampered INTEGER NOT NULL DEFAULT 0,
         transcript_path TEXT,
@@ -79,11 +80,15 @@ function getAllChallenges() {
 }
 
 function insertSubmission(sub) {
+  // Migrations for existing DBs
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN agent_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN test_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
+
   getDb().prepare(`
     INSERT OR IGNORE INTO submissions
-      (run_id, challenge_id, agent_hash, harness, model, tests_passed, time_seconds, diff_lines, tampered, transcript_path, created_at)
+      (run_id, challenge_id, agent_hash, harness, model, tests_passed, time_seconds, agent_time_seconds, test_time_seconds, diff_lines, tampered, transcript_path, created_at)
     VALUES
-      (@run_id, @challenge_id, @agent_hash, @harness, @model, @tests_passed, @time_seconds, @diff_lines, @tampered, @transcript_path, @created_at)
+      (@run_id, @challenge_id, @agent_hash, @harness, @model, @tests_passed, @time_seconds, @agent_time_seconds, @test_time_seconds, @diff_lines, @tampered, @transcript_path, @created_at)
   `).run({
     run_id: sub.run_id,
     challenge_id: sub.challenge_id,
@@ -91,7 +96,9 @@ function insertSubmission(sub) {
     harness: sub.harness,
     model: sub.model,
     tests_passed: sub.tests_passed ? 1 : 0,
-    time_seconds: sub.time_seconds || 0,
+    time_seconds: sub.agent_time_seconds || sub.time_seconds || 0,
+    agent_time_seconds: sub.agent_time_seconds || 0,
+    test_time_seconds: sub.test_time_seconds || sub.time_seconds || 0,
     diff_lines: sub.diff_lines || 0,
     tampered: sub.tampered ? 1 : 0,
     transcript_path: sub.transcript_path || null,
@@ -163,13 +170,17 @@ function getAttemptCounts() {
   return map;
 }
 
-// Returns { challenge_id: { total, wins, avg_time } }
+// Returns { challenge_id: { total, wins, avg_time, avg_agent_time } }
 function getSolveStats() {
+  // Add column if missing (migration)
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN agent_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
+
   const rows = getDb().prepare(`
     SELECT challenge_id,
            COUNT(*) as total,
            SUM(tests_passed) as wins,
-           AVG(time_seconds) as avg_time
+           AVG(time_seconds) as avg_time,
+           AVG(CASE WHEN agent_time_seconds > 0 THEN agent_time_seconds ELSE NULL END) as avg_agent_time
     FROM submissions
     GROUP BY challenge_id
   `).all();

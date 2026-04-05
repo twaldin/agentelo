@@ -67,16 +67,16 @@ function detectLang(repo) {
 }
 
 function buildChallengeEntry(row, stats) {
-  const s = stats || { total: 0, wins: 0, avg_time: 0 };
+  const s = stats || { total: 0, wins: 0, avg_time: 0, avg_agent_time: 0 };
   return {
     id:           row.id,
-    repo:         row.repo.replace('https://github.com/', ''),
+    repo:         (row.repo || '').replace('https://github.com/', ''),
     title:        row.title || row.id,
     diff:         diffLabel(row),
     lang:         detectLang(row.repo),
     sr:           s.total > 0 ? s.wins / s.total : 0,
     att:          s.total || 0,
-    avgt:         fmtTime(s.avg_time),
+    avgt:         fmtTime(s.avg_agent_time || s.avg_time),
     test_command: row.test_command,
     created_at:   row.created_at,
   };
@@ -132,27 +132,40 @@ function buildAgentEntry(r, rank) {
 // ── processSubmission ─────────────────────────────────────────────────────────
 
 function processSubmission(sub) {
-  if (!db.getChallenge(sub.challenge_id)) {
+  // Try to load challenge data from local file for full metadata
+  const challengeFile = path.join(__dirname, '..', 'challenges', `${sub.challenge_id}.json`);
+  let challengeMeta = null;
+  try { challengeMeta = JSON.parse(fs.readFileSync(challengeFile, 'utf8')); } catch (_) {}
+
+  const existing = db.getChallenge(sub.challenge_id);
+  if (!existing || !existing.repo) {
+    const repo = sub.repo || (challengeMeta && (challengeMeta.repoUrl || challengeMeta.repo)) || '';
+    const title = (challengeMeta && challengeMeta.issue && challengeMeta.issue.title) || sub.challenge_id;
+    const fixDiff = challengeMeta && challengeMeta.fixDiff || '';
+    const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
     db.upsertChallenge({
       id:         sub.challenge_id,
-      repo:       sub.repo || '',
-      title:      sub.challenge_id,
-      difficulty: { filesChanged: 0, linesAdded: 0 },
+      repo:       repo,
+      title:      title,
+      difficulty: { filesChanged: 0, linesAdded: diffLines },
+      testCommand: challengeMeta && challengeMeta.testCommand,
+      fixCommit: challengeMeta && challengeMeta.fixCommit,
     });
   }
 
   db.insertSubmission({
-    run_id:          sub.run_id,
-    challenge_id:    sub.challenge_id,
-    agent_hash:      sub.agent_hash,
-    harness:         sub.harness,
-    model:           sub.model,
-    tests_passed:    sub.tests_passed ? 1 : 0,
-    time_seconds:    sub.time_seconds || 0,
-    diff_lines:      sub.diff_lines || 0,
-    tampered:        sub.tampered ? 1 : 0,
-    transcript_path: sub.log_file || null,
-    created_at:      sub.finished_at || new Date().toISOString(),
+    run_id:             sub.run_id,
+    challenge_id:       sub.challenge_id,
+    agent_hash:         sub.agent_hash,
+    harness:            sub.harness,
+    model:              sub.model,
+    tests_passed:       sub.tests_passed ? 1 : 0,
+    time_seconds:       sub.time_seconds || 0,
+    agent_time_seconds: sub.agent_time_seconds || 0,
+    diff_lines:         sub.diff_lines || 0,
+    tampered:           sub.tampered ? 1 : 0,
+    transcript_path:    sub.log_file || null,
+    created_at:         sub.finished_at || new Date().toISOString(),
   });
 
   let myRating = db.getRating(sub.agent_hash);
@@ -292,7 +305,35 @@ async function handleRequest(req, res) {
     const ch = db.getChallenge(chMatch[1]);
     if (!ch) return json(res, 404, { error: 'Not found' });
     const stats = db.getSolveStats();
-    return json(res, 200, buildChallengeEntry(ch, stats[ch.id]));
+    const entry = buildChallengeEntry(ch, stats[ch.id]);
+
+    // Enrich with issue body and fix diff from challenge file
+    const challengeFile = path.join(__dirname, '..', 'challenges', `${chMatch[1]}.json`);
+    try {
+      const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+      entry.body = meta.issue?.body || meta.body || '';
+      entry.fixDiff = meta.fixDiff || '';
+      entry.fixCommit = meta.fixCommit || '';
+    } catch (_) {}
+
+    // Include all attempts for this challenge
+    const subs = db.getSubmissionsByChallenge(chMatch[1]);
+    entry.attempts = subs.map(s => {
+      const agent = db.getRating(s.agent_hash);
+      return {
+        run_id: s.run_id,
+        model: s.model,
+        harness: s.harness,
+        passed: !!s.tests_passed,
+        time: fmtTime(s.agent_time_seconds || s.time_seconds),
+        test_time: fmtTime(s.test_time_seconds || 0),
+        diff_lines: s.diff_lines,
+        agent_name: agent ? `${agent.harness}-${agent.model.replace(/-/g, '')}` : s.model,
+        created_at: s.created_at,
+      };
+    });
+
+    return json(res, 200, entry);
   }
 
   // POST /api/submissions
@@ -329,6 +370,39 @@ async function handleRequest(req, res) {
 }
 
 // ── server ────────────────────────────────────────────────────────────────────
+
+// ── import all challenge JSONs into DB on startup ─────────────────────────────
+
+function importChallenges() {
+  const challengesDir = path.join(__dirname, '..', 'challenges');
+  if (!fs.existsSync(challengesDir)) return;
+  const files = fs.readdirSync(challengesDir).filter(f => f.endsWith('.json'));
+  let imported = 0;
+  for (const f of files) {
+    const id = f.replace('.json', '');
+    const existing = db.getChallenge(id);
+    if (existing && existing.repo) continue; // already has full data
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(challengesDir, f), 'utf8'));
+      const fixDiff = meta.fixDiff || '';
+      const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
+      db.upsertChallenge({
+        id,
+        repo: meta.repoUrl || meta.repo || '',
+        title: meta.issue?.title || meta.title || id,
+        difficulty: { filesChanged: 0, linesAdded: diffLines },
+        testCommand: meta.testCommand,
+        fixCommit: meta.fixCommit,
+      });
+      imported++;
+    } catch (_) {}
+  }
+  if (imported > 0) console.log(`[agentelo-api] imported ${imported} challenges from disk`);
+}
+
+// ── server ────────────────────────────────────────────────────────────────────
+
+importChallenges();
 
 const server = http.createServer((req, res) => {
   handleRequest(req, res).catch(err => {
