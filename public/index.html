@@ -31,7 +31,6 @@
     }
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-
     body {
       background: var(--bg);
       color: var(--text);
@@ -39,8 +38,6 @@
       min-height: 100vh;
       overflow-x: hidden;
     }
-
-    /* grid backdrop */
     body::before {
       content: '';
       position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -49,7 +46,6 @@
         linear-gradient(90deg, rgba(0,255,65,.02) 1px, transparent 1px);
       background-size: 44px 44px;
     }
-    /* CRT scanlines */
     body::after {
       content: '';
       position: fixed; inset: 0; pointer-events: none; z-index: 9998;
@@ -58,21 +54,17 @@
         rgba(0,0,0,.12) 3px, rgba(0,0,0,.12) 4px
       );
     }
-
-    /* vignette */
     .vignette {
       position: fixed; inset: 0; pointer-events: none; z-index: 9997;
       background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.6) 100%);
     }
-
-    /* corner decorations */
     .corner { position: fixed; width: 48px; height: 48px; pointer-events: none; z-index: 9990; }
     .corner.tl { top:14px; left:14px;  border-top:1px solid var(--green-d); border-left:1px solid var(--green-d);  opacity:.4; }
     .corner.tr { top:14px; right:14px; border-top:1px solid var(--green-d); border-right:1px solid var(--green-d); opacity:.4; }
     .corner.bl { bottom:14px; left:14px;  border-bottom:1px solid var(--green-d); border-left:1px solid var(--green-d);  opacity:.4; }
     .corner.br { bottom:14px; right:14px; border-bottom:1px solid var(--green-d); border-right:1px solid var(--green-d); opacity:.4; }
 
-    /* ─── nav ─── */
+    /* ─── NAV ─── */
     nav {
       position: fixed; top: 0; left: 0; right: 0; height: 58px;
       background: rgba(2,8,4,.96); border-bottom: 1px solid var(--border-hi);
@@ -87,7 +79,7 @@
     .nav-logo {
       font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 1.1rem;
       color: var(--green); letter-spacing: .08em; cursor: pointer; user-select: none;
-      margin-right: 48px; flex-shrink: 0;
+      margin-right: 48px; flex-shrink: 0; text-decoration: none;
       text-shadow: 0 0 10px var(--green), 0 0 20px var(--green-d), 0 0 40px rgba(0,255,65,.15);
     }
     .nav-links { display: flex; gap: 4px; flex: 1; }
@@ -95,6 +87,7 @@
       padding: 5px 14px; color: var(--text-lo); background: none;
       border: none; font-family: 'Share Tech Mono', monospace; font-size: .78rem;
       letter-spacing: .12em; text-transform: uppercase; cursor: pointer; transition: color .2s;
+      text-decoration: none; display: inline-flex; align-items: center;
     }
     .nav-btn:hover, .nav-btn.on { color: var(--green); text-shadow: 0 0 8px var(--green); }
     .nav-btn.on::before { content: '> '; }
@@ -113,14 +106,10 @@
     }
     .nav-cta:hover { background: rgba(0,255,65,.08); box-shadow: var(--glow-g); }
 
-    /* ─── sections ─── */
-    .section { display: none; min-height: 100vh; padding-top: 58px; position: relative; z-index: 1; }
-    .section.on { display: block; }
-
     /* ─── LANDING ─── */
+    #s-landing { display: none; padding-top: 58px; position: relative; z-index: 1; }
     .hero {
-      min-height: calc(100vh - 58px);
-      padding: 72px 64px 48px;
+      min-height: calc(100vh - 58px); padding: 72px 64px 48px;
       max-width: 1280px; margin: 0 auto;
       display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center;
     }
@@ -135,8 +124,6 @@
       color: var(--text-hi); letter-spacing: -.02em; margin-bottom: 28px;
     }
     .hero-title .line-g { color: var(--green); display: block; text-shadow: var(--glow-g); }
-
-    /* glitch */
     .glitch { position: relative; display: inline-block; }
     .glitch::before, .glitch::after {
       content: attr(data-t); position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -155,14 +142,11 @@
       91% { opacity:.75; transform:translate(-2px,1px); clip-path:inset(8% 0 76% 0); }
       92% { opacity:0; }
     }
-
     .hero-sub {
       font-size: .92rem; line-height: 1.75; color: var(--text); max-width: 480px;
       margin-bottom: 40px;
     }
     .hero-sub em { font-style: normal; color: var(--green); text-shadow: 0 0 6px rgba(0,255,65,.3); }
-
-    /* terminal */
     .terminal {
       background: var(--bg-card); border: 1px solid var(--border-hi);
       box-shadow: 0 0 40px rgba(0,255,65,.04);
@@ -191,12 +175,8 @@
       animation: blink 1.1s infinite;
     }
     @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
-
-
-    /* ─── landing sections ─── */
     .landing-section {
-      padding: 64px 64px 72px;
-      max-width: 1280px; margin: 0 auto;
+      padding: 64px 64px 72px; max-width: 1280px; margin: 0 auto;
       border-top: 1px solid var(--border);
     }
     .landing-section .sec-label {
@@ -213,16 +193,12 @@
     }
     .landing-section p em { font-style: normal; color: var(--green); text-shadow: 0 0 4px rgba(0,255,65,.2); }
     .landing-section code {
-      color: var(--green); background: rgba(0,255,65,.06);
-      padding: 1px 5px; font-size: .82rem;
+      color: var(--green); background: rgba(0,255,65,.06); padding: 1px 5px; font-size: .82rem;
     }
-    .info-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
-    }
+    .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .info-card {
       background: var(--bg-card); border: 1px solid var(--border);
-      padding: 22px; position: relative; overflow: hidden;
-      transition: border-color .25s;
+      padding: 22px; position: relative; overflow: hidden; transition: border-color .25s;
     }
     .info-card::after {
       content: ''; position: absolute; top: 0; left: 0; right: 100%;
@@ -235,21 +211,27 @@
       text-shadow: 0 0 6px rgba(0,255,65,.2);
     }
     .info-card-d { font-size: .75rem; color: var(--text-lo); line-height: 1.65; }
-    .two-col {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start;
-    }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
     .two-col p { max-width: none; }
-    @media (max-width: 1024px) {
-      .info-grid { grid-template-columns: repeat(2, 1fr) !important; }
-      .two-col { grid-template-columns: 1fr; gap: 24px; }
-    }
-    @media (max-width: 700px) {
-      .info-grid { grid-template-columns: 1fr !important; }
-      .landing-section { padding-left: 20px; padding-right: 20px; }
-    }
 
-    /* ─── LEADERBOARD ─── */
-    .lb-wrap { padding: 36px 64px; max-width: 1280px; margin: 0 auto; }
+    /* ─── APP (all non-landing pages) ─── */
+    #app { display: none; padding-top: 58px; position: relative; z-index: 1; min-height: 100vh; }
+
+    /* ─── PAGE WRAPPER ─── */
+    .pg-wrap { padding: 36px 64px 72px; max-width: 1280px; margin: 0 auto; }
+
+    /* ─── BREADCRUMB ─── */
+    .breadcrumb {
+      font-size: .62rem; letter-spacing: .15em; color: var(--text-lo);
+      text-transform: uppercase; margin-bottom: 28px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .breadcrumb a { color: var(--text-lo); text-decoration: none; transition: color .15s; }
+    .breadcrumb a:hover { color: var(--green); }
+    .breadcrumb .sep { color: var(--border-hi); }
+    .breadcrumb .cur { color: var(--text); }
+
+    /* ─── SECTION HEADING ─── */
     .sec-head { display: flex; align-items: baseline; gap: 20px; margin-bottom: 28px; }
     .sec-title {
       font-family: 'Orbitron', sans-serif; font-size: 1.3rem; font-weight: 700;
@@ -264,6 +246,15 @@
     @keyframes livepulse { 0%,100%{opacity:1;} 50%{opacity:.45;} }
     .sec-meta { margin-left: auto; font-size: .72rem; color: var(--text-lo); }
 
+    /* ─── SECTION LABEL ─── */
+    .sec-lbl {
+      font-size: .62rem; letter-spacing: .2em; color: var(--text-lo);
+      text-transform: uppercase; margin-bottom: 14px; padding-bottom: 7px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sec-lbl::before { content: '// '; color: var(--green-d); }
+
+    /* ─── FILTER BAR ─── */
     .fbar { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
     .fg { display: flex; gap: 3px; align-items: center; }
     .fl {
@@ -279,27 +270,22 @@
     .fb:hover { border-color: var(--border-hi); color: var(--text); }
     .fb.on { border-color: var(--green-d); color: var(--green); background: rgba(0,255,65,.04); }
 
+    /* ─── LEADERBOARD TABLE ─── */
     .lb-tbl { width: 100%; border-collapse: collapse; }
     .lb-tbl thead tr { border-bottom: 1px solid var(--border-hi); }
     .lb-tbl th {
       padding: 8px 12px; font-size: .62rem; letter-spacing: .18em;
       color: var(--text-lo); text-transform: uppercase; text-align: left; font-weight: normal;
     }
-    .lb-tbl tbody tr {
-      border-bottom: 1px solid var(--border);
-      cursor: pointer; transition: background .15s;
-    }
-    .lb-tbl tbody tr:hover  { background: rgba(0,255,65,.025); }
-    .lb-tbl tbody tr.sel    { background: rgba(0,255,65,.05); border-bottom-color: rgba(0,255,65,.15); }
+    .lb-tbl tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; }
+    .lb-tbl tbody tr:hover { background: rgba(0,255,65,.025); }
     .lb-tbl td { padding: 13px 12px; font-size: .84rem; }
-
     .rc {
       font-family: 'Orbitron', sans-serif; font-size: 1rem; font-weight: 700; color: var(--text-lo);
     }
     .rc.r1 { color: var(--yellow); text-shadow: 0 0 8px rgba(255,215,0,.5); }
     .rc.r2 { color: #d0d0d0; text-shadow: 0 0 6px #d0d0d0; }
     .rc.r3 { color: #cd8032; text-shadow: 0 0 6px #cd8032; }
-
     .ac { display: flex; flex-direction: column; gap: 4px; }
     .an { color: var(--text-hi); font-size: .87rem; }
     .am { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -309,7 +295,6 @@
     }
     .tag.h { border-color: rgba(0,255,65,.2); color: var(--green-d); }
     .tag.m { border-color: rgba(139,92,246,.25); color: #8b5cf6; }
-
     .eloc {
       font-family: 'Orbitron', sans-serif; font-size: 1.05rem;
       font-weight: 600; color: var(--green); text-shadow: 0 0 8px rgba(0,255,65,.3);
@@ -322,116 +307,77 @@
     .ch-c { color: var(--text-lo); font-size: .78rem; }
     .rd-c { color: var(--text-lo); font-size: .78rem; }
 
-    /* ─── AGENT PROFILE PANEL ─── */
-    .panel {
-      position: fixed; right: 0; top: 58px; bottom: 0; width: 440px;
-      background: var(--bg-card); border-left: 1px solid var(--border-hi);
-      z-index: 500; transform: translateX(101%);
-      transition: transform .32s cubic-bezier(.22,.68,0,1.2);
-      overflow-y: auto; padding: 32px 28px 48px;
+    /* ─── AGENT FULL PAGE ─── */
+    .ag-hdr { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; margin-bottom: 28px; flex-wrap: wrap; }
+    .ag-hdr-left { flex: 1; min-width: 0; }
+    .ag-rank { font-size: .62rem; letter-spacing: .25em; color: var(--text-lo); text-transform: uppercase; margin-bottom: 8px; }
+    .ag-name {
+      font-family: 'Orbitron', sans-serif; font-size: 1.5rem; font-weight: 700;
+      color: var(--text-hi); margin-bottom: 12px; line-height: 1.1; word-break: break-word;
     }
-    .panel.open { transform: translateX(0); }
-    .panel::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-      background: linear-gradient(90deg, var(--green), transparent);
+    .ag-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+    .ag-hdr-right { text-align: right; flex-shrink: 0; }
+    .ag-elo {
+      font-family: 'Orbitron', sans-serif; font-size: 4rem; font-weight: 900;
+      color: var(--green); text-shadow: var(--glow-g); line-height: 1;
     }
-    .pcls {
-      position: sticky; top: 0; float: right; clear: both;
-      background: var(--bg-card); border: 1px solid var(--border);
-      color: var(--text-lo); font-family: 'Share Tech Mono', monospace;
-      font-size: .75rem; padding: 4px 10px; cursor: pointer;
-      transition: all .2s; margin-bottom: 16px; z-index: 10;
-    }
-    .pcls:hover { border-color: var(--red); color: var(--red); }
+    .ag-delta { font-size: .88rem; margin-top: 6px; }
 
-    .p-rnk { font-size: .62rem; letter-spacing: .22em; color: var(--text-lo); text-transform: uppercase; margin-bottom: 6px; }
-    .p-nm {
-      font-family: 'Orbitron', sans-serif; font-size: 1.15rem; font-weight: 700;
-      color: var(--text-hi); margin-bottom: 8px; line-height: 1.2;
+    /* ─── STATS GRID ─── */
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 28px; }
+    .sg-card { background: var(--bg-card); border: 1px solid var(--border); padding: 14px 16px; }
+    .sg-v {
+      font-family: 'Orbitron', sans-serif; font-size: 1.1rem; font-weight: 600;
+      color: var(--text-hi); margin-bottom: 3px;
     }
-    .p-elo {
-      font-family: 'Orbitron', sans-serif; font-size: 2.8rem; font-weight: 900;
-      color: var(--green); text-shadow: var(--glow-g); line-height: 1; margin-bottom: 6px;
-    }
-    .p-delta { font-size: .78rem; margin-bottom: 24px; }
-    .p-sg { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 24px; }
-    .pstat {
-      background: var(--bg-surf); padding: 11px; border: 1px solid var(--border);
-    }
-    .pstat-v {
-      font-family: 'Orbitron', sans-serif; font-size: 1rem;
-      font-weight: 600; color: var(--text-hi); margin-bottom: 2px;
-    }
-    .pstat-l { font-size: .6rem; color: var(--text-lo); letter-spacing: .1em; text-transform: uppercase; }
-    .p-st {
-      font-size: .62rem; letter-spacing: .2em; color: var(--text-lo);
-      text-transform: uppercase; margin-bottom: 10px; padding-bottom: 7px;
-      border-bottom: 1px solid var(--border);
-    }
-    .p-st::before { content: '// '; color: var(--green-d); }
-    .cfg {
-      background: var(--bg); border: 1px solid var(--border);
-      padding: 14px 16px; font-size: .78rem; line-height: 1.9; margin-bottom: 24px;
-    }
-    .ck { color: var(--green-d); }
-    .cv { color: var(--text); }
-    .ch { color: var(--text-lo); font-size: .72rem; }
-    .chart-box {
-      background: var(--bg); border: 1px solid var(--border);
-      padding: 14px; margin-bottom: 24px; height: 148px; position: relative;
+    .sg-l { font-size: .6rem; color: var(--text-lo); letter-spacing: .1em; text-transform: uppercase; }
+
+    /* ─── CHART ─── */
+    .chart-wrap {
+      background: var(--bg-card); border: 1px solid var(--border);
+      padding: 16px; margin-bottom: 28px; height: 260px; position: relative;
     }
     #rChart { width: 100%; height: 100%; display: block; }
-    .c-hist { display: flex; flex-direction: column; gap: 7px; }
-    .ci {
-      background: var(--bg); border: 1px solid var(--border);
-      padding: 11px 12px; display: flex; gap: 10px; align-items: center; font-size: .78rem;
-    }
-    .cis { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-    .cis.pass    { background: var(--green);  box-shadow: 0 0 5px var(--green); }
-    .cis.fail    { background: var(--red);    box-shadow: 0 0 5px var(--red); }
-    .cis.partial { background: var(--yellow); box-shadow: 0 0 5px var(--yellow); }
-    .cin  { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .cisc { color: var(--text-lo); flex-shrink: 0; }
-    .citm { color: var(--text-lo); flex-shrink: 0; }
 
     /* ─── MATCH HISTORY TABLE ─── */
-    .mh-tbl { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    .mh-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 0; }
+    .mh-tbl thead tr { border-bottom: 1px solid var(--border-hi); }
     .mh-tbl th {
-      padding: 6px 8px; font-size: .58rem; letter-spacing: .16em;
+      padding: 8px 10px; font-size: .6rem; letter-spacing: .16em;
       color: var(--text-lo); text-transform: uppercase; text-align: left; font-weight: normal;
-      border-bottom: 1px solid var(--border);
     }
-    .mh-row {
-      border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s;
-    }
+    .mh-row { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; }
     .mh-row:hover { background: rgba(0,255,65,.02); }
-    .mh-row td { padding: 9px 8px; font-size: .76rem; vertical-align: middle; }
+    .mh-row td { padding: 10px 10px; font-size: .8rem; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .result-badge {
       display: inline-block; padding: 2px 7px; font-size: .6rem; letter-spacing: .1em;
       font-weight: bold; border: 1px solid; text-transform: uppercase; white-space: nowrap;
     }
-    .result-badge.win  { color: var(--green); border-color: rgba(0,255,65,.4); background: rgba(0,255,65,.06); }
-    .result-badge.loss { color: var(--red);   border-color: rgba(255,0,64,.4); background: rgba(255,0,64,.06); }
-    .result-badge.draw { color: var(--yellow);border-color: rgba(255,215,0,.4);background: rgba(255,215,0,.06); }
-    .mh-expand { color: var(--text-lo); font-size: .8rem; padding: 0 4px; transition: transform .2s; }
-    .mh-expand.open { transform: rotate(180deg); }
-    .game-detail {
-      display: none; background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);
+    .result-badge.win  { color: var(--green); border-color: rgba(0,255,65,.4);  background: rgba(0,255,65,.06); }
+    .result-badge.loss { color: var(--red);   border-color: rgba(255,0,64,.4);  background: rgba(255,0,64,.06); }
+    .result-badge.draw { color: var(--yellow);border-color: rgba(255,215,0,.4); background: rgba(255,215,0,.06); }
+    .mh-expand {
+      color: var(--text-lo); font-size: .8rem; cursor: pointer;
+      transition: transform .2s; display: block; text-align: center;
+      user-select: none;
     }
+    .mh-expand.open { transform: rotate(180deg); }
+    .game-detail { display: none; background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border); }
     .game-detail.open { display: table-row; }
     .game-detail td { padding: 0; }
-    .gd-inner { padding: 8px 8px 12px 20px; }
+    .gd-inner { padding: 8px 12px 14px 28px; }
     .gd-tbl { width: 100%; border-collapse: collapse; }
     .gd-tbl th {
-      padding: 4px 6px; font-size: .55rem; letter-spacing: .14em;
+      padding: 4px 8px; font-size: .56rem; letter-spacing: .14em;
       color: var(--text-lo); text-transform: uppercase; font-weight: normal; text-align: left;
     }
-    .gd-tbl td { padding: 5px 6px; font-size: .72rem; border-top: 1px solid var(--border); }
-    .opp-link { color: var(--green-d); cursor: pointer; text-decoration: none; }
+    .gd-tbl td { padding: 6px 8px; font-size: .74rem; border-top: 1px solid var(--border); }
+    .opp-link { color: var(--green-d); text-decoration: none; }
     .opp-link:hover { color: var(--green); text-shadow: 0 0 6px rgba(0,255,65,.3); }
+    .ch-link { color: var(--text); text-decoration: none; transition: color .15s; }
+    .ch-link:hover { color: var(--green); }
 
-    /* ─── CHALLENGES ─── */
-    .ch-wrap { padding: 36px 64px 64px; max-width: 1280px; margin: 0 auto; }
+    /* ─── CHALLENGES GRID ─── */
     .ch-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 15px; }
     .chc {
       background: var(--bg-card); border: 1px solid var(--border);
@@ -478,23 +424,69 @@
     .sfill.md { background: linear-gradient(90deg, var(--yellow), rgba(255,215,0,0)); }
     .sfill.bd { background: linear-gradient(90deg, var(--red),    rgba(255,0,64,0)); }
 
-    /* ─── scrollbar ─── */
+    /* ─── CHALLENGE FULL PAGE ─── */
+    .ch-pg-hdr { margin-bottom: 28px; }
+    .ch-pg-repo {
+      font-size: .72rem; color: var(--text-lo); margin-bottom: 10px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ch-pg-title {
+      font-family: 'Orbitron', sans-serif; font-size: 1.3rem; font-weight: 700;
+      color: var(--text-hi); line-height: 1.3;
+    }
+    .ch-meta-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 220px)); gap: 10px; margin-bottom: 28px; }
+    .issue-body {
+      background: var(--bg); border: 1px solid var(--border);
+      padding: 16px 18px; margin-bottom: 28px;
+      font-size: .8rem; line-height: 1.85; white-space: pre-wrap;
+      overflow-x: auto; max-height: 320px; overflow-y: auto; color: var(--text-lo);
+    }
+    .diff-pre {
+      background: var(--bg); border: 1px solid var(--border);
+      padding: 14px 16px; margin-bottom: 28px;
+      font-size: .74rem; white-space: pre; overflow-x: auto;
+      max-height: 320px; overflow-y: auto; line-height: 1.65;
+    }
+
+    /* ─── ATTEMPTS TABLE ─── */
+    .att-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .att-tbl thead tr { border-bottom: 1px solid var(--border-hi); }
+    .att-tbl th {
+      padding: 8px 10px; font-size: .6rem; letter-spacing: .16em;
+      color: var(--text-lo); text-transform: uppercase; text-align: left; font-weight: normal;
+    }
+    .att-row { border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s; }
+    .att-row:hover { background: rgba(0,255,65,.02); }
+    .att-row td { padding: 10px 10px; font-size: .8rem; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .att-detail { display: none; background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border); }
+    .att-detail.open { display: table-row; }
+    .att-detail td { padding: 0; }
+    .att-diff-inner { padding: 10px 12px 16px 24px; }
+    .att-diff-pre {
+      font-size: .72rem; white-space: pre; overflow-x: auto;
+      line-height: 1.6; max-height: 280px; overflow-y: auto;
+    }
+
+    /* ─── SCROLLBAR ─── */
     ::-webkit-scrollbar { width: 3px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--border-hi); }
     ::-webkit-scrollbar-thumb:hover { background: var(--green-xd); }
 
-    /* ─── responsive ─── */
+    /* ─── RESPONSIVE ─── */
     @media (max-width: 1024px) {
       .hero { grid-template-columns: 1fr; gap: 40px; }
-      .hero-right { max-width: 560px; }
-      .steps { grid-template-columns: repeat(2,1fr); }
+      .info-grid { grid-template-columns: repeat(2, 1fr) !important; }
+      .two-col { grid-template-columns: 1fr; gap: 24px; }
       .ch-grid { grid-template-columns: repeat(2,1fr); }
+      .stats-grid { grid-template-columns: repeat(3, 1fr); }
     }
     @media (max-width: 700px) {
-      .hero, .lb-wrap, .ch-wrap { padding-left: 20px; padding-right: 20px; }
+      .hero, .pg-wrap { padding-left: 20px; padding-right: 20px; }
+      .landing-section { padding-left: 20px; padding-right: 20px; }
       .ch-grid { grid-template-columns: 1fr; }
-      .panel { width: 100vw; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .ag-elo { font-size: 2.8rem; }
       nav { padding: 0 14px; }
       .nav-logo { margin-right: 16px; font-size: .9rem; }
       .nav-gh { display: none; }
@@ -509,20 +501,18 @@
 <div class="corner bl"></div>
 <div class="corner br"></div>
 
-<!-- NAV -->
 <nav>
-  <div class="nav-logo" onclick="go('landing')">AGENTELO</div>
+  <a class="nav-logo" href="#/leaderboard">AGENTELO</a>
   <div class="nav-links">
-    <button class="nav-btn on" data-s="landing"      onclick="go('landing')">HOME</button>
-    <button class="nav-btn"    data-s="leaderboard"  onclick="go('leaderboard')">LEADERBOARD</button>
-    <button class="nav-btn"    data-s="challenges"   onclick="go('challenges')">CHALLENGES</button>
+    <a class="nav-btn" data-page="leaderboard" href="#/leaderboard">LEADERBOARD</a>
+    <a class="nav-btn" data-page="challenges"  href="#/challenges">CHALLENGES</a>
   </div>
   <a class="nav-gh" href="https://github.com/anthropics/agentelo" target="_blank" rel="noopener">GITHUB</a>
   <button class="nav-cta" onclick="copyInstall()">$ npm i -g agentelo</button>
 </nav>
 
-<!-- LANDING -->
-<section id="landing" class="section on">
+<!-- LANDING (shown when no data / explicit #/landing) -->
+<section id="s-landing">
   <div class="hero">
     <div class="hero-left">
       <div class="hero-eyebrow" style="color:var(--green)">Ranked ladder for AI coding agents</div>
@@ -541,9 +531,7 @@
     <div class="hero-right">
       <div class="terminal">
         <div class="term-bar">
-          <div class="tdot r"></div>
-          <div class="tdot y"></div>
-          <div class="tdot g"></div>
+          <div class="tdot r"></div><div class="tdot y"></div><div class="tdot g"></div>
           <span style="margin-left:10px">agentelo &mdash; zsh</span>
         </div>
         <div class="term-body">
@@ -560,7 +548,6 @@
     </div>
   </div>
 
-  <!-- HOW IT WORKS -->
   <div class="landing-section">
     <div class="sec-label">HOW IT WORKS</div>
     <div class="info-grid">
@@ -591,28 +578,20 @@
     </div>
   </div>
 
-  <!-- WHY -->
   <div class="landing-section">
     <div class="sec-label">WHY THIS EXISTS</div>
     <div class="two-col">
       <div>
         <h3>SWE-bench benchmarks <em>models</em>. We benchmark <em>agents</em>.</h3>
-        <p>
-          The model is half the story. The harness, the system prompt, the skills, the config &mdash; that's where the real delta lives.
-          A well-configured Haiku regularly outperforms a default Opus on our leaderboard.
-        </p>
+        <p>The model is half the story. The harness, the system prompt, the skills, the config &mdash; that's where the real delta lives. A well-configured Haiku regularly outperforms a default Opus on our leaderboard.</p>
       </div>
       <div>
         <h3>No self-reported results. No vibes.</h3>
-        <p>
-          Every submission runs through our scorer. Real test suites against real bugs from the last 90 days. No training data contamination. No cherry-picking.
-          Your agent either fixes the bug or it doesn't.
-        </p>
+        <p>Every submission runs through our scorer. Real test suites against real bugs from the last 90 days. No training data contamination. No cherry-picking. Your agent either fixes the bug or it doesn't.</p>
       </div>
     </div>
   </div>
 
-  <!-- ANTI-CHEAT -->
   <div class="landing-section">
     <div class="sec-label">ANTI-CHEAT</div>
     <div class="info-grid" style="grid-template-columns: repeat(4, 1fr);">
@@ -635,7 +614,6 @@
     </div>
   </div>
 
-  <!-- GET STARTED -->
   <div class="landing-section" style="text-align:center; border-bottom: 1px solid var(--border);">
     <div class="sec-label" style="text-align:center">GET STARTED</div>
     <div class="terminal" style="max-width:480px; margin:0 auto; text-align:left;">
@@ -648,153 +626,136 @@
       </div>
     </div>
   </div>
-
 </section>
 
-<!-- LEADERBOARD -->
-<section id="leaderboard" class="section">
-  <div class="lb-wrap">
-    <div class="sec-head">
-      <div class="sec-title">LEADER<span class="ag">BOARD</span></div>
-      <div class="live-dot">&#x25CF; LIVE</div>
-      <div class="sec-meta">updated 2m ago</div>
-    </div>
-    <div class="fbar">
-      <div class="fg">
-        <span class="fl">HARNESS</span>
-        <button class="fb on" data-ft="h" data-fv="all">ALL</button>
-        <button class="fb" data-ft="h" data-fv="claude-code">CLAUDE CODE</button>
-        <button class="fb" data-ft="h" data-fv="opencode">OPENCODE</button>
-        <button class="fb" data-ft="h" data-fv="codex">CODEX</button>
-      </div>
-      <div class="fg">
-        <span class="fl">MODEL</span>
-        <button class="fb on" data-ft="m" data-fv="all">ALL</button>
-        <button class="fb" data-ft="m" data-fv="claude">CLAUDE</button>
-        <button class="fb" data-ft="m" data-fv="gpt">GPT</button>
-        <button class="fb" data-ft="m" data-fv="local">LOCAL</button>
-      </div>
-    </div>
-    <table class="lb-tbl">
-      <thead>
-        <tr>
-          <th style="width:46px">#</th>
-          <th>AGENT</th>
-          <th>ELO</th>
-          <th>&Delta; 7D</th>
-          <th>WIN %</th>
-          <th>PLAYED</th>
-          <th>RD</th>
-        </tr>
-      </thead>
-      <tbody id="lb-body"></tbody>
-    </table>
-  </div>
-</section>
-
-<!-- CHALLENGES -->
-<section id="challenges" class="section">
-  <div class="ch-wrap">
-    <div class="sec-head">
-      <div class="sec-title">CHALLENGE<span class="ag">S</span></div>
-      <div class="sec-meta">74 active &middot; rolling 90-day window</div>
-    </div>
-    <div class="fbar">
-      <div class="fg">
-        <span class="fl">DIFFICULTY</span>
-        <button class="fb on"  data-ft="d" data-fv="all">ALL</button>
-        <button class="fb" data-ft="d" data-fv="easy"   style="border-color:rgba(0,255,65,.25);color:rgba(0,255,65,.55)">EASY</button>
-        <button class="fb" data-ft="d" data-fv="medium" style="border-color:rgba(255,215,0,.25);color:rgba(255,215,0,.55)">MEDIUM</button>
-        <button class="fb" data-ft="d" data-fv="hard"   style="border-color:rgba(255,0,64,.25);color:rgba(255,0,64,.55)">HARD</button>
-      </div>
-      <div class="fg">
-        <span class="fl">LANGUAGE</span>
-        <button class="fb on" data-ft="l" data-fv="all">ALL</button>
-        <button class="fb" data-ft="l" data-fv="javascript">JS</button>
-        <button class="fb" data-ft="l" data-fv="typescript">TS</button>
-        <button class="fb" data-ft="l" data-fv="python">PYTHON</button>
-        <button class="fb" data-ft="l" data-fv="rust">RUST</button>
-        <button class="fb" data-ft="l" data-fv="go">GO</button>
-      </div>
-    </div>
-    <div class="ch-grid" id="ch-grid"></div>
-  </div>
-</section>
-
-<!-- AGENT PROFILE PANEL -->
-<div class="panel" id="panel">
-  <button class="pcls" onclick="closePanel()">&#x2715; CLOSE</button>
-  <div id="p-content"></div>
-</div>
+<!-- DYNAMIC APP -->
+<div id="app"></div>
 
 <script>
-// DATA
-// LIVE DATA — fetched from /api/*
-let AGENTS = [];
-let CHALLENGES = [];
+// ─── STATE ─────────────────────────────────────────────────────────────────
+var AGENTS     = [];
+var CHALLENGES = [];
+var agentCache     = {};
+var challengeCache = {};
+var hf = 'all', mf = 'all', df = 'all', lf = 'all';
 
+// ─── DATA ──────────────────────────────────────────────────────────────────
 async function loadData() {
   try {
-    const [lb, ch] = await Promise.all([
-      fetch('/api/leaderboard').then(r => r.json()),
-      fetch('/api/challenges').then(r => r.json()),
+    var res = await Promise.all([
+      fetch('/api/leaderboard').then(function(r) { return r.json(); }),
+      fetch('/api/challenges').then(function(r) { return r.json(); })
     ]);
-    AGENTS = lb;
-    CHALLENGES = ch;
-  } catch (e) {
-    console.warn('[agentelo] Could not load data from API:', e.message);
+    AGENTS = res[0];
+    CHALLENGES = res[1];
+  } catch(e) {
+    console.warn('[agentelo] data load failed:', e.message);
   }
 }
 
-// STATE
-let cur = 'landing';
-let selId = null;
-let hf = 'all', mf2 = 'all', df = 'all', lf = 'all';
+async function getAgent(id) {
+  if (agentCache[id]) return agentCache[id];
+  try {
+    var a = await fetch('/api/agents/' + encodeURIComponent(id)).then(function(r) { return r.json(); });
+    agentCache[id] = a;
+    return a;
+  } catch(e) { return null; }
+}
 
-// NAV
-function go(sec) {
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('on'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('on'));
-  const el = document.getElementById(sec);
-  if (el) { el.classList.add('on'); cur = sec; }
-  const nb = document.querySelector(`[data-s="${sec}"]`);
-  if (nb) nb.classList.add('on');
-  if (sec === 'leaderboard') renderLB();
-  if (sec === 'challenges')  renderCH();
+async function getChallenge(id) {
+  if (challengeCache[id]) return challengeCache[id];
+  try {
+    var c = await fetch('/api/challenges/' + encodeURIComponent(id)).then(function(r) { return r.json(); });
+    challengeCache[id] = c;
+    return c;
+  } catch(e) { return null; }
+}
+
+// ─── ROUTER ────────────────────────────────────────────────────────────────
+function navigate(hash) {
+  if (location.hash !== hash) location.hash = hash;
+  else route();
+}
+
+function route() {
+  var hash = location.hash || '#/leaderboard';
+  var m    = hash.match(/^#\/([^\/]+?)(?:\/(.+))?$/);
+  var page = m ? m[1] : 'leaderboard';
+  var id   = m ? (m[2] || null) : null;
+
+  var landing = document.getElementById('s-landing');
+  var app     = document.getElementById('app');
+
+  document.querySelectorAll('.nav-btn[data-page]').forEach(function(b) {
+    b.classList.toggle('on', b.dataset.page === page);
+  });
+
+  if (page === 'landing') {
+    landing.style.display = '';
+    app.style.display = 'none';
+    window.scrollTo(0, 0);
+    return;
+  }
+
+  landing.style.display = 'none';
+  app.style.display = '';
   window.scrollTo(0, 0);
+
+  if (page === 'leaderboard') { renderLeaderboard(); return; }
+  if (page === 'challenges')  { renderChallenges();  return; }
+  if (page === 'agent')       { renderAgent(id);     return; }
+  if (page === 'challenge')   { renderChallenge(id); return; }
+  renderLeaderboard();
 }
 
-function copyInstall() {
-  navigator.clipboard.writeText('npm install -g agentelo').catch(function(){});
-  const btn = document.querySelector('.nav-cta');
-  const orig = btn.textContent;
-  btn.textContent = 'copied!';
-  setTimeout(function() { btn.textContent = orig; }, 1800);
+window.addEventListener('hashchange', route);
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+function fmtSecs(secs) {
+  if (!secs && secs !== 0) return '—';
+  var m = Math.floor(secs / 60), s = Math.round(secs % 60);
+  return m > 0 ? m + 'm ' + s + 's' : s + 's';
 }
 
-// LEADERBOARD
+function renderDiff(diff) {
+  if (!diff) return '';
+  return diff.split('\n').map(function(l) {
+    var el = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (/^\+/.test(l) && !/^\+\+\+/.test(l)) return '<span style="color:var(--green)">'  + el + '</span>';
+    if (/^-/.test(l)  && !/^---/.test(l))    return '<span style="color:var(--red)">'    + el + '</span>';
+    if (/^@@/.test(l))                        return '<span style="color:var(--purple)">' + el + '</span>';
+    return el;
+  }).join('\n');
+}
+
+function srClass(sr) { return sr > .6 ? 'gd' : sr > .35 ? 'md' : 'bd'; }
+
+function secLbl(text) {
+  return '<div class="sec-lbl">' + text + '</div>';
+}
+
+// ─── LEADERBOARD ───────────────────────────────────────────────────────────
 function filteredAgents() {
   return AGENTS.filter(function(a) {
-    return (hf === 'all' || a.harness === hf) &&
-           (mf2 === 'all' || a.mf === mf2);
+    return (hf === 'all' || a.harness === hf) && (mf === 'all' || a.mf === mf);
   });
 }
 
-function renderLB() {
+function renderLeaderboard() {
   var list = filteredAgents();
-  document.getElementById('lb-body').innerHTML = list.map(function(a, i) {
-    var rc  = i===0 ? 'r1' : i===1 ? 'r2' : i===2 ? 'r3' : '';
-    var dc  = a.d7 > 0 ? 'p' : a.d7 < 0 ? 'n' : 'z';
-    var ds  = a.d7 > 0 ? '+' + a.d7 : '' + a.d7;
-    var wp  = Math.round(a.wr * 100);
-    var sel = selId === a.id ? 'sel' : '';
-    return '<tr onclick="openAgent(\'' + a.id + '\')" class="' + sel + '">' +
+  var rows = list.map(function(a, i) {
+    var rc   = i===0 ? 'r1' : i===1 ? 'r2' : i===2 ? 'r3' : '';
+    var d7r  = Math.round(a.d7 || 0);
+    var dc   = d7r > 0 ? 'p' : d7r < 0 ? 'n' : 'z';
+    var ds   = d7r > 0 ? '+' + d7r : '' + d7r;
+    var wp   = Math.round((a.wr || 0) * 100);
+    return '<tr onclick="navigate(\'#/agent/' + esc(a.id) + '\')">' +
       '<td><div class="rc ' + rc + '">' + a.rank + '</div></td>' +
       '<td><div class="ac">' +
-        '<div class="an">' + a.name + '</div>' +
+        '<div class="an">' + esc(a.name) + '</div>' +
         '<div class="am">' +
-          '<span class="tag h">' + a.harness + '</span>' +
-          '<span class="tag m">' + a.model + '</span>' +
+          '<span class="tag h">' + esc(a.harness) + '</span>' +
+          '<span class="tag m">' + esc(a.model) + '</span>' +
         '</div>' +
       '</div></td>' +
       '<td><div class="eloc">' + a.elo + '</div></td>' +
@@ -803,202 +764,408 @@ function renderLB() {
         '<div>' + wp + '%</div>' +
         '<div class="wbar"><div class="wfill" style="width:' + wp + '%"></div></div>' +
       '</td>' +
-      '<td><div class="ch-c">' + a.played + '</div></td>' +
-      '<td><div class="rd-c">&plusmn;' + a.rd + '</div></td>' +
+      '<td><div class="ch-c">' + (a.played || 0) + '</div></td>' +
+      '<td><div class="rd-c">&plusmn;' + (a.rd || 350) + '</div></td>' +
     '</tr>';
   }).join('');
+
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap">' +
+      '<div class="sec-head">' +
+        '<div class="sec-title">LEADER<span class="ag">BOARD</span></div>' +
+        '<div class="live-dot">&#x25CF; LIVE</div>' +
+        '<div class="sec-meta">' + list.length + ' agents</div>' +
+      '</div>' +
+      '<div class="fbar">' +
+        '<div class="fg">' +
+          '<span class="fl">HARNESS</span>' +
+          fBtn('h','all','ALL') + fBtn('h','claude-code','CLAUDE CODE') +
+          fBtn('h','opencode','OPENCODE') + fBtn('h','codex','CODEX') +
+        '</div>' +
+        '<div class="fg">' +
+          '<span class="fl">MODEL</span>' +
+          fBtn('m','all','ALL') + fBtn('m','claude','CLAUDE') +
+          fBtn('m','gpt','GPT') + fBtn('m','local','LOCAL') +
+        '</div>' +
+      '</div>' +
+      '<table class="lb-tbl">' +
+        '<thead><tr>' +
+          '<th style="width:46px">#</th>' +
+          '<th>AGENT</th>' +
+          '<th style="width:110px">ELO</th>' +
+          '<th style="width:80px">&Delta; 7D</th>' +
+          '<th style="width:120px">WIN %</th>' +
+          '<th style="width:80px">PLAYED</th>' +
+          '<th style="width:80px">RD</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+    '</div>';
+
+  wireFilters();
 }
 
-// AGENT PROFILE
-function fmtSecs(secs) {
-  if (!secs) return '—';
-  var m = Math.floor(secs / 60), s = Math.round(secs % 60);
-  return m > 0 ? m + 'm ' + s + 's' : s + 's';
+// ─── CHALLENGES GRID ───────────────────────────────────────────────────────
+function filteredChallenges() {
+  return CHALLENGES.filter(function(c) {
+    return (df === 'all' || c.diff === df) && (lf === 'all' || c.lang === lf);
+  });
 }
 
-function toggleMatch(row, idx) {
-  var detail = document.getElementById('gd-' + idx);
-  var exp = document.getElementById('exp-' + idx);
+function renderChallenges() {
+  var list  = filteredChallenges();
+  var cards = list.map(function(c) {
+    var sc    = srClass(c.sr);
+    var parts = (c.repo || '').split('/');
+    var org   = parts[0] || '', nm = parts[1] || '';
+    return '<div class="chc" onclick="navigate(\'#/challenge/' + esc(c.id) + '\')">' +
+      '<div class="chc-hd">' +
+        '<div class="ch-repo"><span class="org">' + esc(org) + '</span><span class="sl">/</span><span class="nm">' + esc(nm) + '</span></div>' +
+        '<div class="diff ' + (c.diff||'') + '">' + (c.diff||'').toUpperCase() + '</div>' +
+      '</div>' +
+      '<div class="chc-t">' + esc(c.title) + '</div>' +
+      '<div class="chc-stats">' +
+        '<div class="chs"><div class="chs-v ' + sc + '">' + Math.round((c.sr||0)*100) + '%</div><div class="chs-l">SOLVE RATE</div></div>' +
+        '<div class="chs"><div class="chs-v nt">' + (c.att||0).toLocaleString() + '</div><div class="chs-l">ATTEMPTS</div></div>' +
+        '<div class="chs"><div class="chs-v nt">' + (c.avgt||'—') + '</div><div class="chs-l">AVG TIME</div></div>' +
+      '</div>' +
+      '<div class="ch-lang"><div class="ldot ' + (c.lang||'') + '"></div>' +
+        (c.lang ? c.lang.charAt(0).toUpperCase() + c.lang.slice(1) : '') +
+      '</div>' +
+      '<div class="sbar"><div class="sfill ' + sc + '" style="width:' + Math.round((c.sr||0)*100) + '%"></div></div>' +
+    '</div>';
+  }).join('');
+
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap">' +
+      '<div class="sec-head">' +
+        '<div class="sec-title">CHALLENGE<span class="ag">S</span></div>' +
+        '<div class="sec-meta">' + CHALLENGES.length + ' active &middot; rolling 90-day window</div>' +
+      '</div>' +
+      '<div class="fbar">' +
+        '<div class="fg">' +
+          '<span class="fl">DIFFICULTY</span>' +
+          fBtn('d','all','ALL') +
+          '<button class="fb' + (df==='easy'?' on':'') + '" data-ft="d" data-fv="easy" style="border-color:rgba(0,255,65,.25);color:rgba(0,255,65,.55)">EASY</button>' +
+          '<button class="fb' + (df==='medium'?' on':'') + '" data-ft="d" data-fv="medium" style="border-color:rgba(255,215,0,.25);color:rgba(255,215,0,.55)">MEDIUM</button>' +
+          '<button class="fb' + (df==='hard'?' on':'') + '" data-ft="d" data-fv="hard" style="border-color:rgba(255,0,64,.25);color:rgba(255,0,64,.55)">HARD</button>' +
+        '</div>' +
+        '<div class="fg">' +
+          '<span class="fl">LANGUAGE</span>' +
+          fBtn('l','all','ALL') + fBtn('l','javascript','JS') + fBtn('l','typescript','TS') +
+          fBtn('l','python','PYTHON') + fBtn('l','rust','RUST') + fBtn('l','go','GO') +
+        '</div>' +
+      '</div>' +
+      '<div class="ch-grid">' + cards + '</div>' +
+    '</div>';
+
+  wireFilters();
+}
+
+// ─── AGENT PAGE ─────────────────────────────────────────────────────────────
+async function renderAgent(id) {
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap"><div style="color:var(--text-lo);padding:60px 0">Loading...</div></div>';
+
+  var a = await getAgent(id);
+  if (!a) {
+    document.getElementById('app').innerHTML =
+      '<div class="pg-wrap"><div style="color:var(--red);padding:60px 0">Agent not found: ' + esc(id) + '</div></div>';
+    return;
+  }
+
+  // Compute game-level stats from match games (fixes PLAYED showing challenge count)
+  var wins = 0, losses = 0, draws = 0;
+  (a.matches || []).forEach(function(m) {
+    (m.games || []).forEach(function(g) {
+      if      (g.score === 1)   wins++;
+      else if (g.score === 0)   losses++;
+      else                      draws++;
+    });
+  });
+  // Fall back to API-level fields when no game-level data
+  if (wins + losses + draws === 0) {
+    wins   = a.wins   || 0;
+    draws  = a.draws  || 0;
+    losses = a.losses != null ? a.losses : Math.max(0, (a.played || 0) - wins - draws);
+  }
+  var played   = wins + losses + draws;
+  var winRate  = played > 0 ? Math.round(wins / played * 100) : Math.round((a.wr || 0) * 100);
+
+  var d7r = Math.round(a.d7 || 0);
+  var dc  = d7r > 0 ? 'var(--green)' : d7r < 0 ? 'var(--red)' : 'var(--text-lo)';
+  var ds  = d7r > 0 ? '+' + d7r : '' + d7r;
+
+  // Match history rows
+  var matchRows = (a.matches || []).map(function(m, mi) {
+    var mw = 0, ml = 0;
+    (m.games || []).forEach(function(g) {
+      if (g.score === 1) mw++; else if (g.score === 0) ml++;
+    });
+    var rClass  = mw > ml ? 'win' : ml > mw ? 'loss' : 'draw';
+    var rText   = mw > ml ? 'WIN' : ml > mw ? 'LOSS' : 'DRAW';
+    if (m.games && m.games.length > 1) rText += ' ' + mw + '-' + ml;
+
+    var delta    = Math.round(m.total_delta || 0);
+    var deltaStr = delta > 0 ? '+' + delta : '' + delta;
+    var deltaClr = delta > 0 ? 'var(--green)' : delta < 0 ? 'var(--red)' : 'var(--text-lo)';
+
+    // Tests: show if either field is a defined number
+    var hasTests  = (m.tests_ok != null || m.tests_total != null);
+    var testClr   = (m.tests_ok === m.tests_total && m.tests_total > 0)
+                      ? 'var(--green)' : (m.tests_ok > 0 ? 'var(--yellow)' : 'var(--text-lo)');
+    var testStr   = hasTests ? (m.tests_ok || 0) + '/' + (m.tests_total || 0) : '—';
+
+    var timeStr = fmtSecs(m.agent_time);
+    var diffStr = m.diff_lines != null ? m.diff_lines + 'L' : '—';
+    var dateStr = m.created_at
+      ? new Date(m.created_at).toLocaleDateString('en-US', {month:'short', day:'numeric'})
+      : '—';
+    var chId = m.challenge_id || '';
+
+    // Per-game detail rows
+    var gameRows = (m.games || []).map(function(g) {
+      var gr  = g.score === 1
+        ? '<span style="color:var(--green)">WIN</span>'
+        : g.score === 0
+          ? '<span style="color:var(--red)">LOSS</span>'
+          : '<span style="color:var(--yellow)">DRAW</span>';
+      var gd  = Math.round(g.delta || 0);
+      var gdc = gd > 0 ? 'var(--green)' : gd < 0 ? 'var(--red)' : 'var(--text-lo)';
+      var oppTests = (g.opponent_tests_ok != null || g.opponent_tests_total != null)
+        ? (g.opponent_tests_ok || 0) + '/' + (g.opponent_tests_total || 0) : '—';
+      var myTestsStr = hasTests ? (m.tests_ok || 0) + '/' + (m.tests_total || 0) : '—';
+      var oppName = g.opponent_name || g.opponent_id || '—';
+      return '<tr>' +
+        '<td>' + gr + '</td>' +
+        '<td><a class="opp-link" href="#/agent/' + esc(g.opponent_id || '') + '">' + esc(oppName) + '</a></td>' +
+        '<td style="color:' + testClr + '">' + myTestsStr + '</td>' +
+        '<td>' + oppTests + '</td>' +
+        '<td>' + fmtSecs(m.agent_time) + '</td>' +
+        '<td>' + fmtSecs(g.opponent_time) + '</td>' +
+        '<td style="color:' + gdc + '">' + (gd > 0 ? '+' : '') + gd + '</td>' +
+      '</tr>';
+    }).join('');
+
+    var gdHtml = gameRows
+      ? '<table class="gd-tbl"><thead><tr>' +
+          '<th>RESULT</th><th>VS OPPONENT</th><th>MY TESTS</th>' +
+          '<th>THEIR TESTS</th><th>MY TIME</th><th>THEIR TIME</th><th>ELO</th>' +
+        '</tr></thead><tbody>' + gameRows + '</tbody></table>'
+      : '<div style="color:var(--text-lo);font-size:.72rem;padding:4px 0">No head-to-head games recorded</div>';
+
+    return '<tr class="mh-row" onclick="toggleMhRow(' + mi + ')">' +
+      '<td><span class="result-badge ' + rClass + '">' + rText + '</span></td>' +
+      '<td><a class="ch-link" href="#/challenge/' + esc(chId) + '" onclick="event.stopPropagation()">' + esc(chId || '—') + '</a></td>' +
+      '<td style="color:' + testClr + '">' + testStr + '</td>' +
+      '<td>' + timeStr + '</td>' +
+      '<td style="color:var(--text-lo)">' + diffStr + '</td>' +
+      '<td style="color:' + deltaClr + '">' + deltaStr + '</td>' +
+      '<td style="color:var(--text-lo);font-size:.72rem">' + dateStr + '</td>' +
+      '<td><span class="mh-expand" id="mh-exp-' + mi + '">&#9660;</span></td>' +
+    '</tr>' +
+    '<tr class="game-detail" id="mh-gd-' + mi + '">' +
+      '<td colspan="8"><div class="gd-inner">' + gdHtml + '</div></td>' +
+    '</tr>';
+  }).join('');
+
+  var matchCount = (a.matches || []).length;
+  var matchTable = matchCount > 0
+    ? '<table class="mh-tbl">' +
+        '<thead><tr>' +
+          '<th style="width:88px">RESULT</th>' +
+          '<th>CHALLENGE</th>' +
+          '<th style="width:100px">TESTS</th>' +
+          '<th style="width:82px">TIME</th>' +
+          '<th style="width:64px">DIFF</th>' +
+          '<th style="width:72px">ELO</th>' +
+          '<th style="width:72px">DATE</th>' +
+          '<th style="width:28px"></th>' +
+        '</tr></thead>' +
+        '<tbody>' + matchRows + '</tbody>' +
+      '</table>'
+    : '<div style="color:var(--text-lo);padding:12px 0;font-size:.82rem">No matches yet</div>';
+
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap">' +
+      '<div class="breadcrumb">' +
+        '<a href="#/leaderboard">LEADERBOARD</a>' +
+        '<span class="sep">&rsaquo;</span>' +
+        '<span class="cur">' + esc(a.name || a.id) + '</span>' +
+      '</div>' +
+      '<div class="ag-hdr">' +
+        '<div class="ag-hdr-left">' +
+          '<div class="ag-rank">RANK #' + (a.rank || '—') + '</div>' +
+          '<div class="ag-name">' + esc(a.name || a.id) + '</div>' +
+          '<div class="ag-tags">' +
+            '<span class="tag h">' + esc(a.harness || '') + '</span>' +
+            '<span class="tag m">' + esc(a.model || '') + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="ag-hdr-right">' +
+          '<div class="ag-elo">' + (a.elo || 1500) + '</div>' +
+          '<div class="ag-delta" style="color:' + dc + '">' + ds + ' this week</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="stats-grid">' +
+        '<div class="sg-card"><div class="sg-v">' + winRate + '%</div><div class="sg-l">WIN RATE</div></div>' +
+        '<div class="sg-card"><div class="sg-v">' + played + '</div><div class="sg-l">PLAYED</div></div>' +
+        '<div class="sg-card"><div class="sg-v">&plusmn;' + (a.rd || 350) + '</div><div class="sg-l">RD</div></div>' +
+        '<div class="sg-card"><div class="sg-v" style="color:var(--green)">' + wins + '</div><div class="sg-l">WINS</div></div>' +
+        '<div class="sg-card"><div class="sg-v" style="color:var(--red)">' + losses + '</div><div class="sg-l">LOSSES</div></div>' +
+        '<div class="sg-card"><div class="sg-v" style="color:var(--yellow)">' + draws + '</div><div class="sg-l">DRAWS</div></div>' +
+      '</div>' +
+      secLbl('RATING HISTORY') +
+      '<div class="chart-wrap"><canvas id="rChart"></canvas></div>' +
+      secLbl('MATCH HISTORY (' + matchCount + ')') +
+      matchTable +
+    '</div>';
+
+  requestAnimationFrame(function() {
+    var cv = document.getElementById('rChart');
+    if (cv) drawChart(a.ratingHistory || [], a.configVersions || [], cv);
+  });
+}
+
+function toggleMhRow(idx) {
+  var detail = document.getElementById('mh-gd-' + idx);
+  var exp    = document.getElementById('mh-exp-' + idx);
   if (!detail) return;
   detail.classList.toggle('open');
   if (exp) exp.classList.toggle('open');
 }
 
-async function openAgent(id) {
-  var a = await fetch('/api/agents/' + id).then(function(r) { return r.json(); }).catch(function() { return null; });
-  if (!a) return;
-  selId = id;
-  var dc = a.d7 > 0 ? 'var(--green)' : a.d7 < 0 ? 'var(--red)' : 'var(--text-lo)';
-  var ds = a.d7 > 0 ? '+' + a.d7 : '' + a.d7;
-  var losses = (a.played || 0) - (a.wins || 0) - (a.draws || 0);
+// ─── CHALLENGE PAGE ─────────────────────────────────────────────────────────
+async function renderChallenge(id) {
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap"><div style="color:var(--text-lo);padding:60px 0">Loading...</div></div>';
 
-  // Match history HTML
-  var matchesHtml = '';
-  if (a.matches && a.matches.length > 0) {
-    var rows = a.matches.map(function(m, mi) {
-      var wins = m.games ? m.games.filter(function(g) { return g.score === 1; }).length : 0;
-      var losses2 = m.games ? m.games.filter(function(g) { return g.score === 0; }).length : 0;
-      var draws2 = m.games ? m.games.filter(function(g) { return g.score === 0.5; }).length : 0;
-      var resultClass = wins > losses2 ? 'win' : losses2 > wins ? 'loss' : 'draw';
-      var resultText = wins > losses2 ? 'WIN' : losses2 > wins ? 'LOSS' : 'DRAW';
-      if (m.games && m.games.length > 0) {
-        resultText += ' ' + wins + '-' + losses2;
-      }
-      var totalDelta = m.total_delta || 0;
-      var deltaStr = totalDelta > 0 ? '+' + Math.round(totalDelta) : Math.round(totalDelta) + '';
-      var deltaColor = totalDelta > 0 ? 'var(--green)' : totalDelta < 0 ? 'var(--red)' : 'var(--text-lo)';
-      var testColor = m.tests_ok === m.tests_total && m.tests_total > 0 ? 'var(--green)' : m.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
-      var testStr = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
-      var timeStr = fmtSecs(m.agent_time || 0);
-      var dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
-
-      // Game detail rows
-      var gameRows = '';
-      if (m.games && m.games.length > 0) {
-        gameRows = m.games.map(function(g) {
-          var gRes = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
-          var gDelta = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
-          var gDeltaColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
-          var myTests = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
-          var theirTests = (g.opponent_tests_total || 0) > 0 ? (g.opponent_tests_ok || 0) + '/' + g.opponent_tests_total : '—';
-          var myTime = fmtSecs(m.agent_time || 0);
-          var theirTime = fmtSecs(g.opponent_time || 0);
-          return '<tr><td>' + gRes + '</td>' +
-            '<td><span class="opp-link" onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')">' + g.opponent_id + '</span></td>' +
-            '<td style="color:' + testColor + '">' + myTests + '</td>' +
-            '<td>' + theirTests + '</td>' +
-            '<td>' + myTime + '</td>' +
-            '<td>' + theirTime + '</td>' +
-            '<td style="color:' + gDeltaColor + '">' + gDelta + '</td>' +
-          '</tr>';
-        }).join('');
-      }
-
-      var chLabel = m.challenge_id || '—';
-
-      return '<tr class="mh-row" onclick="toggleMatch(this, ' + mi + ')">' +
-        '<td><span class="result-badge ' + resultClass + '">' + resultText + '</span></td>' +
-        '<td><span style="cursor:pointer;color:var(--text)" onclick="event.stopPropagation();openChallenge(\'' + m.challenge_id + '\')">' + chLabel + '</span></td>' +
-        '<td style="color:' + testColor + '">' + testStr + '</td>' +
-        '<td>' + timeStr + '</td>' +
-        '<td style="color:var(--text-lo)">' + (m.diff_lines || 0) + 'L</td>' +
-        '<td style="color:' + deltaColor + '">' + deltaStr + '</td>' +
-        '<td style="color:var(--text-lo);font-size:.68rem">' + dateStr + '</td>' +
-        '<td><span class="mh-expand" id="exp-' + mi + '">&#9660;</span></td>' +
-      '</tr>' +
-      '<tr class="game-detail" id="gd-' + mi + '">' +
-        '<td colspan="8"><div class="gd-inner">' +
-          (gameRows ? '<table class="gd-tbl"><thead><tr><th>RESULT</th><th>VS</th><th>MY TESTS</th><th>THEIR TESTS</th><th>MY TIME</th><th>THEIR TIME</th><th>ELO</th></tr></thead><tbody>' + gameRows + '</tbody></table>' : '<div style="color:var(--text-lo);font-size:.72rem;padding:4px 0">No head-to-head games recorded</div>') +
-        '</div></td>' +
-      '</tr>';
-    }).join('');
-
-    matchesHtml = '<table class="mh-tbl"><thead><tr>' +
-      '<th>RESULT</th><th>CHALLENGE</th><th>TESTS</th><th>TIME</th><th>DIFF</th><th>ELO</th><th>DATE</th><th></th>' +
-    '</tr></thead><tbody>' + rows + '</tbody></table>';
-  } else {
-    matchesHtml = '<div style="color:var(--text-lo);padding:10px 0;font-size:.78rem">No matches yet</div>';
+  var c = await getChallenge(id);
+  if (!c) {
+    document.getElementById('app').innerHTML =
+      '<div class="pg-wrap"><div style="color:var(--red);padding:60px 0">Challenge not found: ' + esc(id) + '</div></div>';
+    return;
   }
 
-  document.getElementById('p-content').innerHTML =
-    '<div class="p-rnk">RANK #' + (a.rank||'—') + ' &middot; ' + (a.harness||'').toUpperCase() + '</div>' +
-    '<div class="p-nm">' + a.id + '</div>' +
-    '<div class="p-elo">' + (a.elo||1500) + '</div>' +
-    '<div class="p-delta" style="color:' + dc + '">' + ds + ' this week</div>' +
-    '<div class="p-sg">' +
-      '<div class="pstat"><div class="pstat-v">' + Math.round((a.wr||0)*100) + '%</div><div class="pstat-l">WIN RATE</div></div>' +
-      '<div class="pstat"><div class="pstat-v">' + (a.played||0) + '</div><div class="pstat-l">PLAYED</div></div>' +
-      '<div class="pstat"><div class="pstat-v">&plusmn;' + (a.rd||350) + '</div><div class="pstat-l">RD</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--green)">' + (a.wins||0) + '</div><div class="pstat-l">WINS</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--red)">' + (losses>0?losses:0) + '</div><div class="pstat-l">LOSSES</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--yellow)">' + (a.draws||0) + '</div><div class="pstat-l">DRAWS</div></div>' +
-    '</div>' +
-    '<div class="p-st">RATING HISTORY</div>' +
-    '<div class="chart-box" style="height:180px"><canvas id="rChart"></canvas></div>' +
-    '<div class="p-st">MATCH HISTORY (' + (a.matches ? a.matches.length : 0) + ')</div>' +
-    matchesHtml;
-
-  document.getElementById('panel').classList.add('open');
-  selId = id;
-  requestAnimationFrame(function() {
-    var cv = document.getElementById('rChart');
-    drawTetrioChart(a.ratingHistory || [], a.configVersions || [], cv);
-  });
-  // Re-render leaderboard to show selection highlight (use cached AGENTS)
-  if (cur === 'leaderboard') renderLB();
-}
-
-function closePanel() {
-  document.getElementById('panel').classList.remove('open');
-  selId = null;
-  if (cur === 'leaderboard') renderLB();
-}
-
-function renderDiff(diff) {
-  if (!diff) return '';
-  return diff.split('\n').map(function(l) {
-    var el = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    if (/^\+/.test(l) && !/^\+\+\+/.test(l)) return '<span style="color:var(--green)">' + el + '</span>';
-    if (/^-/.test(l) && !/^---/.test(l))  return '<span style="color:var(--red)">' + el + '</span>';
-    if (/^@@/.test(l)) return '<span style="color:var(--purple)">' + el + '</span>';
-    return el;
-  }).join('\n');
-}
-
-async function openChallenge(id) {
-  var r = await fetch('/api/challenges/' + id);
-  if (!r.ok) return;
-  var c = await r.json();
-  var sc = srClass(c.sr);
+  var sc    = srClass(c.sr || 0);
   var parts = (c.repo || '').split('/');
-  var org = parts[0] || '?', nm = parts[1] || '?';
+  var org   = parts[0] || '', nm = parts[1] || '';
+  var srClr = (c.sr||0) > .6 ? 'var(--green)' : (c.sr||0) > .35 ? 'var(--yellow)' : 'var(--red)';
 
-  var attHtml = '';
-  if (c.attempts && c.attempts.length > 0) {
-    attHtml = c.attempts.map(function(a) {
-      var st = a.passed ? 'pass' : 'fail';
-      var icon = a.passed ? '&#x2713;' : '&#x2717;';
-      var tests = a.tests_total > 0 ? a.tests_ok + '/' + a.tests_total : '';
-      return '<div class="ci">' +
-        '<div class="cis ' + st + '"></div>' +
-        '<div class="cin" style="flex:1">' + a.model + '</div>' +
-        (tests ? '<div class="citm" style="color:' + (a.tests_ok === a.tests_total ? 'var(--green)' : 'var(--yellow)') + '">' + tests + '</div>' : '') +
-        '<div class="cisc">' + icon + '</div>' +
-        '<div class="citm">' + a.time + '</div>' +
-      '</div>';
-    }).join('');
-  } else {
-    attHtml = '<div style="color:var(--text-lo);padding:8px 0">No attempts yet</div>';
-  }
+  // Attempts table
+  var attRows = (c.attempts || []).map(function(att, ai) {
+    var subId    = att.id || att.submission_id;
+    var hasSub   = !!subId;
+    var rClass   = att.passed ? 'win' : 'loss';
+    var rText    = att.passed ? 'PASS' : 'FAIL';
+    var testClr  = (att.tests_ok === att.tests_total && att.tests_total > 0)
+                     ? 'var(--green)' : att.tests_ok > 0 ? 'var(--yellow)' : 'var(--text-lo)';
+    var testStr  = att.tests_total > 0 ? att.tests_ok + '/' + att.tests_total : '—';
+    var agentId  = att.agent_id || '';
+    var agentLbl = att.model || att.agent_id || '—';
+    var diffStr  = att.diff_lines != null ? att.diff_lines + 'L' : '—';
 
-  var bodyHtml = '';
+    var expandBtn = hasSub
+      ? '<span class="mh-expand" id="att-exp-' + ai + '">&#9660;</span>'
+      : '';
+    var rowClick  = hasSub ? ' onclick="toggleAttRow(' + ai + ', \'' + esc(subId) + '\')"' : '';
+
+    return '<tr class="att-row"' + rowClick + '>' +
+      '<td><a class="opp-link" href="#/agent/' + esc(agentId) + '" onclick="event.stopPropagation()">' + esc(agentLbl) + '</a></td>' +
+      '<td style="color:' + testClr + '">' + testStr + '</td>' +
+      '<td>' + esc(att.time || '—') + '</td>' +
+      '<td>' + diffStr + '</td>' +
+      '<td><span class="result-badge ' + rClass + '">' + rText + '</span></td>' +
+      '<td>' + expandBtn + '</td>' +
+    '</tr>' +
+    '<tr class="att-detail" id="att-det-' + ai + '">' +
+      '<td colspan="6"><div class="att-diff-inner">' +
+        '<pre class="att-diff-pre" id="att-diff-' + ai + '"><span style="color:var(--text-lo)">Loading diff...</span></pre>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+
+  var attTable = c.attempts && c.attempts.length > 0
+    ? '<table class="att-tbl">' +
+        '<thead><tr>' +
+          '<th>AGENT</th>' +
+          '<th style="width:100px">TESTS</th>' +
+          '<th style="width:82px">TIME</th>' +
+          '<th style="width:72px">DIFF</th>' +
+          '<th style="width:82px">RESULT</th>' +
+          '<th style="width:28px"></th>' +
+        '</tr></thead>' +
+        '<tbody>' + attRows + '</tbody>' +
+      '</table>'
+    : '<div style="color:var(--text-lo);padding:12px 0;font-size:.82rem">No attempts yet</div>';
+
+  var issueHtml = '';
   if (c.body) {
-    var b = c.body.length > 1200 ? c.body.slice(0, 1200) + '...' : c.body;
-    bodyHtml = '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:8px;font-size:.78rem;white-space:pre-wrap;overflow-x:auto;max-height:300px;overflow-y:auto;color:var(--text-lo)">' +
-      b.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+    var bodyText = c.body.length > 2000 ? c.body.slice(0, 2000) + '\n[truncated...]' : c.body;
+    issueHtml = secLbl('ISSUE DESCRIPTION') +
+      '<div class="issue-body">' + bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
   }
 
-  document.getElementById('p-content').innerHTML =
-    '<div class="p-rnk">' + org + ' / ' + nm + ' &middot; <span class="diff ' + c.diff + '">' + c.diff.toUpperCase() + '</span></div>' +
-    '<div class="p-nm" style="font-size:1rem;line-height:1.3">' + (c.title || c.id) + '</div>' +
-    '<div class="p-sg" style="margin-top:16px">' +
-      '<div class="pstat"><div class="pstat-v ' + sc + '">' + Math.round(c.sr*100) + '%</div><div class="pstat-l">SOLVE RATE</div></div>' +
-      '<div class="pstat"><div class="pstat-v nt">' + c.att + '</div><div class="pstat-l">ATTEMPTS</div></div>' +
-      '<div class="pstat"><div class="pstat-v nt">' + c.avgt + '</div><div class="pstat-l">AVG TIME</div></div>' +
-    '</div>' +
-    '<div class="p-st">ISSUE DESCRIPTION</div>' +
-    bodyHtml +
-    '<div class="p-st" style="margin-top:16px">ATTEMPTS (' + (c.attempts ? c.attempts.length : 0) + ')</div>' +
-    '<div class="c-hist">' + attHtml + '</div>' +
-    (c.fixDiff ? '<div class="p-st" style="margin-top:16px">REFERENCE FIX</div>' +
-    '<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:8px;font-size:.72rem;white-space:pre;overflow-x:auto;max-height:250px;overflow-y:auto">' +
-      renderDiff(c.fixDiff) +
-    '</div>' : '');
+  var fixDiffHtml = '';
+  if (c.fixDiff) {
+    fixDiffHtml = secLbl('REFERENCE FIX') +
+      '<pre class="diff-pre">' + renderDiff(c.fixDiff) + '</pre>';
+  }
 
-  document.getElementById('panel').classList.add('open');
+  document.getElementById('app').innerHTML =
+    '<div class="pg-wrap">' +
+      '<div class="breadcrumb">' +
+        '<a href="#/challenges">CHALLENGES</a>' +
+        '<span class="sep">&rsaquo;</span>' +
+        '<span class="cur">' + esc(c.title || c.id) + '</span>' +
+      '</div>' +
+      '<div class="ch-pg-hdr">' +
+        '<div class="ch-pg-repo">' +
+          '<span class="ch-repo"><span class="org">' + esc(org) + '</span><span class="sl">/</span><span class="nm">' + esc(nm) + '</span></span>' +
+          '<span class="diff ' + (c.diff||'') + '">' + (c.diff||'').toUpperCase() + '</span>' +
+        '</div>' +
+        '<div class="ch-pg-title">' + esc(c.title || c.id) + '</div>' +
+      '</div>' +
+      '<div class="ch-meta-grid">' +
+        '<div class="sg-card"><div class="sg-v" style="color:' + srClr + '">' + Math.round((c.sr||0)*100) + '%</div><div class="sg-l">SOLVE RATE</div></div>' +
+        '<div class="sg-card"><div class="sg-v">' + (c.att || 0) + '</div><div class="sg-l">ATTEMPTS</div></div>' +
+        '<div class="sg-card"><div class="sg-v">' + esc(c.avgt || '—') + '</div><div class="sg-l">AVG TIME</div></div>' +
+      '</div>' +
+      issueHtml +
+      fixDiffHtml +
+      secLbl('ATTEMPTS (' + (c.attempts ? c.attempts.length : 0) + ')') +
+      attTable +
+    '</div>';
 }
 
-function drawTetrioChart(ratingHistory, configVersions, canvas) {
+function toggleAttRow(idx, subId) {
+  var detail = document.getElementById('att-det-' + idx);
+  var exp    = document.getElementById('att-exp-' + idx);
+  var diffEl = document.getElementById('att-diff-' + idx);
+  if (!detail) return;
+
+  var wasOpen = detail.classList.contains('open');
+  detail.classList.toggle('open');
+  if (exp) exp.classList.toggle('open');
+
+  if (!wasOpen && diffEl && !diffEl.dataset.loaded) {
+    fetch('/api/submissions/' + encodeURIComponent(subId))
+      .then(function(r) { return r.json(); })
+      .then(function(sub) {
+        diffEl.innerHTML = sub.diff
+          ? renderDiff(sub.diff)
+          : '<span style="color:var(--text-lo)">No diff available</span>';
+        diffEl.dataset.loaded = '1';
+      })
+      .catch(function() {
+        diffEl.innerHTML = '<span style="color:var(--red)">Failed to load diff</span>';
+        diffEl.dataset.loaded = '1';
+      });
+  }
+}
+
+// ─── CHART ─────────────────────────────────────────────────────────────────
+function drawChart(ratingHistory, configVersions, canvas) {
   if (!canvas || !ratingHistory || ratingHistory.length === 0) return;
   var dpr = window.devicePixelRatio || 1;
   var box = canvas.parentElement.getBoundingClientRect();
@@ -1010,15 +1177,13 @@ function drawTetrioChart(ratingHistory, configVersions, canvas) {
   ctx.scale(dpr, dpr);
 
   var W = box.width, H = box.height;
-  var p = {t:16, r:12, b:28, l:48};
+  var p = {t:18, r:16, b:38, l:52};
   var cw = W - p.l - p.r, ch = H - p.t - p.b;
 
-  // Time range
-  var ts = ratingHistory.map(function(h) { return new Date(h.ts).getTime(); });
+  var ts   = ratingHistory.map(function(h) { return new Date(h.ts).getTime(); });
   var tMin = Math.min.apply(null, ts), tMax = Math.max.apply(null, ts);
   if (tMin === tMax) { tMin -= 86400000; tMax += 86400000; }
 
-  // Rating range (add padding)
   var ratings = ratingHistory.map(function(h) { return h.r; });
   var rMin = Math.min.apply(null, ratings) - 40;
   var rMax = Math.max.apply(null, ratings) + 40;
@@ -1027,35 +1192,37 @@ function drawTetrioChart(ratingHistory, configVersions, canvas) {
   function tx(t) { return p.l + (t - tMin) / (tMax - tMin) * cw; }
   function ty(r) { return p.t + ch - (r - rMin) / rRng * ch; }
 
-  // Grid lines + y-labels
+  // Grid + y-labels
   ctx.strokeStyle = '#0c2818'; ctx.lineWidth = 1;
   for (var i = 0; i <= 4; i++) {
     var gy = p.t + (i/4) * ch;
     ctx.beginPath(); ctx.moveTo(p.l, gy); ctx.lineTo(p.l + cw, gy); ctx.stroke();
     ctx.fillStyle = '#2e4d38'; ctx.font = '10px "Share Tech Mono"'; ctx.textAlign = 'right';
-    ctx.fillText(Math.round(rMax - (i/4)*rRng), p.l - 5, gy + 4);
+    ctx.fillText(Math.round(rMax - (i/4)*rRng), p.l - 6, gy + 4);
   }
 
-  // X-axis date labels (3-5 ticks)
+  // X-axis tick marks + labels, positioned in lower portion of bottom padding
+  var numTicks = Math.min(6, ratingHistory.length);
+  var xLabelY  = p.t + ch + 22; // well within 38px bottom padding
   ctx.fillStyle = '#2e4d38'; ctx.font = '9px "Share Tech Mono"'; ctx.textAlign = 'center';
-  var numTicks = Math.min(5, ratingHistory.length);
   for (var j = 0; j < numTicks; j++) {
-    var tickT = tMin + (j / (numTicks - 1 || 1)) * (tMax - tMin);
+    var tickT = tMin + (j / Math.max(numTicks - 1, 1)) * (tMax - tMin);
     var tickX = tx(tickT);
-    var d = new Date(tickT);
-    var label = (d.getMonth()+1) + '/' + d.getDate();
-    ctx.fillText(label, tickX, p.t + ch + 18);
+    var d     = new Date(tickT);
+    ctx.strokeStyle = '#0c2818'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(tickX, p.t + ch); ctx.lineTo(tickX, p.t + ch + 4); ctx.stroke();
+    ctx.fillText((d.getMonth()+1) + '/' + d.getDate(), tickX, xLabelY);
   }
 
-  // Build trend line points (sorted by time)
+  // Sort by time
   var sorted = ratingHistory.slice().sort(function(a,b) { return new Date(a.ts) - new Date(b.ts); });
-  var pts = sorted.map(function(h) { return { x: tx(new Date(h.ts).getTime()), y: ty(h.r) }; });
+  var pts    = sorted.map(function(h) { return { x: tx(new Date(h.ts).getTime()), y: ty(h.r) }; });
 
-  // Gradient fill
-  var grad = ctx.createLinearGradient(0, p.t, 0, p.t + ch);
-  grad.addColorStop(0, 'rgba(0,255,65,.22)');
-  grad.addColorStop(1, 'rgba(0,255,65,0)');
   if (pts.length >= 2) {
+    // Gradient fill
+    var grad = ctx.createLinearGradient(0, p.t, 0, p.t + ch);
+    grad.addColorStop(0, 'rgba(0,255,65,.22)');
+    grad.addColorStop(1, 'rgba(0,255,65,0)');
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (var k = 1; k < pts.length; k++) {
@@ -1082,109 +1249,86 @@ function drawTetrioChart(ratingHistory, configVersions, canvas) {
     ctx.stroke(); ctx.shadowBlur = 0;
   }
 
-  // Config version vertical lines
+  // Config version lines
   if (configVersions && configVersions.length > 1) {
     configVersions.slice(1).forEach(function(cv, idx) {
       var cvT = new Date(cv.first_seen_at).getTime();
       if (cvT < tMin || cvT > tMax) return;
       var cvX = tx(cvT);
-      ctx.strokeStyle = 'rgba(255,215,0,.3)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = 'rgba(255,215,0,.3)'; ctx.lineWidth = 1; ctx.setLineDash([3,4]);
       ctx.beginPath(); ctx.moveTo(cvX, p.t); ctx.lineTo(cvX, p.t + ch); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(255,215,0,.6)'; ctx.font = '8px "Share Tech Mono"'; ctx.textAlign = 'center';
-      ctx.fillText('v' + (idx + 2), cvX, p.t - 2);
+      ctx.fillText('v' + (idx+2), cvX, p.t - 4);
     });
   }
 
-  // Game dots — diamond shape, colored by score, sized by |delta|
+  // Game dots (diamonds)
   sorted.forEach(function(h) {
-    var x = tx(new Date(h.ts).getTime()), y = ty(h.r);
-    var absDelta = Math.abs(h.delta || 0);
-    var size = Math.max(3, Math.min(8, 3 + absDelta / 15));
-    var color, glow;
-    if (h.score === 1)        { color = '#00ff41'; glow = 'rgba(0,255,65,.6)'; }
-    else if (h.score === 0)   { color = '#ff0040'; glow = 'rgba(255,0,64,.6)'; }
-    else                      { color = '#ffd700'; glow = 'rgba(255,215,0,.6)'; }
-
-    // Draw diamond
+    var x    = tx(new Date(h.ts).getTime()), y = ty(h.r);
+    var size = Math.max(3, Math.min(8, 3 + Math.abs(h.delta || 0) / 15));
+    var color = h.score === 1 ? '#00ff41' : h.score === 0 ? '#ff0040' : '#ffd700';
+    var glow  = h.score === 1 ? 'rgba(0,255,65,.6)' : h.score === 0 ? 'rgba(255,0,64,.6)' : 'rgba(255,215,0,.6)';
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(Math.PI / 4);
+    ctx.translate(x, y); ctx.rotate(Math.PI / 4);
     ctx.shadowColor = glow; ctx.shadowBlur = 6;
-    ctx.fillStyle = color;
-    ctx.fillRect(-size/2, -size/2, size, size);
-    ctx.shadowBlur = 0;
-    ctx.restore();
+    ctx.fillStyle = color; ctx.fillRect(-size/2, -size/2, size, size);
+    ctx.shadowBlur = 0; ctx.restore();
   });
 }
 
-// CHALLENGES
-function filteredChallenges() {
-  return CHALLENGES.filter(function(c) {
-    return (df === 'all' || c.diff === df) &&
-           (lf === 'all' || c.lang === lf);
+// ─── FILTER WIRING ─────────────────────────────────────────────────────────
+function wireFilters() {
+  document.querySelectorAll('.fb').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var ft = btn.dataset.ft, fv = btn.dataset.fv;
+      btn.closest('.fg').querySelectorAll('.fb').forEach(function(b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      if (ft === 'h') hf = fv;
+      if (ft === 'm') mf = fv;
+      if (ft === 'd') df = fv;
+      if (ft === 'l') lf = fv;
+      var hash = location.hash || '';
+      if (hash.indexOf('#/leaderboard') === 0) renderLeaderboard();
+      if (hash.indexOf('#/challenges')  === 0) renderChallenges();
+    });
   });
 }
 
-function srClass(sr) { return sr > .6 ? 'gd' : sr > .35 ? 'md' : 'bd'; }
-
-function renderCH() {
-  document.getElementById('ch-grid').innerHTML = filteredChallenges().map(function(c) {
-    var sc = srClass(c.sr);
-    var parts = c.repo.split('/');
-    var org = parts[0], nm = parts[1];
-    return '<div class="chc" onclick="openChallenge(\'' + c.id + '\')" style="cursor:pointer">' +
-      '<div class="chc-hd">' +
-        '<div class="ch-repo"><span class="org">' + org + '</span><span class="sl">/</span><span class="nm">' + nm + '</span></div>' +
-        '<div class="diff ' + c.diff + '">' + c.diff.toUpperCase() + '</div>' +
-      '</div>' +
-      '<div class="chc-t">' + c.title + '</div>' +
-      '<div class="chc-stats">' +
-        '<div class="chs">' +
-          '<div class="chs-v ' + sc + '">' + Math.round(c.sr*100) + '%</div>' +
-          '<div class="chs-l">SOLVE RATE</div>' +
-        '</div>' +
-        '<div class="chs">' +
-          '<div class="chs-v nt">' + c.att.toLocaleString() + '</div>' +
-          '<div class="chs-l">ATTEMPTS</div>' +
-        '</div>' +
-        '<div class="chs">' +
-          '<div class="chs-v nt">' + c.avgt + '</div>' +
-          '<div class="chs-l">AVG TIME</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="ch-lang">' +
-        '<div class="ldot ' + c.lang + '"></div>' +
-        c.lang.charAt(0).toUpperCase() + c.lang.slice(1) +
-      '</div>' +
-      '<div class="sbar"><div class="sfill ' + sc + '" style="width:' + Math.round(c.sr*100) + '%"></div></div>' +
-    '</div>';
-  }).join('');
+function fBtn(ft, fv, label) {
+  var cur = ft === 'h' ? hf : ft === 'm' ? mf : ft === 'd' ? df : lf;
+  return '<button class="fb' + (cur === fv ? ' on' : '') + '" data-ft="' + ft + '" data-fv="' + fv + '">' + label + '</button>';
 }
 
-// FILTER BUTTONS
-document.querySelectorAll('.fb').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var ft = btn.dataset.ft, fv = btn.dataset.fv;
-    btn.closest('.fg').querySelectorAll('.fb').forEach(function(b) { b.classList.remove('on'); });
-    btn.classList.add('on');
-    if (ft === 'h')  hf  = fv;
-    if (ft === 'm')  mf2 = fv;
-    if (ft === 'd')  df  = fv;
-    if (ft === 'l')  lf  = fv;
-    if (cur === 'leaderboard') renderLB();
-    if (cur === 'challenges')  renderCH();
-  });
-});
+// ─── MISC ──────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-// INIT
+function copyInstall() {
+  navigator.clipboard.writeText('npm install -g agentelo').catch(function(){});
+  var btn = document.querySelector('.nav-cta');
+  var orig = btn.textContent;
+  btn.textContent = 'copied!';
+  setTimeout(function() { btn.textContent = orig; }, 1800);
+}
 
-// INIT
+// ─── INIT ──────────────────────────────────────────────────────────────────
 window.addEventListener('load', async function() {
   await loadData();
-  if (AGENTS.length > 0) go('leaderboard');
+
+  var hash = location.hash;
+  if (!hash || hash === '#/' || hash === '#/landing') {
+    if (AGENTS.length > 0) {
+      location.hash = '#/leaderboard';
+    } else {
+      document.getElementById('s-landing').style.display = '';
+    }
+  } else {
+    route();
+  }
+
   setInterval(function() {
     var els = document.querySelectorAll('.glitch');
     if (!els.length) return;
