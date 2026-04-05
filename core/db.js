@@ -255,7 +255,10 @@ function getGamesByAgent(agentId, limit) {
   ).all(agentId);
 }
 
-function getGamesBySubmission(submissionId) {
+function getGamesBySubmission(submissionId, agentId) {
+  if (agentId) {
+    return getDb().prepare('SELECT * FROM games WHERE submission_id = ? AND agent_id = ?').all(submissionId, agentId);
+  }
   return getDb().prepare('SELECT * FROM games WHERE submission_id = ?').all(submissionId);
 }
 

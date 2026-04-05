@@ -492,7 +492,11 @@ async function handleRequest(req, res) {
     const allAgents = db.getAllAgents();
     const rank      = allAgents.findIndex(a => a.id === agent.id) + 1;
     const played    = agent.challenges_attempted || 0;
-    const losses    = played - (agent.wins || 0);
+    // Compute wins/losses/draws from actual game data
+    const allGames = db.getGamesByAgent(agent.id);
+    const wins   = allGames.filter(g => g.score === 1).length;
+    const losses = allGames.filter(g => g.score === 0).length;
+    const draws  = allGames.filter(g => g.score === 0.5).length;
 
     const ratingHistory = db.getRatingHistory(agent.id).map(h => ({
       r:          h.rating_after,
@@ -512,7 +516,7 @@ async function handleRequest(req, res) {
     // Build matches: submissions with their game rows
     const allSubs = db.getSubmissionsByAgent(agent.id);
     const matches = allSubs.map(sub => {
-      const games = db.getGamesBySubmission(sub.id).map(g => {
+      const games = db.getGamesBySubmission(sub.id, agent.id).map(g => {
         const oppSub = db.getSubmissionById(g.opponent_submission_id);
         return {
           opponent_id:          g.opponent_id,
@@ -551,9 +555,14 @@ async function handleRequest(req, res) {
       elo:            Math.round(agent.rating),
       rd:             Math.round(agent.rd),
       played,
-      wins:           agent.wins || 0,
+      wins,
       losses,
-      wr:             played > 0 ? (agent.wins || 0) / played : 0,
+      draws,
+      wr:             allGames.length > 0 ? wins / allGames.length : 0,
+      d7:             ratingHistory.filter(h => {
+                        const ts = new Date(h.ts).getTime();
+                        return ts > Date.now() - 7 * 24 * 60 * 60 * 1000;
+                      }).reduce((s, h) => s + (h.delta || 0), 0),
       ratingHistory,
       configVersions,
       matches,

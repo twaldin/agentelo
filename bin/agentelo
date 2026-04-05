@@ -105,7 +105,8 @@ function ensureResultsDir() {
 function installDeps(dir) {
   try {
     if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
-      execFileSync('pnpm', ['install', '--frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      // pnpm monorepos — install without frozen lockfile (commit may predate lockfile)
+      execFileSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
     } else if (fs.existsSync(path.join(dir, 'package.json'))) {
       execFileSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
     } else if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'requirements.txt'))) {
@@ -114,9 +115,19 @@ function installDeps(dir) {
       execFileSync('python3', ['-m', 'venv', venvDir], { cwd: dir, stdio: 'pipe', timeout: 60000 });
       const pip = path.join(venvDir, 'bin', 'pip');
       if (fs.existsSync(path.join(dir, 'pyproject.toml'))) {
-        execFileSync(pip, ['install', '-e', '.'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+        // Install with all optional deps (includes test deps like pytest, httpx, etc.)
+        try {
+          execFileSync(pip, ['install', '-e', '.[all]'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+        } catch (_) {
+          // Fallback: some projects use [dev] or [test] extras
+          try { execFileSync(pip, ['install', '-e', '.[dev,test]'], { cwd: dir, stdio: 'pipe', timeout: 300000 }); }
+          catch (_2) { execFileSync(pip, ['install', '-e', '.'], { cwd: dir, stdio: 'pipe', timeout: 300000 }); }
+        }
+        // Ensure pytest is available
+        try { execFileSync(pip, ['install', 'pytest'], { cwd: dir, stdio: 'pipe', timeout: 60000 }); } catch (_) {}
       } else {
         execFileSync(pip, ['install', '-r', 'requirements.txt'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+        try { execFileSync(pip, ['install', 'pytest'], { cwd: dir, stdio: 'pipe', timeout: 60000 }); } catch (_) {}
       }
     } else if (fs.existsSync(path.join(dir, 'Cargo.toml'))) {
       execFileSync('cargo', ['build'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
