@@ -32,7 +32,9 @@ const MODELS = [
   // Paid remote — DISABLED (ChatGPT weekly limit hit, resets Apr 8)
   // { harness: "opencode", model: "openai/gpt-5.4-mini", local: false },
   // { harness: "opencode", model: "openai/gpt-5.4", local: false },
-  // Codex harness — DISABLED (ChatGPT weekly limit hit, resets Apr 8)
+  // Codex GPT-5.4 — DISABLED (ChatGPT weekly limit hit, resets Apr 8)
+  // Codex Spark has its own quota
+  { harness: "codex", model: "gpt-5.3-codex-spark", local: false },
   // { harness: "codex", model: "gpt-5.4", local: false },
   // { harness: "codex", model: "gpt-5.4-mini", local: false },
   // o4-mini: not supported on ChatGPT accounts, needs API key
