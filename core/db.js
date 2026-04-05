@@ -22,38 +22,83 @@ function getDb() {
         fix_commit TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );
-      CREATE TABLE IF NOT EXISTS submissions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        run_id TEXT UNIQUE NOT NULL,
-        challenge_id TEXT NOT NULL,
-        agent_hash TEXT NOT NULL,
+
+      CREATE TABLE IF NOT EXISTS agents (
+        id TEXT PRIMARY KEY,
+        api_key TEXT UNIQUE NOT NULL,
         harness TEXT NOT NULL,
         model TEXT NOT NULL,
-        tests_passed INTEGER NOT NULL DEFAULT 0,
-        time_seconds REAL NOT NULL DEFAULT 0,
-        agent_time_seconds REAL NOT NULL DEFAULT 0,
-        diff_lines INTEGER NOT NULL DEFAULT 0,
-        tampered INTEGER NOT NULL DEFAULT 0,
-        transcript_path TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
-      );
-      CREATE TABLE IF NOT EXISTS ratings (
-        agent_hash TEXT PRIMARY KEY,
-        harness TEXT NOT NULL,
-        model TEXT NOT NULL,
+        current_hash TEXT,
         rating REAL NOT NULL DEFAULT 1500,
         rd REAL NOT NULL DEFAULT 350,
         volatility REAL NOT NULL DEFAULT 0.06,
         challenges_attempted INTEGER NOT NULL DEFAULT 0,
         wins INTEGER NOT NULL DEFAULT 0,
-        rating_history TEXT NOT NULL DEFAULT '[]',
-        config_files TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       );
+
+      CREATE TABLE IF NOT EXISTS config_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id TEXT NOT NULL,
+        agent_hash TEXT NOT NULL,
+        harness TEXT NOT NULL,
+        model TEXT NOT NULL,
+        config_files TEXT DEFAULT '[]',
+        first_seen_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_cv_agent ON config_versions(agent_id);
+
+      CREATE TABLE IF NOT EXISTS submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT UNIQUE NOT NULL,
+        challenge_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        agent_hash TEXT NOT NULL,
+        harness TEXT NOT NULL,
+        model TEXT NOT NULL,
+        tests_passed INTEGER NOT NULL DEFAULT 0,
+        tests_total INTEGER NOT NULL DEFAULT 0,
+        tests_ok INTEGER NOT NULL DEFAULT 0,
+        tests_failed INTEGER NOT NULL DEFAULT 0,
+        agent_time_seconds REAL NOT NULL DEFAULT 0,
+        test_time_seconds REAL NOT NULL DEFAULT 0,
+        diff_lines INTEGER NOT NULL DEFAULT 0,
+        diff TEXT DEFAULT '',
+        exit_code INTEGER NOT NULL DEFAULT 1,
+        tampered INTEGER NOT NULL DEFAULT 0,
+        transcript_path TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_sub_agent ON submissions(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_sub_challenge ON submissions(challenge_id);
+
+      CREATE TABLE IF NOT EXISTS games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        challenge_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        opponent_id TEXT NOT NULL,
+        submission_id INTEGER NOT NULL,
+        opponent_submission_id INTEGER NOT NULL,
+        score REAL NOT NULL,
+        rating_before REAL NOT NULL,
+        rating_after REAL NOT NULL,
+        rd_before REAL NOT NULL,
+        rd_after REAL NOT NULL,
+        delta REAL NOT NULL,
+        opponent_rating REAL NOT NULL,
+        opponent_rd REAL NOT NULL,
+        opponent_model TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_games_agent ON games(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_games_challenge ON games(challenge_id);
     `);
   }
   return _db;
 }
+
+// --- Challenge functions ---
 
 function upsertChallenge(ch) {
   const db = getDb();
@@ -79,95 +124,6 @@ function getAllChallenges() {
   return getDb().prepare('SELECT * FROM challenges ORDER BY created_at DESC').all();
 }
 
-function insertSubmission(sub) {
-  // Migrations for existing DBs
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN agent_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN test_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_total INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_ok INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_failed INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
-
-  getDb().prepare(`
-    INSERT OR IGNORE INTO submissions
-      (run_id, challenge_id, agent_hash, harness, model, tests_passed, time_seconds, agent_time_seconds, test_time_seconds, diff_lines, tests_total, tests_ok, tests_failed, tampered, transcript_path, created_at)
-    VALUES
-      (@run_id, @challenge_id, @agent_hash, @harness, @model, @tests_passed, @time_seconds, @agent_time_seconds, @test_time_seconds, @diff_lines, @tests_total, @tests_ok, @tests_failed, @tampered, @transcript_path, @created_at)
-  `).run({
-    run_id: sub.run_id,
-    challenge_id: sub.challenge_id,
-    agent_hash: sub.agent_hash,
-    harness: sub.harness,
-    model: sub.model,
-    tests_passed: sub.tests_passed ? 1 : 0,
-    time_seconds: sub.agent_time_seconds || sub.time_seconds || 0,
-    agent_time_seconds: sub.agent_time_seconds || 0,
-    test_time_seconds: sub.test_time_seconds || sub.time_seconds || 0,
-    diff_lines: sub.diff_lines || 0,
-    tests_total: sub.tests_total || 0,
-    tests_ok: sub.tests_ok || 0,
-    tests_failed: sub.tests_failed || 0,
-    tampered: sub.tampered ? 1 : 0,
-    transcript_path: sub.transcript_path || null,
-    created_at: sub.created_at || new Date().toISOString(),
-  });
-}
-
-function getSubmissionsByChallenge(challengeId) {
-  return getDb().prepare('SELECT * FROM submissions WHERE challenge_id = ?').all(challengeId);
-}
-
-function getSubmissionsByAgent(agentHash) {
-  return getDb().prepare('SELECT * FROM submissions WHERE agent_hash = ? ORDER BY created_at DESC').all(agentHash);
-}
-
-function upsertRating(r) {
-  getDb().prepare(`
-    INSERT INTO ratings (agent_hash, harness, model, rating, rd, volatility, challenges_attempted, wins, rating_history, config_files, updated_at)
-    VALUES (@agent_hash, @harness, @model, @rating, @rd, @volatility, @challenges_attempted, @wins, @rating_history, @config_files, @updated_at)
-    ON CONFLICT(agent_hash) DO UPDATE SET
-      harness = @harness,
-      model = @model,
-      rating = @rating,
-      rd = @rd,
-      volatility = @volatility,
-      challenges_attempted = @challenges_attempted,
-      wins = @wins,
-      rating_history = @rating_history,
-      config_files = @config_files,
-      updated_at = @updated_at
-  `).run({
-    agent_hash: r.agent_hash,
-    harness: r.harness,
-    model: r.model,
-    rating: r.rating,
-    rd: r.rd,
-    volatility: r.volatility,
-    challenges_attempted: r.challenges_attempted,
-    wins: r.wins,
-    rating_history: JSON.stringify(r.rating_history || []),
-    config_files: JSON.stringify(r.config_files || []),
-    updated_at: r.updated_at || new Date().toISOString(),
-  });
-}
-
-function getRating(agentHash) {
-  const row = getDb().prepare('SELECT * FROM ratings WHERE agent_hash = ?').get(agentHash);
-  if (!row) return null;
-  return {
-    ...row,
-    rating_history: JSON.parse(row.rating_history || '[]'),
-    config_files: JSON.parse(row.config_files || '[]'),
-  };
-}
-
-function getAllRatings() {
-  return getDb().prepare('SELECT * FROM ratings ORDER BY rating DESC').all().map(row => ({
-    ...row,
-    rating_history: JSON.parse(row.rating_history || '[]'),
-    config_files: JSON.parse(row.config_files || '[]'),
-  }));
-}
-
 // Returns { challenge_id: attemptCount }
 function getAttemptCounts() {
   const rows = getDb().prepare('SELECT challenge_id, COUNT(*) as cnt FROM submissions GROUP BY challenge_id').all();
@@ -176,16 +132,12 @@ function getAttemptCounts() {
   return map;
 }
 
-// Returns { challenge_id: { total, wins, avg_time, avg_agent_time } }
+// Returns { challenge_id: { total, wins, avg_agent_time } }
 function getSolveStats() {
-  // Add column if missing (migration)
-  try { getDb().exec('ALTER TABLE submissions ADD COLUMN agent_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
-
   const rows = getDb().prepare(`
     SELECT challenge_id,
            COUNT(*) as total,
            SUM(tests_passed) as wins,
-           AVG(time_seconds) as avg_time,
            AVG(CASE WHEN agent_time_seconds > 0 THEN agent_time_seconds ELSE NULL END) as avg_agent_time
     FROM submissions
     GROUP BY challenge_id
@@ -195,17 +147,205 @@ function getSolveStats() {
   return map;
 }
 
+// --- Agent functions ---
+
+function createAgent({ id, api_key, harness, model }) {
+  return getDb().prepare(`
+    INSERT INTO agents (id, api_key, harness, model)
+    VALUES (@id, @api_key, @harness, @model)
+  `).run({ id, api_key, harness, model });
+}
+
+function getAgentByKey(api_key) {
+  return getDb().prepare('SELECT * FROM agents WHERE api_key = ?').get(api_key) || null;
+}
+
+function getAgent(id) {
+  return getDb().prepare('SELECT * FROM agents WHERE id = ?').get(id) || null;
+}
+
+function getAllAgents() {
+  return getDb().prepare('SELECT * FROM agents ORDER BY rating DESC').all();
+}
+
+function updateAgent(agent) {
+  return getDb().prepare(`
+    UPDATE agents SET
+      rating = @rating,
+      rd = @rd,
+      volatility = @volatility,
+      wins = @wins,
+      challenges_attempted = @challenges_attempted,
+      current_hash = @current_hash,
+      updated_at = datetime('now')
+    WHERE id = @id
+  `).run({
+    id: agent.id,
+    rating: agent.rating,
+    rd: agent.rd,
+    volatility: agent.volatility,
+    wins: agent.wins,
+    challenges_attempted: agent.challenges_attempted,
+    current_hash: agent.current_hash || null,
+  });
+}
+
+// --- Config version functions ---
+
+function insertConfigVersion({ agent_id, agent_hash, harness, model, config_files }) {
+  return getDb().prepare(`
+    INSERT INTO config_versions (agent_id, agent_hash, harness, model, config_files)
+    VALUES (@agent_id, @agent_hash, @harness, @model, @config_files)
+  `).run({
+    agent_id,
+    agent_hash,
+    harness,
+    model,
+    config_files: JSON.stringify(config_files || []),
+  });
+}
+
+function getConfigVersions(agent_id) {
+  return getDb().prepare(
+    'SELECT * FROM config_versions WHERE agent_id = ? ORDER BY first_seen_at'
+  ).all(agent_id).map(row => ({
+    ...row,
+    config_files: JSON.parse(row.config_files || '[]'),
+  }));
+}
+
+// --- Games functions ---
+
+function insertGame(game) {
+  return getDb().prepare(`
+    INSERT INTO games
+      (challenge_id, agent_id, opponent_id, submission_id, opponent_submission_id,
+       score, rating_before, rating_after, rd_before, rd_after, delta,
+       opponent_rating, opponent_rd, opponent_model)
+    VALUES
+      (@challenge_id, @agent_id, @opponent_id, @submission_id, @opponent_submission_id,
+       @score, @rating_before, @rating_after, @rd_before, @rd_after, @delta,
+       @opponent_rating, @opponent_rd, @opponent_model)
+  `).run({
+    challenge_id: game.challenge_id,
+    agent_id: game.agent_id,
+    opponent_id: game.opponent_id,
+    submission_id: game.submission_id,
+    opponent_submission_id: game.opponent_submission_id,
+    score: game.score,
+    rating_before: game.rating_before,
+    rating_after: game.rating_after,
+    rd_before: game.rd_before,
+    rd_after: game.rd_after,
+    delta: game.delta,
+    opponent_rating: game.opponent_rating,
+    opponent_rd: game.opponent_rd,
+    opponent_model: game.opponent_model,
+  });
+}
+
+function getGamesByAgent(agentId, limit) {
+  if (limit != null) {
+    return getDb().prepare(
+      'SELECT * FROM games WHERE agent_id = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(agentId, limit);
+  }
+  return getDb().prepare(
+    'SELECT * FROM games WHERE agent_id = ? ORDER BY created_at DESC'
+  ).all(agentId);
+}
+
+function getGamesBySubmission(submissionId) {
+  return getDb().prepare('SELECT * FROM games WHERE submission_id = ?').all(submissionId);
+}
+
+function getRatingHistory(agentId) {
+  return getDb().prepare(`
+    SELECT rating_after, delta, score, challenge_id, opponent_id, opponent_model, created_at
+    FROM games
+    WHERE agent_id = ?
+    ORDER BY created_at
+  `).all(agentId);
+}
+
+// --- Submission functions ---
+
+function insertSubmission(sub) {
+  return getDb().prepare(`
+    INSERT OR IGNORE INTO submissions
+      (run_id, challenge_id, agent_id, agent_hash, harness, model,
+       tests_passed, tests_total, tests_ok, tests_failed,
+       agent_time_seconds, test_time_seconds, diff_lines, diff,
+       exit_code, tampered, transcript_path, created_at)
+    VALUES
+      (@run_id, @challenge_id, @agent_id, @agent_hash, @harness, @model,
+       @tests_passed, @tests_total, @tests_ok, @tests_failed,
+       @agent_time_seconds, @test_time_seconds, @diff_lines, @diff,
+       @exit_code, @tampered, @transcript_path, @created_at)
+  `).run({
+    run_id: sub.run_id,
+    challenge_id: sub.challenge_id,
+    agent_id: sub.agent_id,
+    agent_hash: sub.agent_hash,
+    harness: sub.harness,
+    model: sub.model,
+    tests_passed: sub.tests_passed || 0,
+    tests_total: sub.tests_total || 0,
+    tests_ok: sub.tests_ok || 0,
+    tests_failed: sub.tests_failed || 0,
+    agent_time_seconds: sub.agent_time_seconds || 0,
+    test_time_seconds: sub.test_time_seconds || 0,
+    diff_lines: sub.diff_lines || 0,
+    diff: sub.diff || '',
+    exit_code: sub.exit_code != null ? sub.exit_code : 1,
+    tampered: sub.tampered ? 1 : 0,
+    transcript_path: sub.transcript_path || null,
+    created_at: sub.created_at || new Date().toISOString(),
+  });
+}
+
+function getSubmission(runId) {
+  return getDb().prepare('SELECT * FROM submissions WHERE run_id = ?').get(runId) || null;
+}
+
+function getSubmissionById(id) {
+  return getDb().prepare('SELECT * FROM submissions WHERE id = ?').get(id) || null;
+}
+
+function getSubmissionsByAgent(agentId) {
+  return getDb().prepare('SELECT * FROM submissions WHERE agent_id = ? ORDER BY created_at DESC').all(agentId);
+}
+
+function getSubmissionsByChallenge(challengeId) {
+  return getDb().prepare('SELECT * FROM submissions WHERE challenge_id = ?').all(challengeId);
+}
+
 module.exports = {
   getDb,
+  // challenges
   upsertChallenge,
   getChallenge,
   getAllChallenges,
-  insertSubmission,
-  getSubmissionsByChallenge,
-  getSubmissionsByAgent,
-  upsertRating,
-  getRating,
-  getAllRatings,
   getAttemptCounts,
   getSolveStats,
+  // agents
+  createAgent,
+  getAgentByKey,
+  getAgent,
+  getAllAgents,
+  updateAgent,
+  // config versions
+  insertConfigVersion,
+  getConfigVersions,
+  // games
+  insertGame,
+  getGamesByAgent,
+  getGamesBySubmission,
+  getRatingHistory,
+  // submissions
+  insertSubmission,
+  getSubmission,
+  getSubmissionById,
+  getSubmissionsByAgent,
+  getSubmissionsByChallenge,
 };
