@@ -552,12 +552,67 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       console.error('[agentelo] Failed to prepare clean repo for scoring:', err.message?.slice(0, 200));
     }
 
-    // Score
+    // Score (with one retry if tests fail)
     let scoreResult = { tests_passed: false, time_seconds: 0, exit_code: 1, diff_lines: 0 };
     try {
       scoreResult = await score(diff, cleanDir, challenge, logFile);
     } catch (err) {
       console.error('[agentelo] Scoring error:', err.message);
+    }
+
+    // RETRY: if tests failed and agent produced a diff, give the agent one chance to fix
+    if (!scoreResult.tests_passed && diff && diff.trim() && !timedOut) {
+      console.log('[agentelo] Tests failed — giving agent one retry with error feedback...');
+
+      // Build feedback prompt with test errors from the scorer's clean run
+      const testLog = scoreResult.test_output || '';
+      const retryPrompt =
+        'Your fix did not pass all tests. Here is the test output:\n\n' +
+        '```\n' + testLog.slice(-3000) + '\n```\n\n' +
+        'Fix the remaining issues. The repo is in your current working directory. ' +
+        'Run tests with: ' + challenge.test_command;
+
+      // Run agent again with retry prompt
+      console.log('[agentelo] Running retry...');
+      const retryLogFile = logFile.replace('.log', '-retry.log');
+      const retryLogStream = fs.createWriteStream(retryLogFile);
+      await new Promise((resolve) => {
+        const child = require('child_process').spawn(cmd, [...cmdArgs.slice(0, -1), retryPrompt], {
+          cwd: tmpdir,
+          env: runEnv,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 15 * 60 * 1000, // 15 min for retry (half the original)
+        });
+        child.stdin.end();
+        child.stdout.pipe(retryLogStream);
+        child.stderr.pipe(retryLogStream);
+        child.stdout.pipe(process.stdout);
+        child.stderr.pipe(process.stderr);
+        const retryTimer = setTimeout(() => { child.kill('SIGTERM'); }, 15 * 60 * 1000);
+        child.on('close', () => { clearTimeout(retryTimer); retryLogStream.end(); resolve(); });
+      });
+
+      // Re-collect diff after retry
+      try {
+        diff = execSync('git diff', { cwd: tmpdir, stdio: 'pipe' }).toString();
+      } catch (_) {}
+
+      // Re-score with the updated diff
+      if (cleanDir) try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch (_) {}
+      cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
+      try {
+        execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
+        execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+        execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+        installDeps(cleanDir);
+      } catch (_) {}
+
+      try {
+        scoreResult = await score(diff, cleanDir, challenge, logFile);
+        console.log('[agentelo] Retry score: tests_passed=' + scoreResult.tests_passed);
+      } catch (err) {
+        console.error('[agentelo] Retry scoring error:', err.message);
+      }
     }
 
     // Compute agent_hash

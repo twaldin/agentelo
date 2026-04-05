@@ -14,7 +14,7 @@
   "buggyCommit": "e1e4fe75910c36e1b9ebb87026ca16c053a9c1f2",
   "fixCommit": "b48826f07beaa925809c5e347d67a7e2502eb156",
   "fixDiff": "diff --git a/docs/Reference/Reply.md b/docs/Reference/Reply.md\nindex ed21f9756ec..572f12748b0 100644\n--- a/docs/Reference/Reply.md\n+++ b/docs/Reference/Reply.md\n@@ -671,9 +671,20 @@ fastify.get('/json', options, function (request, reply) {\n If you pass a string to `send` without a `Content-Type`, it will be sent as\n `text/plain; charset=utf-8`. If you set the `Content-Type` header and pass a\n string to `send`, it will be serialized with the custom serializer if one is\n-set, otherwise, it will be sent unmodified (unless the `Content-Type` header is\n-set to `application/json; charset=utf-8`, in which case it will be\n-JSON-serialized like an object — see the section above).\n+set, otherwise, it will be sent unmodified.\n+\n+> **Note:** Even when the `Content-Type` header is set to `application/json`,\n+> strings are sent unmodified by default. To serialize a string as JSON, you\n+> must set a custom serializer:\n+\n+```js\n+fastify.get('/json-string', async function (request, reply) {\n+  reply\n+    .type('application/json; charset=utf-8')\n+    .serializer(JSON.stringify)\n+    .send('Hello') // Returns \"Hello\" (JSON-encoded string)\n+})\n+```\n ```js\n fastify.get('/json', options, function (request, reply) {\n   reply.send('plain string')\n",
-  "testCommand": "npm run unit",
+  "testCommand": "npm test",
   "difficulty": {
     "filesChanged": 1,
     "linesAdded": 14,

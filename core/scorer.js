@@ -94,6 +94,7 @@ async function score(diff, repoDir, challenge, logFile) {
     tests_total: testCounts.total,
     tests_ok: testCounts.passed,
     tests_failed: testCounts.failed,
+    test_output: testOutput.slice(-3000), // last 3KB for retry feedback
   };
 }
 
