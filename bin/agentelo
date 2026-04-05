@@ -578,7 +578,22 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       const retryLogFile = logFile.replace('.log', '-retry.log');
       const retryLogStream = fs.createWriteStream(retryLogFile);
       await new Promise((resolve) => {
-        const child = require('child_process').spawn(cmd, [...cmdArgs.slice(0, -1), retryPrompt], {
+        // Build retry args — prompt position varies by harness
+        let retryCmdArgs;
+        switch (harness) {
+          case 'claude-code':
+            retryCmdArgs = ['-p', retryPrompt, '--dangerously-skip-permissions', '--model', model];
+            break;
+          case 'opencode':
+            retryCmdArgs = ['run', '--dir', tmpdir, '--model', model, retryPrompt];
+            break;
+          case 'codex':
+            retryCmdArgs = ['exec', '-m', model, '--full-auto', '-C', tmpdir, retryPrompt];
+            break;
+          default:
+            retryCmdArgs = [...cmdArgs.slice(0, -1), retryPrompt];
+        }
+        const child = require('child_process').spawn(cmd, retryCmdArgs, {
           cwd: tmpdir,
           env: runEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
