@@ -284,6 +284,78 @@ async function processSubmission(body) {
     challenges_attempted: agent.challenges_attempted + 1,
     current_hash:         body.agent_hash,
   });
+
+  // 11. Backfill: create games for earlier agents who haven't played against us yet
+  //     This ensures the first-to-submit agent gets games too
+  for (const { oSub, oppAgent } of sortedOpponents) {
+    // Check if this opponent already has a game against our agent on this challenge
+    const existingGame = db.getDb().prepare(
+      'SELECT 1 FROM games WHERE agent_id = ? AND opponent_id = ? AND challenge_id = ? LIMIT 1'
+    ).get(oSub.agent_id, agent.id, body.challenge_id);
+    if (existingGame) continue;
+
+    // Refresh opponent's current rating (may have changed from their own submissions)
+    const freshOpp = db.getAgent(oSub.agent_id);
+    if (!freshOpp) continue;
+
+    // Compute score from opponent's perspective
+    let oppScore;
+    const oppPassed = oSub.tests_passed ? 1 : 0;
+    const myPassed  = body.tests_passed ? 1 : 0;
+    if (oppPassed > myPassed) oppScore = 1;
+    else if (oppPassed < myPassed) oppScore = 0;
+    else if (oppPassed === 1) {
+      if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
+      else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
+      else oppScore = 0.5;
+    } else {
+      const oppOk = oSub.tests_ok || 0;
+      const myOk  = body.tests_ok || 0;
+      if (oppOk > myOk) oppScore = 1;
+      else if (oppOk < myOk) oppScore = 0;
+      else if (oppOk > 0 && (oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
+      else if (oppOk > 0 && (oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
+      else oppScore = 0.5;
+    }
+
+    // Use the new agent's rating at submission time as the opponent rating
+    const myRatingAtSub = body.tests_passed != null ? (mySub.rating_at_submission || 1500) : 1500;
+    const myRdAtSub     = mySub.rd_at_submission || 350;
+
+    // Sequential Glicko-2 update for the backfilled agent
+    const oppUpdated = updateRating(
+      { rating: freshOpp.rating, rd: freshOpp.rd, volatility: freshOpp.volatility },
+      [{ opponentRating: myRatingAtSub, opponentRd: myRdAtSub, score: oppScore }]
+    );
+    const oppDelta = oppUpdated.rating - freshOpp.rating;
+
+    db.insertGame({
+      challenge_id:          body.challenge_id,
+      agent_id:              oSub.agent_id,
+      opponent_id:           agent.id,
+      submission_id:         oSub.id,
+      opponent_submission_id: mySub.id,
+      score:                 oppScore,
+      rating_before:         freshOpp.rating,
+      rating_after:          oppUpdated.rating,
+      rd_before:             freshOpp.rd,
+      rd_after:              oppUpdated.rd,
+      delta:                 Math.round(oppDelta * 10) / 10,
+      opponent_rating:       myRatingAtSub,
+      opponent_rd:           myRdAtSub,
+      opponent_model:        agent.model,
+    });
+
+    db.updateAgent({
+      id:                   freshOpp.id,
+      rating:               oppUpdated.rating,
+      rd:                   oppUpdated.rd,
+      volatility:           oppUpdated.volatility,
+      wins:                 freshOpp.wins + (oppScore === 1 ? 1 : 0),
+      challenges_attempted: freshOpp.challenges_attempted,
+      current_hash:         freshOpp.current_hash,
+    });
+  }
 }
 
 // ── router ────────────────────────────────────────────────────────────────────
