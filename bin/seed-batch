@@ -4,24 +4,44 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
 const RESULTS_DIR = path.resolve(__dirname, '..', 'results');
 const LOGS_DIR = path.resolve(__dirname, '..', 'results');
 const AGENTELO = path.resolve(__dirname, 'agentelo');
 const MAX_CONCURRENT = parseInt(process.env.AGENTELO_CONCURRENCY || '3', 10);
+const SEED_KEYS_FILE = path.join(os.homedir(), '.agentelo', '.seed-keys.json');
 
-// Models to seed — free/unlimited first
+function loadSeedKeys() {
+  try { return JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) { return {}; }
+}
+
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+// Models to seed — free/unlimited first, then paid, then local
 const MODELS = [
-  // Free OpenCode models (unlimited)
-  { harness: 'opencode', model: 'opencode/minimax-m2.5-free' },
-  { harness: 'opencode', model: 'opencode/qwen3.6-plus-free' },
-  { harness: 'opencode', model: 'opencode/nemotron-3-super-free' },
-  { harness: 'opencode', model: 'opencode/gpt-5-nano' },
-  { harness: 'opencode', model: 'opencode/big-pickle' },
-  // GPT via OpenCode (rate limited but generous)
-  { harness: 'opencode', model: 'openai/gpt-5.4-mini' },
-  { harness: 'opencode', model: 'openai/gpt-5.4' },
+  // Free remote models (via opencode built-in) — unlimited
+  { harness: 'opencode', model: 'opencode/minimax-m2.5-free', local: false },
+  { harness: 'opencode', model: 'opencode/qwen3.6-plus-free', local: false },
+  { harness: 'opencode', model: 'opencode/nemotron-3-super-free', local: false },
+  { harness: 'opencode', model: 'opencode/gpt-5-nano', local: false },
+  { harness: 'opencode', model: 'opencode/big-pickle', local: false },
+  // Paid remote (via opencode)
+  { harness: 'opencode', model: 'openai/gpt-5.4-mini', local: false },
+  { harness: 'opencode', model: 'openai/gpt-5.4', local: false },
+  // Claude (rate-limited)
+  { harness: 'claude-code', model: 'claude-sonnet-4-6', local: false },
+  { harness: 'claude-code', model: 'claude-opus-4-6', local: false },
+  // Local models via ollama (sequential — model loading is exclusive)
+  { harness: 'opencode', model: 'ollama/qwen2.5-coder:32b-instruct-q8_0', local: true },
+  { harness: 'opencode', model: 'ollama/qwen2.5-coder:32b', local: true },
+  { harness: 'opencode', model: 'ollama/qwen2.5-coder:14b', local: true },
+  { harness: 'opencode', model: 'ollama/codestral', local: true },
+  { harness: 'opencode', model: 'ollama/deepseek-coder-v2:16b', local: true },
+  { harness: 'opencode', model: 'ollama/qwen2.5:7b', local: true },
 ];
 
 const challenges = fs.readdirSync(CHALLENGES_DIR)
@@ -36,73 +56,76 @@ const challenges = fs.readdirSync(CHALLENGES_DIR)
   });
 
 console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models`);
-console.log(`Max concurrent: ${MAX_CONCURRENT}`);
+console.log(`Max concurrent (remote): ${MAX_CONCURRENT}, local: 1`);
 
-// Build job queue — skip challenges that can't run
-const jobs = [];
-for (const c of challenges) {
-  const cFile = path.join(CHALLENGES_DIR, `${c}.json`);
-  try {
-    const cData = JSON.parse(fs.readFileSync(cFile, 'utf8'));
-    if (!cData.testCommand) { console.log(`Skipping ${c} — no test command`); continue; }
-    if (cData.testCommand === 'cargo test') { console.log(`Skipping ${c} — cargo/rust`); continue; }
-    if (c.startsWith('ui-') || c.startsWith('jq-')) { console.log(`Skipping ${c} — pnpm/no-test repos`); continue; }
-  } catch { continue; }
-  for (const m of MODELS) {
-    // Check if result already exists (any result for this challenge+harness+model combo)
+// Build job queues — skip challenges that can't run
+function buildJobs() {
+  const remoteJobs = [];
+  const localJobs = [];
+  for (const c of challenges) {
+    const cFile = path.join(CHALLENGES_DIR, `${c}.json`);
     try {
-      const existing = fs.readdirSync(RESULTS_DIR).filter(f =>
-        f.startsWith(`${c}-${m.harness}`) && f.endsWith('.json')
-      );
-      // Check if any existing result is from this model
-      const hasResult = existing.some(f => {
-        try {
-          const r = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
-          return r.model === m.model;
-        } catch { return false; }
-      });
-      if (hasResult) continue;
-    } catch {}
-    jobs.push({ ...m, challenge: c });
+      const cData = JSON.parse(fs.readFileSync(cFile, 'utf8'));
+      if (!cData.testCommand) { console.log(`Skipping ${c} — no test command`); continue; }
+      if (cData.testCommand === 'cargo test') { console.log(`Skipping ${c} — cargo/rust`); continue; }
+      if (c.startsWith('ui-') || c.startsWith('jq-')) { console.log(`Skipping ${c} — pnpm/no-test repos`); continue; }
+    } catch { continue; }
+    for (const m of MODELS) {
+      // Check if result already exists (any result for this challenge+harness+model combo)
+      try {
+        const existing = fs.readdirSync(RESULTS_DIR).filter(f =>
+          f.startsWith(`${c}-${m.harness}`) && f.endsWith('.json')
+        );
+        // Check if any existing result is from this model
+        const hasResult = existing.some(f => {
+          try {
+            const r = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
+            return r.model === m.model;
+          } catch { return false; }
+        });
+        if (hasResult) continue;
+      } catch {}
+      if (m.local) {
+        localJobs.push({ ...m, challenge: c });
+      } else {
+        remoteJobs.push({ ...m, challenge: c });
+      }
+    }
   }
+  return { remoteJobs, localJobs };
 }
 
-console.log(`${jobs.length} jobs remaining (skipping existing results)`);
-if (jobs.length === 0) { console.log('Nothing to do.'); process.exit(0); }
-
-let running = 0;
 let passed = 0;
 let failed = 0;
 let errored = 0;
-let idx = 0;
+let totalJobs = 0;
+let completedJobs = 0;
 
-function runNext() {
-  if (idx >= jobs.length && running === 0) {
-    console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
-    process.exit(0);
-  }
-  while (running < MAX_CONCURRENT && idx < jobs.length) {
-    const job = jobs[idx++];
-    running++;
-    const jobNum = passed + failed + errored + running;
-    console.log(`[${jobNum}/${jobs.length}] Starting: ${job.challenge} × ${job.model}`);
+function spawnJob(job) {
+  const agentId = slugify(job.harness + '-' + job.model);
+  const seedKeys = loadSeedKeys();
+  const apiKey = seedKeys[agentId] || '';
 
-    // Save child output to a log file for debugging
-    const childLogFile = path.join(LOGS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
-    const childLogStream = fs.createWriteStream(childLogFile);
+  completedJobs++;
+  const jobNum = completedJobs;
+  console.log(`[${jobNum}/${totalJobs}] Starting: ${job.challenge} × ${job.model}`);
 
-    const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
-    });
+  // Save child output to a log file for debugging
+  const childLogFile = path.join(LOGS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
+  const childLogStream = fs.createWriteStream(childLogFile);
 
-    let output = '';
-    child.stdout.on('data', d => { output += d; childLogStream.write(d); });
-    child.stderr.on('data', d => { output += d; childLogStream.write(d); });
+  const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, AGENTELO_KEY: apiKey },
+  });
 
+  let output = '';
+  child.stdout.on('data', d => { output += d; childLogStream.write(d); });
+  child.stderr.on('data', d => { output += d; childLogStream.write(d); });
+
+  return new Promise((resolve) => {
     child.on('close', (code) => {
       childLogStream.end();
-      running--;
       if (code === 0 && output.includes('Tests passed: YES')) {
         passed++;
         console.log(`  ✓ ${job.challenge} × ${job.model} — PASSED`);
@@ -117,12 +140,45 @@ function runNext() {
         console.log(`  ✗ ${job.challenge} × ${job.model} — error (exit ${code})${hint}`);
         console.log(`    Log: ${childLogFile}`);
       }
-      runNext();
+      resolve();
     });
-  }
+  });
+}
+
+function runJobQueue(jobs, concurrency) {
+  if (jobs.length === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    let idx = 0;
+    let running = 0;
+
+    function next() {
+      if (idx >= jobs.length && running === 0) { resolve(); return; }
+      while (running < concurrency && idx < jobs.length) {
+        running++;
+        const job = jobs[idx++];
+        spawnJob(job).then(() => {
+          running--;
+          next();
+        });
+      }
+    }
+
+    next();
+  });
 }
 
 // Ensure results dir
 try { fs.mkdirSync(RESULTS_DIR, { recursive: true }); } catch {}
 
-runNext();
+const { remoteJobs, localJobs } = buildJobs();
+totalJobs = remoteJobs.length + localJobs.length;
+
+console.log(`${totalJobs} jobs remaining (skipping existing results)`);
+console.log(`  Remote: ${remoteJobs.length}, Local: ${localJobs.length}`);
+if (totalJobs === 0) { console.log('Nothing to do.'); process.exit(0); }
+
+(async () => {
+  await runJobQueue(remoteJobs, MAX_CONCURRENT);
+  await runJobQueue(localJobs, 1);
+  console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
+})();
