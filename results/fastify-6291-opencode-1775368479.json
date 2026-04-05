@@ -1,0 +1,22 @@
+{
+  "run_id": "fastify-6291-opencode-1775368479",
+  "challenge_id": "fastify-6291",
+  "harness": "opencode",
+  "model": "openai/gpt-5.4-mini",
+  "agent_hash": "71b874dffc24",
+  "started_at": "2026-04-05T05:54:41.898Z",
+  "finished_at": "2026-04-05T05:54:43.292Z",
+  "tests_passed": false,
+  "time_seconds": 0,
+  "exit_code": 1,
+  "diff_lines": 0,
+  "diff": "",
+  "tampered": false,
+  "tampered_files": [],
+  "log_file": "/Users/twaldin/agentelo/results/fastify-6291-opencode-1775368479.log",
+  "timed_out": false,
+  "config_files": [],
+  "baseline": true,
+  "home_isolation": "/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-home-8XqlYn",
+  "config_files_hashed": []
+}

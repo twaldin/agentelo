@@ -1,0 +1,270 @@
+[0m
+> build · gpt-5.4-mini
+[0m
+I’m checking the diagnostics/error flow first, then I’ll patch the smallest place that makes the channel report the eventual status code.
+[0m# [0mTodos
+[ ] Inspect diagnostics channel error emission and reply status timing
+[ ] Patch status handling so error diagnostics see the final status code
+[ ] Run test suite with `npm test` and fix regressions
+[0m
+[0m✱ [0mGlob "**/*diagnostic*"[90m in . · 0 matches[0m
+[0m✱ [0mGrep "tracing:fastify\.request\.handler:error|diagnostics_channel|diagnosticsChannel"[90m in . · 25 matches[0m
+[0m✱ [0mGrep "setErrorHandler|statusCode"[90m in . · 1221 matches[0m
+I found existing diagnostics tests and the request handler/wrap-thenable code path that emits the channel message. Next I’m reading the exact error flow to see where the status is captured too early.
+[0m→ [0mRead lib/handle-request.js[90m [offset=1, limit=260][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/error-status.test.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/error-request.test.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/sync-request.test.js[90m [offset=1, limit=220][0m
+[0m✱ [0mGrep "kReplyIsError|reply\.send\(err\)|channels\.error\.publish|diagnostics.*error"[90m in . · 31 matches[0m
+[0m→ [0mRead lib/reply.js[90m [offset=1, limit=360][0m
+[0m→ [0mRead lib/error-handler.js[90m [offset=1, limit=320][0m
+The bug is in the timing, not the status-setting logic: the error channel publishes while the reply is still at its default 200, before the error handler chain assigns 500. I’m checking whether tests already lock in the event order so I can move the publish safely.
+[0m✱ [0mGrep "asyncStart|asyncEnd|tracing:fastify.request.handler:error"[90m in test/diagnostics-channel · 13 matches[0m
+[0m→ [0mRead test/diagnostics-channel/async-request.test.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/async-delay-request.test.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/sync-delay-request.test.js[90m [offset=1, limit=220][0m
+[0m→ [0mRead test/diagnostics-channel/error-before-handler.test.js[90m [offset=1, limit=220][0m
+[0m✱ [0mGrep "function onErrorHook|function onSendHook|handleError\("[90m in lib/reply.js · 4 matches[0m
+[0m→ [0mRead lib/reply.js[90m [offset=500, limit=360][0m
+[0m→ [0mRead lib/reply.js[90m [offset=859, limit=120][0m
+[0m→ [0mRead lib/route.js[90m [offset=540, limit=90][0m
+[0m✱ [0mGrep "channels\.error\.publish|publish\(store\)"[90m in . · 8 matches[0m
+I’ve got the fix shape: emit the error event after the error handler has had a chance to set the final status, while keeping the existing start/end ordering. I’m patching the two error paths that publish diagnostics now, plus a regression test for the nested error-handler case from the issue.
+[0m⚙ [0mapply_patch Success. Updated the following files:
+M lib/handle-request.js
+[0m⚙ [0mapply_patch Success. Updated the following files:
+M lib/wrap-thenable.js
+[0m⚙ [0mapply_patch Success. Updated the following files:
+A test/diagnostics-channel/error-status-from-handler.test.js
+The code change is in place. I’m running the full test suite now to confirm the new timing doesn’t break existing diagnostics behavior.
+[0m
+[0m$ [0mnpm test
+> fastify@5.6.2 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.2 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.2 lint:eslint
+> eslint
+
+sh: eslint: command not found
+[0m
+`npm test` is blocked by a missing local `eslint` binary in this workspace, so I’m verifying the affected diagnostics tests directly with Node’s test runner instead.
+[0m$ [0mnode --test test/diagnostics-channel/error-status-from-handler.test.js test/diagnostics-channel/error-status.test.js test/diagnostics-channel/error-request.test.js
+node:internal/modules/cjs/loader:1413
+  throw err;
+  ^
+
+Error: Cannot find module 'avvio'
+Require stack:
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-request.test.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1410:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1051:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1056:22)
+    at Module._load (node:internal/modules/cjs/loader:1219:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:238:24)
+    at Module.require (node:internal/modules/cjs/loader:1493:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.<anonymous> (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js:5:15)
+    at Module._compile (node:internal/modules/cjs/loader:1738:14) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js',
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-request.test.js'
+  ]
+}
+
+Node.js v24.6.0
+✖ test/diagnostics-channel/error-request.test.js (35.560375ms)
+node:internal/modules/cjs/loader:1413
+  throw err;
+  ^
+
+Error: Cannot find module 'avvio'
+Require stack:
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-status-from-handler.test.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1410:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1051:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1056:22)
+    at Module._load (node:internal/modules/cjs/loader:1219:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:238:24)
+    at Module.require (node:internal/modules/cjs/loader:1493:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.<anonymous> (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js:5:15)
+    at Module._compile (node:internal/modules/cjs/loader:1738:14) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js',
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-status-from-handler.test.js'
+  ]
+}
+
+Node.js v24.6.0
+✖ test/diagnostics-channel/error-status-from-handler.test.js (32.874166ms)
+node:internal/modules/cjs/loader:1413
+  throw err;
+  ^
+
+Error: Cannot find module 'avvio'
+Require stack:
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-status.test.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1410:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1051:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1056:22)
+    at Module._load (node:internal/modules/cjs/loader:1219:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:238:24)
+    at Module.require (node:internal/modules/cjs/loader:1493:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.<anonymous> (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js:5:15)
+    at Module._compile (node:internal/modules/cjs/loader:1738:14) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/fastify.js',
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-R4oEGd/test/diagnostics-channel/error-status.test.js'
+  ]
+}
+
+Node.js v24.6.0
+✖ test/diagnostics-channel/error-status.test.js (33.843625ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 0
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 42.23375
+
+✖ failing tests:
+
+test at test/diagnostics-channel/error-request.test.js:1:1
+✖ test/diagnostics-channel/error-request.test.js (35.560375ms)
+  'test failed'
+
+test at test/diagnostics-channel/error-status-from-handler.test.js:1:1
+✖ test/diagnostics-channel/error-status-from-handler.test.js (32.874166ms)
+  'test failed'
+
+test at test/diagnostics-channel/error-status.test.js:1:1
+✖ test/diagnostics-channel/error-status.test.js (33.843625ms)
+  'test failed'
+[0m
+I spotted one edge case in the new helper logic: a thrown falsy value would skip publishing. I’m tightening that check before I wrap up.
+[0m⚙ [0mapply_patch Success. Updated the following files:
+M lib/handle-request.js
+[0m
+[0m$ [0mgit diff -- lib/handle-request.js lib/wrap-thenable.js test/diagnostics-channel/error-status-from-handler.test.js
+diff --git a/lib/handle-request.js b/lib/handle-request.js
+index fe0977f9..e383db09 100644
+--- a/lib/handle-request.js
++++ b/lib/handle-request.js
+@@ -139,15 +139,13 @@ function preHandlerCallback (err, request, reply) {
+ 
+ function preHandlerCallbackInner (err, request, reply, store) {
+   const context = request[kRouteContext]
++  let error
+ 
+   try {
+     if (err != null) {
++      error = err
+       reply[kReplyIsError] = true
+       reply.send(err)
+-      if (store) {
+-        store.error = err
+-        channels.error.publish(store)
+-      }
+       return
+     }
+ 
+@@ -156,11 +154,7 @@ function preHandlerCallbackInner (err, request, reply, store) {
+     try {
+       result = context.handler(request, reply)
+     } catch (err) {
+-      if (store) {
+-        store.error = err
+-        channels.error.publish(store)
+-      }
+-
++      error = err
+       reply[kReplyIsError] = true
+       reply.send(err)
+       return
+@@ -174,6 +168,11 @@ function preHandlerCallbackInner (err, request, reply, store) {
+       }
+     }
+   } finally {
++    if (store && error !== undefined) {
++      store.error = error
++      channels.error.publish(store)
++    }
++
+     if (store) channels.end.publish(store)
+   }
+ }
+diff --git a/lib/wrap-thenable.js b/lib/wrap-thenable.js
+index 8dddc72a..df0c3fad 100644
+--- a/lib/wrap-thenable.js
++++ b/lib/wrap-thenable.js
+@@ -52,7 +52,6 @@ function wrapThenable (thenable, reply, store) {
+   }, function (err) {
+     if (store) {
+       store.error = err
+-      channels.error.publish(store) // note that error happens before asyncStart
+       channels.asyncStart.publish(store)
+     }
+ 
+@@ -72,6 +71,7 @@ function wrapThenable (thenable, reply, store) {
+       reply.send(err)
+     } finally {
+       if (store) {
++        channels.error.publish(store)
+         channels.asyncEnd.publish(store)
+       }
+     }
+[0m
+[0m$ [0mgit status --short
+M lib/handle-request.js
+ M lib/wrap-thenable.js
+?? test/diagnostics-channel/error-status-from-handler.test.js
+[0m
+[0m✱ [0mGrep "setErrorHandler\(async|error handler.*async|Promise.reject\(err\).*setErrorHandler"[90m in test · 35 matches[0m
+I can’t run the full suite in this workspace because dependencies are missing, so I’m at least syntax-checking the edited files now.
+[0m
+[0m$ [0mnode -c lib/handle-request.js && node -c lib/wrap-thenable.js && node -c test/diagnostics-channel/error-status-from-handler.test.js
+[0m
+[0m# [0mTodos
+[x] Inspect diagnostics channel error emission and reply status timing
+[x] Patch status handling so error diagnostics see the final status code
+[x] Run test suite with `npm test` and fix regressions
+[0m
+Fixed.
+
+- Moved `tracing:fastify.request.handler:error` publication to after error handling in `lib/handle-request.js` and `lib/wrap-thenable.js`, so subscribers see the final reply status instead of the default `200`.
+- Added a regression test for the nested `setErrorHandler` case from the issue: `test/diagnostics-channel/error-status-from-handler.test.js`.
+
+Verification:
+- `npm test` could not complete in this workspace because `eslint` is missing, and direct Node test runs also hit a missing `avvio` dependency.
+- Syntax-checked the edited files with `node -c` successfully.
+
+> fastify@5.6.2 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.2 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.2 lint:eslint
+> eslint
+
+sh: eslint: command not found

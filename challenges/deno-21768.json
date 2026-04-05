@@ -1,0 +1,24 @@
+{
+  "id": "deno-21768",
+  "repo": "denoland/deno",
+  "repoUrl": "https://github.com/denoland/deno",
+  "issue": {
+    "number": 21768,
+    "title": "mkdir/mkdirSync does not throw an error when directory already exists and recursive: true",
+    "body": "Version: Deno 1.39.1 (Windows)\r\n\r\nThe [documentation](https://deno.land/api@v1.39.1?s=Deno.mkdir) for `mkdir` indicates that it throws an error when a directory already exists. However, when I try this locally, I cannot get it to throw an error when `{ recursive: true }` is specified. Example:\r\n\r\n```js\r\nDeno.mkdir(\".deno-tmp\");\r\n\r\n// no error thrown\r\nawait Deno.mkdir(\".deno-tmp\", { recursive: true });\r\n\r\n// also no error thrown\r\nDeno.mkdirSync(\".deno-tmp\", { recursive: true });\r\n```\r\n\r\nThe only [related test](https://github.com/denoland/deno/blob/261f32ef651a6515fbac664302adcfbe34a04372/cli/tests/unit/mkdir_test.ts#L176-L178) I could find seems to indicate that an error is expected only when the path resolves to a file? [These tests](https://github.com/denoland/deno/blob/261f32ef651a6515fbac664302adcfbe34a04372/cli/tests/unit/mkdir_test.ts#L138-L154) seem to indicate that it's expected that `mkdir/mkdirSync` do not throw errors at all when `{ recursive: true }` is passed.\r\n\r\nIt seems most likely that the documentation is incorrect here, or at the very least, misleading and should be updated.\r\n"
+  },
+  "pr": {
+    "number": 33019,
+    "url": "https://github.com/denoland/deno/pull/33019"
+  },
+  "buggyCommit": "8252557622c7c4b893b99574d08e0072dfa683ff",
+  "fixCommit": "bf3f85b353dc45eaf0d853d4100d10749f0d03a3",
+  "fixDiff": "diff --git a/cli/tsc/dts/lib.deno.ns.d.ts b/cli/tsc/dts/lib.deno.ns.d.ts\nindex 49901a75bac7c9..d7a34edcbf9a17 100644\n--- a/cli/tsc/dts/lib.deno.ns.d.ts\n+++ b/cli/tsc/dts/lib.deno.ns.d.ts\n@@ -2639,7 +2639,8 @@ declare namespace Deno {\n    * await Deno.mkdir(\"restricted_access_dir\", { mode: 0o700 });\n    * ```\n    *\n-   * Defaults to throwing error if the directory already exists.\n+   * Throws if the directory already exists, unless `recursive` is set to\n+   * `true`.\n    *\n    * Requires `allow-write` permission.\n    *\n@@ -2659,7 +2660,8 @@ declare namespace Deno {\n    * Deno.mkdirSync(\"restricted_access_dir\", { mode: 0o700 });\n    * ```\n    *\n-   * Defaults to throwing error if the directory already exists.\n+   * Throws if the directory already exists, unless `recursive` is set to\n+   * `true`.\n    *\n    * Requires `allow-write` permission.\n    *\n",
+  "testCommand": "cargo test",
+  "difficulty": {
+    "filesChanged": 1,
+    "linesAdded": 4,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-05T05:12:05.215Z"
+}

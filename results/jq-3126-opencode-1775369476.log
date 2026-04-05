@@ -1,0 +1,41 @@
+[0m
+> build · gpt-5.4
+[0m
+Inspecting the parser/compiler paths around module import/include handling, then I’ll reproduce the crash and add a focused test before patching it.
+[0m✱ [0mGlob "**/*"[90m in . · 100 matches[0m
+[0m
+[0m$ [0mgit status --short
+[0m
+[0m$ [0mnpm test
+npm error code ENOENT
+npm error syscall open
+npm error path /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AFu3Ik/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AFu3Ik/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /Users/twaldin/.npm/_logs/2026-04-05T06_11_28_751Z-debug-0.log
+[0m
+`npm test` is not available in this repo root, so I’m switching to the project’s native build/test flow and tracing the failing library-binding path in `src/compile.c`.
+[0m✱ [0mGrep "block_bind_library|block_has_only_binders|library should only have function definitions"[90m in . · 19 matches[0m
+[0m→ [0mRead src/compile.c[90m [offset=340, limit=120][0m
+[0m→ [0mRead src/linker.c[90m [offset=1, limit=260][0m
+[0m✱ [0mGrep "include \"|import \"|modulemeta|tests/modules|jq_test"[90m in . · 302 matches[0m
+[0m→ [0mRead src/linker.c[90m [offset=260, limit=220][0m
+[0m→ [0mRead tests/shtest[90m [offset=360, limit=60][0m
+[0m→ [0mRead README.md[90m [offset=1, limit=160][0m
+[0m✱ [0mGlob "tests/modules/**/*"[90m in . · 16 matches[0m
+The crash path is clear: cached/reloaded libraries that already contain import stubs are later rebound through `block_bind_library()`, which still asserts “binders only”. I’m checking whether the existing parser intentionally permits imports inside library blocks so the fix stays minimal.
+[0m→ [0mRead src/parser.y[90m [offset=940, limit=60][0m
+[0m→ [0mRead src/compile.c[90m [offset=250, limit=40][0m
+[0m✱ [0mGrep "block_bind_library\("[90m in . · 6 matches[0m
+[0m✱ [0mGlob "configure*"[90m in . · 1 match[0m
+[0m✱ [0mGlob "Makefile*"[90m in . · 1 match[0m
+[0m✱ [0mGlob "tests/*.test"[90m in . · 7 matches[0m
+[0m✱ [0mGlob ".github/workflows/*"[90m in . · 7 matches[0m
+[0m→ [0mRead .github/workflows/ci.yml[90m [offset=1, limit=220][0m
+[0m✱ [0mGrep "make check|autoreconf|configure --with-oniguruma"[90m in . · 27 matches[0m
+[0m→ [0mRead src/compile.c[90m [offset=290, limit=70][0m
+[0m✱ [0mGrep "inst_is_binder\("[90m in . · 1 match[0m
+[0m✱ [0mGrep "include"[90m in src/parser.y · 13 matches[0m
+[0m✱ [0mGrep "gen_import|gen_include|DEPS"[90m in src · 22 matches[0m

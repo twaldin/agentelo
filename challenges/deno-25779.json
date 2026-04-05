@@ -1,0 +1,24 @@
+{
+  "id": "deno-25779",
+  "repo": "denoland/deno",
+  "repoUrl": "https://github.com/denoland/deno",
+  "issue": {
+    "number": 25779,
+    "title": "`nuxt preview` falls in latest canary",
+    "body": "Repro:\r\n\r\n```\r\n❯ deno run -A npm:nuxi init\r\n# just press enter at each prompt\r\n❯ cd nuxt-app\r\n❯ deno task build\r\n❯ deno task preview\r\n ERROR  The \"nodePath\" option must be a string or a file URL: /home/.deno/bin/deno.                                                                                                                                                                                                                                                                2:34:33 PM\r\n\r\n  at safeNormalizeFileUrl (node_modules/nuxi/dist/chunks/index3.mjs:36:9)\r\n  at handleNodeOption (node_modules/nuxi/dist/chunks/index3.mjs:2473:29)\r\n  at normalizeOptions (node_modules/nuxi/dist/chunks/index3.mjs:2630:64)\r\n  at handleAsyncArguments (node_modules/nuxi/dist/chunks/index3.mjs:7642:63)\r\n  at execaCoreAsync (node_modules/nuxi/dist/chunks/index3.mjs:7617:110)\r\n  at callBoundExeca (node_modules/nuxi/dist/chunks/index3.mjs:7844:5)\r\n  at boundExeca (node_modules/nuxi/dist/chunks/index3.mjs:7815:44)\r\n  at Object.run (node_modules/nuxi/dist/chunks/preview.mjs:132:11)\r\n  at eventLoopTick (ext:core/01_core.js:175:7)\r\n  at async runCommand$1 (node_modules/nuxi/dist/shared/nuxi.b8b195e1.mjs:1648:16)\r\n\r\n\r\n\r\n ERROR  The \"nodePath\" option must be a string or a file URL: /home/.deno/bin/deno\r\n```\r\n\r\n---\r\n\r\nI looked into this. The issue is that the named export of `execPath` from `node:process` is not actually a string, but an object that tries to act like a string: https://github.com/denoland/deno/blob/55c22ee1bd8e5b108b8b13517150c3cfadf4d7f9/ext/node/polyfills/process.ts#L344-L357"
+  },
+  "pr": {
+    "number": 32396,
+    "url": "https://github.com/denoland/deno/pull/32396"
+  },
+  "buggyCommit": "70497bbf6a7e673b7f9f89b7a112c488fd20e11d",
+  "fixCommit": "e7269534ae4fe4d08258d562738d0cb1aa275733",
+  "fixDiff": "diff --git a/ext/node/polyfills/process.ts b/ext/node/polyfills/process.ts\nindex ae34d73c3c2cd9..31569fbdf5c59c 100644\n--- a/ext/node/polyfills/process.ts\n+++ b/ext/node/polyfills/process.ts\n@@ -471,20 +471,7 @@ function uncaughtExceptionHandler(err: any, origin: string) {\n   process.emit(\"uncaughtException\", err, origin);\n }\n \n-export let execPath: string = Object.freeze({\n-  __proto__: String.prototype,\n-  toString() {\n-    execPath = Deno.execPath();\n-    return execPath;\n-  },\n-  get length() {\n-    return this.toString().length;\n-  },\n-  [Symbol.for(\"Deno.customInspect\")](inspect, options) {\n-    return inspect(this.toString(), options);\n-  },\n-  // deno-lint-ignore no-explicit-any\n-}) as any as string;\n+export let execPath: string = \"\";\n \n // The process class needs to be an ES5 class because it can be instantiated\n // in Node without the `new` keyword. It's not a true class in Node. Popular\n@@ -1206,6 +1193,7 @@ internals.__bootstrapNodeProcess = function (\n     platform = isWindows ? \"win32\" : Deno.build.os;\n     pid = Deno.pid;\n     ppid = Deno.ppid;\n+    execPath = Deno.execPath();\n     initializeDebugEnv(nodeDebug);\n \n     if (getOptionValue(\"--warnings\")) {\ndiff --git a/tests/unit_node/process_test.ts b/tests/unit_node/process_test.ts\nindex 021638a9062788..e57476c4f5fab5 100644\n--- a/tests/unit_node/process_test.ts\n+++ b/tests/unit_node/process_test.ts\n@@ -960,6 +960,7 @@ Deno.test(\"process._exiting\", () => {\n });\n \n Deno.test(\"process.execPath\", () => {\n+  assertEquals(typeof process.execPath, \"string\");\n   assertEquals(process.execPath, process.argv[0]);\n });\n \n@@ -1317,6 +1318,7 @@ Deno.test(function importedExecArgvTest() {\n });\n \n Deno.test(function importedExecPathTest() {\n+  assertEquals(typeof importedExecPath, \"string\");\n   assertEquals(importedExecPath, Deno.execPath());\n });\n \n",
+  "testCommand": "cargo test",
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 4,
+    "linesRemoved": 14
+  },
+  "minedAt": "2026-04-05T05:12:19.442Z"
+}

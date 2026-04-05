@@ -1,0 +1,22 @@
+{
+  "run_id": "fastify-6291-claude-code-1775366650",
+  "challenge_id": "fastify-6291",
+  "harness": "claude-code",
+  "model": "haiku",
+  "agent_hash": "9fcd21b74fd4",
+  "started_at": "2026-04-05T05:24:14.285Z",
+  "finished_at": "2026-04-05T05:24:14.659Z",
+  "tests_passed": false,
+  "time_seconds": 0,
+  "exit_code": 1,
+  "diff_lines": 0,
+  "diff": "",
+  "tampered": false,
+  "tampered_files": [],
+  "log_file": "/Users/twaldin/agentelo/results/fastify-6291-claude-code-1775366650.log",
+  "timed_out": false,
+  "config_files": [],
+  "baseline": true,
+  "home_isolation": "/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-home-KKBXPW",
+  "config_files_hashed": []
+}

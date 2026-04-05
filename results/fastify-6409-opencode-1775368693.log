@@ -1,0 +1,1254 @@
+[0m
+> build · qwen3.6-plus-freI'll scan the repository f[0m✱ [0mGrep "tracing:fastify.request.handler:error"[90m in . · 11 matches[0m
+[0m• [0mFind diagnostics channel error emission code[90m Explore Agent[0m
+[0m✓ [0mFind diagnostics channel error emission code[90m Explore Agent[0m
+[0m→ [0mRead lib/handle-request.js
+[0m✱ [0mGrep "kReplyIsError"[90m in lib · 19 matches[0m
+[0m→ [0mRead lib/reply.js[90m [offset=130, limit=100][0m
+[0m✱ [0mGrep "onErrorHook"[90m in lib/reply.js · 6 matches[0m
+[0m→ [0mRead lib/reply.js[90m [offset=806, limit=140][0m
+[0m✱ [0mGrep "function handleError"[90m in lib/reply.js · 0 matches[0m
+[0m✱ [0mGrep "handleError"[90m in lib · 5 matches[0m
+[0m→ [0mRead lib/error-handler.js
+[0m→ [0mRead test/diagnostics-channel/error-status.test.js
+[0m→ [0mRead lib/wrap-thenable.js
+Now let me look at the existing tests and understand the issue better. The problem is that when an error is published to the diagnostics channel, the `reply.statusCode` is still 200 because the error handler hasn't been called yet. The fix should ensure that the reply's status code is properly set before publishing to the diagnostics channel.
+
+Let me look at the flow more carefully:
+[0m→ [0mRead lib/symbols.js[90m [limit=80][0m
+Now I understand the issue. When the diagnostics channel publishes the error, the `reply.statusCode` is still 200 because the error handler (which sets the proper status code) hasn't been invoked yet. The error is published *before* `reply.send(err)` is called, which triggers the error handler chain.
+
+The fix should ensure that when publishing to the error channel, the reply's status code is set appropriately (at least to 500 if no specific status is set). Let me look at what the expected behavior should be:
+
+1. The error should be published with the correct status code that will eventually be sent
+2. This means we need to compute what the status code would be before publishing
+
+Let me check the `setErrorHeaders` and `defaultErrorHandler` logic to understand how status codes are determined:
+[0m→ [0mRead test/diagnostics-channel/error-request.test.js
+Let me look at the test files to understand the expected behavior better:
+[0m
+[0m# [0mTodos
+[x] Understand the issue: error diagnostic channel always sends 200
+[ ] Fix handle-request.js to set status code before publishing error
+[ ] Fix wrap-thenable.js to set status code before publishing error
+[ ] Write test to verify the fix
+[ ] Run tests to verify solution
+[0m
+Now I understand the issue. When the diagnostics channel publishes the error, the `reply.statusCode` is still 200 because:
+
+1. In `handle-request.js:161` (sync error) - error is published BEFORE `reply.send(err)` is called
+2. In `wrap-thenable.js:55` (async error) - error is published BEFORE `reply.send(err)` is called  
+3. In `handle-request.js:149` (pre-handler error) - error is published AFTER `reply.send(err)` is called
+
+The issue is that the error is published before the error handler runs, so the status code hasn't been set yet. The fix should ensure that the reply's status code is computed based on the error before publishing to the diagnostics channel.
+
+Looking at `error-handler.js`, the `defaultErrorHandler` and `setErrorHeaders` functions show how the status code should be determined:
+- If `reply[kReplyHasStatusCode]` is set and not 200, keep it
+- Otherwise, use `error.statusCode` or `error.status` if >= 400
+- Otherwise, default to 500
+
+The fix should set the appropriate status code on the reply before publishing to the error channel. Let me create a helper function to compute the error status code and apply it before publishing.
+[0m→ [0mRead lib/handle-request.js[90m [offset=1, limit=20][0m
+Now let me implement the fix. The approach is to set the status code on the reply before publishing to the error channel. I need to add a helper that computes the correct status code from the error, similar to what `defaultErrorHandler` does.
+[0m
+[0m← [0mEdit lib/handle-request.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+@@ -7,13 +7,22 @@
+ const {
+   kReplyIsError,
+   kRouteContext,
+   kFourOhFourContext,
+-  kSupportedHTTPMethods
++  kSupportedHTTPMethods,
++  kReplyHasStatusCode
+ } = require('./symbols')
+ 
+ const channels = diagnostics.tracingChannel('fastify.request.handler')
+ 
++function setReplyErrorStatusCode (reply, err) {
++  if (reply[kReplyHasStatusCode] && reply.statusCode !== 200) {
++    return
++  }
++  const statusCode = err && (err.statusCode || err.status)
++  reply.code(statusCode >= 400 ? statusCode : 500)
++}
++
+ function handleRequest (err, request, reply) {
+   if (reply.sent === true) return
+   if (err != null) {
+     reply[kReplyIsError] = true
+
+[0m
+[0m← [0mEdit lib/handle-request.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+@@ -151,8 +151,9 @@
+ 
+ try {
+   if (err != null) {
+     reply[kReplyIsError] = true
++    setReplyErrorStatusCode(reply, err)
+     reply.send(err)
+     if (store) {
+       store.error = err
+       channels.error.publish(store)
+
+[0m
+N[0m
+[0m← [0mEdit lib/wrap-thenable.js
+Index: /private/var/folders/cf/sgp0bvks[0m← [0mEdit lib/handle-request.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/handle-request.js
+@@ -167,8 +167,9 @@
+   result = context.handler(request, reply)
+ } catch (err) {
+   if (store) {
+     store.error = err
++    setReplyErrorStatusCode(reply, err)
+     channels.error.publish(store)
+   }
+ 
+   reply[kReplyIsError] = true
+
+[0m
+[0m# [0mTodos
+[x] Understand the issue: error diagnostic channel always sends 200
+[x] Fix handle-request.js to set status code before publishing error
+[ ] Fix wrap-thenable.js to set status code before publishing error
+[ ] Write test to verify the fix
+[ ] Run tests to verify solution
+[0m
+[0m← [0mEdit lib/wrap-thenable.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
+@@ -1,14 +1,23 @@
+ 'use strict'
+ 
+ const {
+   kReplyIsError,
+-  kReplyHijacked
++  kReplyHijacked,
++  kReplyHasStatusCode
+ } = require('./symbols')
+ 
+ const diagnostics = require('node:diagnostics_channel')
+ const channels = diagnostics.tracingChannel('fastify.request.handler')
+ 
++function setReplyErrorStatusCode (reply, err) {
++  if (reply[kReplyHasStatusCode] && reply.statusCode !== 200) {
++    return
++  }
++  const statusCode = err && (err.statusCode || err.status)
++  reply.code(statusCode >= 400 ? statusCode : 500)
++}
++
+ function wrapThenable (thenable, reply, store) {
+   if (store) store.async = true
+   thenable.then(function (payload) {
+     if (reply[kReplyHijacked] === true) {
+
+[0m
+[0m← [0mEdit lib/wrap-thenable.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js
+@@ -60,8 +60,9 @@
+   }
+ }, function (err) {
+   if (store) {
+     store.error = err
++    setReplyErrorStatusCode(reply, err)
+     channels.error.publish(store) // note that error happens before asyncStart
+     channels.asyncStart.publish(store)
+   }
+ 
+
+[0m
+[0m# [0mTodos
+[x] Understand the issue: error diagnostic channel always sends 200
+[x] Fix handle-request.js to set status code before publishing error
+[x] Fix wrap-thenable.js to set status code before publishing error
+[ ] Write test to verify the fix
+[ ] Run tests to verify solution
+[0m
+[0m→ [0mRead test/diagnostics-channel/error-status.test.js
+Now let me write a test that specifically covers the bug scenario from the issue - where setErrorHandler is registered in a plugin and the diagnostics channel should report the correct status code:
+[0m
+[0m← [0mEdit test/diagnostics-channel/error-status.test.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/test/diagnostics-channel/error-status.test.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/test/diagnostics-channel/error-status.test.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/test/diagnostics-channel/error-status.test.js
+@@ -36,4 +36,101 @@
+     )
+     done()
+   })
+ })
++
++test('diagnostics channel reports error status code for sync handler with setErrorHandler', (t, done) => {
++  t.plan(3)
++  const fastify = Fastify()
++  t.after(() => fastify.close())
++
++  fastify.setErrorHandler((error, request, reply) => {
++    reply.status(500).send({ ok: false })
++  })
++
++  fastify.register((app, options, next) => {
++    app.setErrorHandler((error, request, reply) => {
++      throw error
++    })
++
++    app.get('/good', async (request, reply) => {
++      throw new Error('bar')
++    })
++
++    next()
++  })
++
++  let diagnosticsStatusCode
++  diagnostics.subscribe('tracing:fastify.request.handler:error', ({ reply }) => {
++    diagnosticsStatusCode = reply.statusCode
++  })
++
++  fastify.inject({
++    method: 'GET',
++    url: '/good'
++  }, (error, res) => {
++    t.assert.ifError(error)
++    t.assert.strictEqual(diagnosticsStatusCode, 500)
++    t.assert.strictEqual(res.statusCode, 500)
++    done()
++  })
++})
++
++test('diagnostics channel reports error status code for async handler', async t => {
++  t.plan(2)
++  const fastify = Fastify()
++  t.after(() => fastify.close())
++
++  let diagnosticsStatusCode
++  diagnostics.subscribe('tracing:fastify.request.handler:error', ({ reply }) => {
++    diagnosticsStatusCode = reply.statusCode
++  })
++
++  fastify.get('/', async () => {
++    throw new Error('async error')
++  })
++
++  await fastify.inject({ method: 'GET', url: '/' })
++  t.assert.strictEqual(diagnosticsStatusCode, 500)
++  t.assert.strictEqual(diagnosticsStatusCode, 500)
++})
++
++test('diagnostics channel reports custom error status code from error instance', async t => {
++  t.plan(2)
++  const fastify = Fastify()
++  t.after(() => fastify.close())
++
++  let diagnosticsStatusCode
++  diagnostics.subscribe('tracing:fastify.request.handler:error', ({ reply }) => {
++    diagnosticsStatusCode = reply.statusCode
++  })
++
++  fastify.get('/', async () => {
++    const err = new Error('custom status')
++    err.statusCode = 418
++    throw err
++  })
++
++  await fastify.inject({ method: 'GET', url: '/' })
++  t.assert.strictEqual(diagnosticsStatusCode, 418)
++  t.assert.strictEqual(diagnosticsStatusCode, 418)
++})
++
++test('diagnostics channel reports status code set via reply.status before throw', async t => {
++  t.plan(2)
++  const fastify = Fastify()
++  t.after(() => fastify.close())
++
++  let diagnosticsStatusCode
++  diagnostics.subscribe('tracing:fastify.request.handler:error', ({ reply }) => {
++    diagnosticsStatusCode = reply.statusCode
++  })
++
++  fastify.get('/', async (request, reply) => {
++    reply.status(503)
++    throw new Error('service unavailable')
++  })
++
++  await fastify.inject({ method: 'GET', url: '/' })
++  t.assert.strictEqual(diagnosticsStatusCode, 503)
++  t.assert.strictEqual(diagnosticsStatusCode, 503)
++})
+
+[0m
+[0m# [0mTodos
+[x] Understand the issue: error diagnostic channel always sends 200
+[x] Fix handle-request.js to set status code before publishing error
+[x] Fix wrap-thenable.js to set status code before publishing error
+[x] Write test to verify the fix
+[ ] Run tests to verify solution
+[0m
+[0m$ [0mnpm test -- --test-name-pattern="Error.status|diagnostics channel reports" 2>&1
+> fastify@5.6.2 test
+> npm run lint && npm run unit && npm run test:typescript --test-name-pattern=Error.status|diagnostics channel reports
+
+
+> fastify@5.6.2 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.2 lint:eslint
+> eslint
+
+sh: eslint: command not found
+[0m
+[0m$ [0mnpm run unit -- test/diagnostics-channel/error-status.test.js 2>&1
+> fastify@5.6.2 unit
+> borp test/diagnostics-channel/error-status.test.js
+
+sh: borp: command not found
+[0m
+[0m$ [0mnpm install 2>&1 | tail -20
+npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 734 packages, and audited 735 packages in 4s
+
+268 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (3 low, 3 moderate, 2 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+[0m
+[0m$ [0mnpx borp test/diagnostics-channel/error-status.test.js 2>&1
+parsed config: test/**/*.test.js test/**/*.test.mjs
+✔ Error.status property support (81.751458ms)
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (5.484834ms)
+✖ diagnostics channel reports error status code for async handler (3.419958ms)
+✖ diagnostics channel reports custom error status code from error instance (2.956667ms)
+✖ diagnostics channel reports status code set via reply.status before throw (2.725542ms)
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.770084ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (0.624208ms)
+✔ should response with a ReadableStream (133.925292ms)
+✔ should response with a Response (12.786917ms)
+✔ should response with a Response 204 (2.119708ms)
+✔ should response with a Response 304 (1.533708ms)
+✔ should response with a Response without body (1.465208ms)
+✔ able to use in onSend hook - ReadableStream (3.970375ms)
+✔ able to use in onSend hook - Response (4.199334ms)
+✔ Error when Response.bodyUsed (6.725375ms)
+✔ Error when Response.body.locked (3.415ms)
+✔ Error when ReadableStream.locked (2.203084ms)
+✔ allow to pipe with fetch (36.789292ms)
+✔ allow to pipe with undici.fetch (14.219583ms)
+✔ Should register a versioned route (inject) (97.547917ms)
+✔ Should register a versioned route via route constraints (3.795292ms)
+✔ Should register the same route with different versions (3.015ms)
+✔ The versioned route should [0m→ [0mRead lib/wrap-thenable.js[90m [offset=50, limit=10][0m
+[0m
+[0m$ [0mcat -A /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js | sed -n '50,55p'
+cat: illegal option -- A
+usage: cat [-belnstuv] [file ...]
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=50, limit=10][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=52, limit=2][0m
+[0m
+[0m← [0mEdit lib/wrap-thenable.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js
+@@ -48,9 +48,9 @@
+     if (store) {
+       channels.asyncEnd.publish(store)
+     }
+   }
+- }, function (err) {
++}, function (err) {
+    if (store) {
+      store.error = err
+    }
+ 
+
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=52, limit=15][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=10, limit=10][0m
+[0m
+[0m$ [0msed -n '11,20p' /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js | cat -A
+cat: illegal option -- A
+usage: cat [-belnstuv] [file ...]
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=11, limit=5][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=11, limit=5][0m
+[0m
+[0m$ [0msed -i '12s/^  /  /' /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js
+sed: 1: "/private/var/folders/cf ...": invalid command code v
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=11, limit=5][0m
+[0m
+[0m$ [0mcat -n /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js | head -20
+1	'use strict'
+     2	
+     3	const {
+     4	  kReplyIsError,
+     5	  kReplyHijacked
+     6	} = require('./symbols')
+     7	
+     8	const diagnostics = require('node:diagnostics_channel')
+     9	const channels = diagnostics.tracingChannel('fastify.request.handler')
+    10	
+    11	function wrapThenable (thenable, reply, store) {
+    12	  if (store) store.async = true
+    13	  thenable.then(function (payload) {
+    14	    if (reply[kReplyHijacked] === true) {
+    15	      return
+    16	    }
+    17	
+    18	    if (store) {
+    19	      channels.asyncStart.publish(store)
+    20	    }
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=12, limit=5][0m
+[0m
+[0m$ [0mnpm run lint:eslint
+> fastify@5.6.2 lint:eslint
+> eslint
+
+
+/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/handle-request.js
+  154:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+
+/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/wrap-thenable.js
+  53:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  54:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  55:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  57:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  58:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  59:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  60:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  61:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  63:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  65:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  66:1  error  Trailing spaces not allowed                   @stylistic/no-trailing-spaces
+  67:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  68:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  69:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  70:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  71:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  72:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  73:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  74:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  75:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  76:1  error  Trailing spaces not allowed                   @stylistic/no-trailing-spaces
+  77:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  78:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  79:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  80:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  81:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  82:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  83:1  error  Expected indentation of 8 spaces but found 9  @stylistic/indent
+  84:1  error  Expected indentation of 6 spaces but found 7  @stylistic/indent
+  85:1  error  Expected indentation of 4 spaces but found 5  @stylistic/indent
+  86:1  error  Expected indentation of 2 spaces but found 3  @stylistic/indent
+
+/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/reproduce-issue.js
+   1:63  error  Extra semicolon                                @stylistic/semi
+   5:66  error  Extra semicolon                                @stylistic/semi
+   6:3   error  Extra semicolon                                @stylistic/semi
+  14:25  error  Expected error to be handled                   n/handle-callback-err
+  38:1   error  Trailing spaces not allowed                    @stylistic/no-trailing-spaces
+  51:3   error  Newline required at end of file but not found  @stylistic/eol-last
+
+✖ 38 problems (38 errors, 0 warnings)
+  37 errors and 0 warnings potentially fixable with the `--fix` option.
+[0m
+[0m→ [0mRead lib/handle-request.js[90m [offset=150, limit=10][0m
+[0m
+[0m← [0mEdit lib/handle-request.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/handle-request.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/handle-request.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Pk7LDv/lib/handle-request.js
+
+[0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=50, limit=10][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=52, limit=5][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=52, limit=5][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=10, limit=15][0m
+[0m→ [0mRead lib/wrap-thenable.js[90m [offset=11, limit=20][0m
+[0m
+[0m$ [0mgit show HEAD:lib/wrap-thenable.js | head -20
+'use strict'
+
+const {
+  kReplyIsError,
+  kReplyHijacked
+} = require('./symbols')
+
+const diagnostics = require('node:diagnostics_channel')
+const channels = diagnostics.tracingChannel('fastify.request.handler')
+
+function wrapThenable (thenable, reply, store) {
+  if (store) store.async = true
+  thenable.then(function (payload) {
+    if (reply[kReplyHijacked] === true) {
+      return
+    }
+
+    if (store) {
+      channels.asyncStart.publish(store)
+    }
+[0m
+[93m[1m! [0mpermission requested: external_directory (/tmp/*); auto-rejecting
+[0m✗ [0mbash failed
+[91m[1mError: [0mThe user rejected permission to use this specific tool call.
+st":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+✔ should serialize reply when response stream is ended (99.5765ms)
+{"level":30,"time":1775368958797,"pid":87095,"hostname":"Timothys-MacBook-Pro.local","reqId":"req-1","res":{"raw":{"_events":{"finish":[null,null],"error":[null,null,null],"close":[null,null,null,null],"end":[null,null]},"_eventsCount":5,"outputData":[],"outputSize":0,"writable":true,"destroyed":false,"_last":false,"chunkedEncoding":true,"shouldKeepAlive":true,"maxRequestsOnConnectionReached":false,"_defaultKeepAlive":true,"useChunkedEncodingByDefault":true,"sendDate":true,"_removedConnection":false,"_removedContLen":false,"_removedTE":false,"strictContentLength":false,"_contentLength":null,"_hasBody":true,"_trailer":"","finished":true,"_headerSent":true,"_closed":false,"_header":"HTTP/1.1 200 OK\r\nDate: Sun, 05 Apr 2026 06:02:38 GMT\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n","_keepAliveTimeout":0,"req":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"_sent100":false,"_expect_continue":false,"_lightMyRequest":{"headers":{"date":"Sun, 05 Apr 2026 06:02:38 GMT","connection":"keep-alive","transfer-encoding":"chunked"},"trailers":{},"payloadChunks":[{"type":"Buffer","data":[104,101,108,108,111,10]}]},"_promiseCallback":false,"statusCode":200,"statusMessage":"OK"},"request":{"id":"req-1","params":{},"raw":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"query":{},"log":{}},"log":{}},"responseTime":10.851708889007568,"msg":"request completed"}
+{"level":30,"time":1775368958798,"pid":87095,"hostname":"Timothys-MacBook-Pro.local","reqId":"req-1","res":{"raw":{"_events":{"error":[null,null],"close":[null,null],"end":[null,null]},"_eventsCount":4,"outputData":[],"outputSize":0,"writable":true,"destroyed":true,"_last":false,"chunkedEncoding":true,"shouldKeepAlive":true,"maxRequestsOnConnectionReached":false,"_defaultKeepAlive":true,"useChunkedEncodingByDefault":true,"sendDate":true,"_removedConnection":false,"_removedContLen":false,"_removedTE":false,"strictContentLength":false,"_contentLength":null,"_hasBody":true,"_trailer":"","finished":true,"_headerSent":true,"_closed":false,"_header":"HTTP/1.1 200 OK\r\nDate: Sun, 05 Apr 2026 06:02:38 GMT\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n","_keepAliveTimeout":0,"req":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"_sent100":false,"_expect_continue":false,"_lightMyRequest":{"headers":{"date":"Sun, 05 Apr 2026 06:02:38 GMT","connection":"keep-alive","transfer-encoding":"chunked"},"trailers":{},"payloadChunks":[{"type":"Buffer","data":[104,101,108,108,111,10]}]},"_promiseCallback":false,"statusCode":200,"statusMessage":"OK"},"request":{"id":"req-1","params":{},"raw":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"query":{},"log":{}},"log":{}},"msg":"stream closed prematurely"}
+✔ skip automatic reply.send() with reply.hijack and a body (80.981167ms)
+✔ skip automatic reply.send() with reply.hijack and no body (2.969708ms)
+✔ skip automatic reply.send() with reply.hijack and an error (4.814375ms)
+▶ Hijacking inside onRequest skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (6.35725ms)
+  ✔ Sending a response using req.socket => onResponse not called (38.243375ms)
+  ✔ Throwing an error does not trigger any hooks (1001.810917ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1001.875208ms)
+✔ Hijacking inside onRequest skips all the following hooks and handler execution (2048.81675ms)
+▶ Hijacking inside preParsing skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (2.589875ms)
+  ✔ Sending a response using req.socket => onResponse not called (11.342833ms)
+  ✔ Throwing an error does not trigger any hooks (1003.821709ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1002.792792ms)
+✔ Hijacking inside preParsing skips all the following hooks and handler execution (2020.902792ms)
+▶ Hijacking inside preValidation skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (2.043208ms)
+  ✔ Sending a response using req.socket => onResponse not called (4.257125ms)
+  ✔ Throwing an error does not trigger any hooks (1003.962917ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1003.362875ms)
+✔ Hijacking inside preValidation skips all the following hooks and handler execution (2014.384209ms)
+▶ Hijacking inside preHandler skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (7.660125ms)
+  ✔ Sending a response using req.socket => onResponse not called (13.322834ms)
+  ✔ Throwing an error does not trigger any hooks (1002.21325ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1003.973792ms)
+✔ Hijacking inside preHandler skips all the following hooks and handler execution (2027.94175ms)
+▶ Hijacking inside handler skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (7.1685ms)
+  ✔ Sending a response using req.socket => onResponse not called (13.216292ms)
+  ✔ Throwing an error does not trigger any hooks (1004.631208ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1004.567583ms)
+✔ Hijacking inside handler skips all the following hooks and handler execution (2030.488542ms)
+(node:87097) [FSTWRN004] FastifyWarning: It seems that you are overriding an errorHandler in the same scope, which can lead to subtle bugs. To disable this behavior, set 'allowErrorHandlerOverride' to false or ignore this message. For more information, visit: https://fastify.dev/docs/latest/Reference/Server/#allowerrorhandleroverride
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:87097) [FSTWRN004] FastifyWarning: It seems that you are overriding an errorHandler in the same scope, which can lead to subtle bugs. To disable this behavior, set 'allowErrorHandlerOverride' to false or ignore this message. For more information, visit: https://fastify.dev/docs/latest/Reference/Server/#allowerrorhandleroverride
+✔ setErrorHandler should throw an error if the handler is not a function (42.063208ms)
+✔ setErrorHandler can be set independently in parent and child scopes (0.623417ms)
+✔ setErrorHandler can be overridden if allowErrorHandlerOverride is set to true (7.968375ms)
+✔ if `allowErrorHandlerOverride` is disabled, setErrorHandler should throw if called more than once in the same scope (0.529291ms)
+✔ if `allowErrorHandlerOverride` is disabled, setErrorHandler should throw if called more than once in the same scope 2 (2.145834ms)
+✔ listen should accept null port (69.300083ms)
+✔ listen should accept undefined port (11.770125ms)
+✔ listen should accept stringified number port (11.709625ms)
+✔ listen should accept log text resolution function (1.973125ms)
+✔ listen should reject string port (1.781375ms)
+✔ Test for hostname and port (27.213042ms)
+✔ Test for IPV6 port (5.60575ms)
+▶ abort signal
+  ✔ should close server when aborted after (28.889417ms)
+  ✔ should close server when aborted after - promise (7.477417ms)
+  ✔ should close server when aborted during fastify.ready - promise (5.662083ms)
+  ✔ should close server when aborted during dns.lookup - promise (11.506ms)
+  ✔ should close server when aborted before (1.213ms)
+  ✔ should close server when aborted before - promise (1.063458ms)
+  ✔ listen should not start server (1.060041ms)
+  ✔ listen should not start server if already aborted (0.861791ms)
+  ✔ listen should throw if received invalid signal (0.307958ms)
+✔ abort signal (72.247625ms)
+✔ #5180 - preClose should be called before closing secondary server (1003.082375ms)
+✔ serialize the response for a Bad Request error, as defined on the schema (131.056042ms)
+✔ serialize the response for a Not Found error, as defined on the schema (26.034416ms)
+✔ serialize the response for a Internal Server Error error, as defined on the schema (20.059041ms)
+✔ serialize the success response, as defined on the schema (15.997583ms)
+✔ Basic validation test (97.15525ms)
+✔ Different schema per content type (32.962667ms)
+✔ Skip validation if no schema for content type (11.469833ms)
+✔ Skip validation if no content type schemas (16.266167ms)
+✔ External AJV instance (22.573792ms)
+✔ Encapsulation (42.222959ms)
+✔ Triple $ref with a simple $id (14.562583ms)
+✔ Extending schema (18.883833ms)
+✔ Should work with nested ids (23.190458ms)
+✔ Use the same schema across multiple routes (12.356917ms)
+✔ JSON Schema validation keywords (10.885292ms)
+✔ Nested id calls (11.030333ms)
+✔ Use the same schema id in different places (8.423792ms)
+✔ Use shared schema and $ref with $id ($ref to $id) (13.743416ms)
+✔ Use items with $ref (13.665542ms)
+✔ Use $ref to /definitions (18.89875ms)
+✔ Custom AJV settings - pt1 (13.686375ms)
+✔ Custom AJV settings - pt2 (10.169375ms)
+✔ Custom AJV settings on different parameters - pt1 (18.052375ms)
+✔ Custom AJV settings on different parameters - pt2 (8.492125ms)
+✔ The same $id in route's schema must not overwrite others (10.38375ms)
+✔ Custom validator compiler should not mutate schema (1.142583ms)
+✔ Custom validator builder override by custom validator compiler (7.854583ms)
+✔ Custom validator builder override by custom validator compiler in child instance (10.84975ms)
+✔ Schema validation when no content type is provided (17.994542ms)
+✔ Schema validation will not be bypass by different content type (66.959708ms)
+✔ Ajv plugins array parameter (131.620083ms)
+✔ Should handle root $merge keywords in header (33.771541ms)
+✔ Should handle root $patch keywords in header (24.62075ms)
+✔ Should handle $merge keywords in body (21.473667ms)
+✔ Should handle $patch keywords in body (20.444542ms)
+✔ serializer read validator's schemas (27.075583ms)
+✔ setSchemaController in a plugin (9.365416ms)
+✔ side effect on schema let the server crash (11.304875ms)
+✔ only response schema trigger AJV pollution (11.366458ms)
+✔ only response schema trigger AJV pollution #2 (9.480708ms)
+✔ setSchemaController in a plugin with head routes (24.099625ms)
+✔ multiple refs with the same ids (7.707458ms)
+✔ JOI validation overwrite request headers (9.426958ms)
+✔ Custom schema object should not trigger FST_ERR_SCH_DUPLICATE (2.672458ms)
+✔ The default schema compilers should not be called when overwritten by the user (4.951542ms)
+✔ Supports async JOI validation (2.17325ms)
+✔ Supports async AJV validation (14.615917ms)
+✔ Check all the async AJV validation paths (37.0615ms)
+✔ Check mixed sync and async AJV validations (14.432417ms)
+✔ Check if hooks and attachValidation work with AJV validations (12.283834ms)
+✔ basic test (69.626375ms)
+✔ custom serializer options (5.160709ms)
+✔ Different content types (44.733416ms)
+✔ Invalid multiple content schema, throw FST_ERR_SCH_CONTENT_MISSING_SCHEMA error (1.655083ms)
+✔ Use the same schema id in different places (2.692ms)
+✔ Use shared schema and $ref with $id in response ($ref to $id) (59.051667ms)
+✔ Shared schema should be pass to serializer and validator ($ref to shared schema /definitions) (46.026375ms)
+✔ Custom setSerializerCompiler (3.042625ms)
+✔ Custom setSerializerCompiler returns bad serialized output (1.713ms)
+✔ Custom setSerializerCompiler with addSchema (1.593125ms)
+✔ Custom serializer per route (6.203667ms)
+✔ Reply serializer win over serializer  (1.894375ms)
+✔ Reply serializer win over serializer  (1.375167ms)
+✔ The schema compiler recreate itself if needed (9.908333ms)
+✔ The schema changes the default error handler output (5.490833ms)
+✔ do not crash if status code serializer errors (15.602833ms)
+✔ custom schema serializer error, empty message (2.433833ms)
+✔ error in custom schema serialize compiler, throw FST_ERR_SCH_SERIALIZATION_BUILD error (1.194708ms)
+✔ Errors in serializer send to errorHandler (1.877125ms)
+✔ capital X (1.45925ms)
+✔ allow default as status code and used as last fallback (4.7145ms)
+✔ Should expose addSchema function (19.350833ms)
+✔ Should expose getSchema function (0.48525ms)
+✔ Should expose getSchemas function (0.429958ms)
+✔ Should expose setValidatorCompiler function (0.282541ms)
+✔ Should expose setSerializerCompiler function (0.310417ms)
+✔ cannot call setValidatorCompiler after binding (21.186208ms)
+✔ cannot call setSerializerCompiler after binding (14.796375ms)
+✔ The schemas should be added to an internal storage (4.359209ms)
+✔ The schemas should be accessible via getSchemas (0.5085ms)
+✔ The schema should be accessible by id via getSchema (10.115958ms)
+✔ Get validatorCompiler after setValidatorCompiler (1.119541ms)
+✔ Get serializerCompiler after setSerializerCompiler (3.119ms)
+✔ Get compilers is empty when settle on routes (18.009125ms)
+✔ Should throw if the $id property is missing (0.447584ms)
+✔ Cannot add multiple times the same id (0.261792ms)
+✔ Cannot add schema for query and querystring (1.428208ms)
+✔ Should throw of the schema does not exists in input (42.83825ms)
+✔ Should throw if schema is missing for content type (1.290125ms)
+✔ Should throw of the schema does not exists in output (9.311875ms)
+✔ Should not change the input schemas (33.148708ms)
+(node:87103) [FSTWRN001] FastifyWarning: The headers schema for POST: /:id is missing. This may indicate the schema is not well specified.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ Should emit warning if the schema headers is undefined (3.841584ms)
+(node:87103) [FSTWRN001] FastifyWarning: The body schema for POST: /:id is missing. This may indicate the schema is not well specified.
+✔ Should emit warning if the schema body is undefined (27.665292ms)
+(node:87103) [FSTWRN001] FastifyWarning: The querystring schema for POST: /:id is missing. This may indicate the schema is not well specified.
+✔ Should emit warning if the schema query is undefined (1.733917ms)
+(node:87103) [FSTWRN001] FastifyWarning: The params schema for POST: /:id is missing. This may indicate the schema is not well specified.
+✔ Should emit warning if the schema params is undefined (1.527ms)
+(node:87103) [FSTWRN001] FastifyWarning: The params schema for GET: /undefinedParams/:id is missing. This may indicate the schema is not well specified.
+(node:87103) [FSTWRN001] FastifyWarning: The params schema for HEAD: /undefinedParams/:id is missing. This may indicate the schema is not well specified.
+(node:87103) [FSTWRN001] FastifyWarning: The body schema for GET: /undefinedBody/:id is missing. This may indicate the schema is not well specified.
+(node:87103) [FSTWRN001] FastifyWarning: The body schema for HEAD: /undefinedBody/:id is missing. This may indicate the schema is not well specified.
+✔ Should emit a warning for every route with undefined schema (2.7005ms)
+✔ First level $ref (12.820542ms)
+✔ Customize validator compiler in instance and route (11.83475ms)
+✔ Use the same schema across multiple routes (9.617375ms)
+✔ Encapsulation should intervene (11.702542ms)
+✔ Encapsulation isolation (1.40525ms)
+✔ Add schema after register (16.147166ms)
+✔ Encapsulation isolation for getSchemas (7.14275ms)
+✔ Use the same schema id in different places (10.034458ms)
+✔ Get schema anyway should not add `properties` if allOf is present (8.319708ms)
+✔ Get schema anyway should not add `properties` if oneOf is present (16.711916ms)
+✔ Get schema anyway should not add `properties` if anyOf is present (7.67175ms)
+✔ Shared schema should be ignored in string enum (12.292334ms)
+✔ Shared schema should NOT be ignored in != string enum (19.729667ms)
+✔ Case insensitive header validation (18.213875ms)
+✔ Not evaluate json-schema $schema keyword (14.42475ms)
+✔ Validation context in validation result (13.508625ms)
+✔ The schema build should not modify the input (10.162958ms)
+✔ Cross schema reference with encapsulation references (21.279667ms)
+✔ Check how many AJV instances are built #1 (7.346875ms)
+✔ onReady hook has the compilers ready (14.448291ms)
+✔ Check how many AJV instances are built #2 - verify validatorPool (31.604833ms)
+✔ Add schema order should not break the startup (7.189291ms)
+✔ The schema compiler recreate itself if needed (32.491583ms)
+✔ Schema controller setter (0.443084ms)
+✔ Schema controller bucket (1.609584ms)
+✔ setSchemaController per instance (2.770708ms)
+✔ setSchemaController: Inherits correctly parent schemas with a customized validator instance (7.509125ms)
+✔ setSchemaController: Inherits buildSerializer from parent if not present within the instance (6.621709ms)
+✔ setSchemaController: Inherits buildValidator from parent if not present within the instance (9.806375ms)
+✔ Should throw if not default validator passed (9.396875ms)
+✔ Should coerce the array if the default validator is used (8.647917ms)
+✔ Should return a human-friendly error if response status codes are not specified (2.207834ms)
+✔ setSchemaController: custom validator instance should not mutate headers schema (1.058ms)
+✔ Example - URI $id (84.526333ms)
+✔ Example - string $id (18.468917ms)
+✔ Example - get schema (0.734167ms)
+✔ Example - get schema encapsulated (32.524208ms)
+✔ Example - validation (15.7755ms)
+✔ Example - ajv config (26.8615ms)
+✔ Example Joi (51.446833ms)
+✔ Example yup (7.450917ms)
+✔ Example - serialization (4.461791ms)
+✔ Example - serialization 2 (8.82925ms)
+✔ Example - serializator (1.542416ms)
+✔ Example - schemas examples (23.176583ms)
+✔ should return custom error messages with ajv-errors (21.877917ms)
+✔ should be able to handle formats of ajv-formats when added by plugins option (13.740458ms)
+✔ should return localized error messages with ajv-i18n (13.531084ms)
+✔ same shape on Request (251.493917ms)
+✔ same shape on Request when object (135.133291ms)
+✔ same shape on Reply (224.6765ms)
+✔ same shape on Reply when object (127.580417ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(node:87106) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(node:87106) [FSTDEP022] FastifyWarning: The router options for maxParamLength property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should honor ignoreTrailingSlash option (75.046417ms)
+✔ Should honor ignoreDuplicateSlashes option (5.098875ms)
+✔ Should honor ignoreTrailingSlash and ignoreDuplicateSlashes options (2.506584ms)
+✔ Should honor maxParamLength option (2.701084ms)
+✔ Should expose router options via getters on request and reply (35.787875ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for constraints property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should set is404 flag for unmatched paths (7.394375ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for constraints property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should honor frameworkErrors option - FST_ERR_BAD_URL (2.007417ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for constraints property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should supply Fastify request to the logger in frameworkErrors wrapper - FST_ERR_BAD_URL (27.298834ms)
+✔ Should honor disableRequestLogging option in frameworkErrors wrapper - FST_ERR_BAD_URL (1.9205ms)
+✔ Should honor frameworkErrors option - FST_ERR_ASYNC_CONSTRAINT (6.975416ms)
+✔ Should supply Fastify request to the logger in frameworkErrors wrapper - FST_ERR_ASYNC_CONSTRAINT (2.194333ms)
+✔ Should honor disableRequestLogging option in frameworkErrors wrapper - FST_ERR_ASYNC_CONSTRAINT (1.902083ms)
+✔ Should honor routerOptions.defaultRoute (1.305583ms)
+✔ Should honor routerOptions.badUrl (1.532166ms)
+✔ Should honor routerOptions.ignoreTrailingSlash (7.40625ms)
+✔ Should honor routerOptions.ignoreDuplicateSlashes (1.691041ms)
+✔ Should honor routerOptions.ignoreTrailingSlash and routerOptions.ignoreDuplicateSlashes (2.482875ms)
+✔ Should honor routerOptions.maxParamLength (1.530875ms)
+✔ Should honor routerOptions.allowUnsafeRegex (1.716125ms)
+✔ Should honor routerOptions.caseSensitive (1.398792ms)
+✔ Should honor routerOptions.queryStringParser (10.023917ms)
+✔ Should honor routerOptions.useSemicolonDelimiter (1.697417ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should honor routerOptions.buildPrettyMeta (2.618917ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for maxParamLength property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should honor routerOptions.ignoreTrailingSlash and routerOptions.ignoreDuplicateSlashes over top level options (4.961625ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for allowUnsafeRegex property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(node:87106) [FSTDEP022] FastifyWarning: The router options for caseSensitive property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Should honor routerOptions.maxParamLength over maxParamLength option (1.979333ms)
+✔ Should honor routerOptions.allowUnsafeRegex over allowUnsafeRegex option (1.56425ms)
+✔ Should honor routerOptions.caseSensitive over caseSensitive option (1.410417ms)
+✔ Should honor routerOptions.queryStringParser over queryStringParser option (1.21775ms)
+✔ Should honor routerOptions.useSemicolonDelimiter over useSemicolonDelimiter option (1.299708ms)
+(node:87106) [FSTDEP022] FastifyWarning: The router options for useSemicolonDelimiter property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ Request and Reply share the route options (55.357833ms)
+✔ Will not try to re-createprefixed HEAD route if it already exists and exposeHeadRoutes is true (4.535166ms)
+✔ route with non-english characters (57.651959ms)
+✔ invalid url attribute - non string URL (0.627584ms)
+✔ exposeHeadRoute should not reuse the same route option (0.758833ms)
+✔ using fastify.all when a catchall is defined does not degrade performance (30.230917ms)
+✔ Adding manually HEAD route after GET with the same path throws Fastify duplicated route instance error (1.023208ms)
+✔ Will pass onSend hook to HEAD method if exposeHeadRoutes is true /1 (3.093708ms)
+✔ Will pass onSend hook to HEAD method if exposeHeadRoutes is true /2 (2.169875ms)
+✔ HEAD route should handle stream.on('error') (71.72275ms)
+✔ HEAD route should handle ReadableStream.cancel() error (3.78875ms)
+✔ HEAD route should be exposed by default (6.784458ms)
+✔ HEAD route should be exposed if route exposeHeadRoute is set (3.035792ms)
+✔ Set a custom HEAD route before GET one without disabling exposeHeadRoutes (global) (8.130292ms)
+✔ Set a custom HEAD route before GET one without disabling exposeHeadRoutes (route) (1.884917ms)
+✔ HEAD routes properly auto created for GET routes when prefixTrailingSlash: 'no-slash' (2.661292ms)
+✔ HEAD routes properly auto created for GET routes when prefixTrailingSlash: 'both' (2.489833ms)
+✔ GET route with body schema should throw (0.822708ms)
+✔ HEAD route with body schema should throw (0.630667ms)
+✔ [HEAD, GET] route with body schema should throw (0.550458ms)
+✔ GET route with body schema should throw - shorthand (0.387708ms)
+✔ HEAD route with body schema should throw - shorthand (0.306333ms)
+✔ Creates a HEAD route for a GET one with prefixTrailingSlash (47.913333ms)
+✔ Will not create a HEAD route that is not GET (17.271708ms)
+✔ HEAD route should handle properly each response type (5.142916ms)
+✔ HEAD route should respect custom onSend handlers (1.976209ms)
+✔ route onSend can be function or array of functions (1.987667ms)
+✔ no warning for exposeHeadRoute (24.93525ms)
+✔ route child logger factory does not affect other routes (55.569ms)
+✔ route child logger factory overrides global custom error handler (5.003708ms)
+✔ Creates a HEAD route for each GET one (default) (2.815458ms)
+✔ Do not create a HEAD route for each GET one (exposeHeadRoutes: false) (2.202041ms)
+✔ Creates a HEAD route for each GET one (2.233458ms)
+✔ route error handler overrides global custom error handler (50.820125ms)
+✔ throws when route with empty url (1.17825ms)
+✔ throws when route with empty url in shorthand declaration (0.527916ms)
+✔ throws when route-level error handler is not a function (0.421875ms)
+✔ route child logger factory overrides default child logger factory (9.823042ms)
+✔ does not mutate joi schemas (58.432917ms)
+✔ multiple routes with one schema (30.038042ms)
+✔ route error handler overrides default error handler (9.367125ms)
+✔ route error handler does not affect other routes (2.471667ms)
+✔ async error handler for a route (2.46525ms)
+✔ same route definition object on multiple prefixes (44.978708ms)
+✔ path can be specified in place of uri (14.220208ms)
+✔ invalid bodyLimit option - route (2.547708ms)
+✔ handler function in options of shorthand route should works correctly (2.996583ms)
+▶ route
+  ✔ route - get (105.821ms)
+  ✔ missing schema - route (17.199167ms)
+  ✔ invalid handler attribute - route (0.698208ms)
+  ✔ Add Multiple methods per route all uppercase (24.154666ms)
+  ✔ Add Multiple methods per route all lowercase (12.077917ms)
+  ✔ Add Multiple methods per route mixed uppercase and lowercase (17.360084ms)
+  ✔ Add invalid Multiple methods per route (0.794333ms)
+  ✔ Add method (0.389458ms)
+  ✔ Add additional multiple methods to existing route (11.349708ms)
+  ✔ cannot add another route after binding (14.09225ms)
+✔ route (205.817375ms)
+✔ invalid schema - route (28.126792ms)
+▶ route-shorthand
+  ✔ route-shorthand - get (40.940833ms)
+  ✔ route-shorthand - head (9.818ms)
+  ✔ route-shorthand - trace (11.08275ms)
+  ✔ route-shorthand - delete (18.354792ms)
+  ✔ route-shorthand - options (24.05575ms)
+  ✔ route-shorthand - patch (10.178792ms)
+  ✔ route-shorthand - put (7.814375ms)
+  ✔ route-shorthand - post (9.625417ms)
+  ✔ route-shorthand - all (21.454208ms)
+✔ route-shorthand (154.657084ms)
+✔ Prefix options should add a prefix for all the routes inside a register / 1 (54.702417ms)
+✔ Prefix options should add a prefix for all the routes inside a register / 2 (4.271542ms)
+✔ Prefix options should add a prefix for all the chained routes inside a register / 3 (3.5655ms)
+✔ Prefix should support parameters as well (2.323625ms)
+✔ Prefix should support / (2.28075ms)
+✔ Prefix without / (3.36025ms)
+✔ Prefix with trailing / (2.969333ms)
+✔ Prefix works multiple levels deep (2.224084ms)
+✔ Different register - encapsulation check (4.734708ms)
+✔ Can retrieve prefix within encapsulated instances (2.455666ms)
+✔ matches both /prefix and /prefix/ with a / route (1.88625ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ prefix "/prefix/" does not match "/prefix" with a / route (1.992875ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/ with a / route - ignoreTrailingSlash: true (1.79075ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/ with a / route - ignoreDuplicateSlashes: true (1.779958ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/  with a / route - prefixTrailingSlash: "both", ignoreTrailingSlash: false (1.8795ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/  with a / route - prefixTrailingSlash: "both", ignoreDuplicateSlashes: false (3.648834ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/ with a / route - ignoreTrailingSlash: true, ignoreDuplicateSlashes: true (1.934417ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/ with a / route - ignoreTrailingSlash: true, ignoreDuplicateSlashes: false (6.641625ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ returns 404 status code with /prefix/ and / route - prefixTrailingSlash: "both" (default), ignoreTrailingSlash: true (1.660459ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/  with a / route - prefixTrailingSlash: "both", ignoreDuplicateSlashes: true (1.327292ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes, ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/  with a / route - prefixTrailingSlash: "both", ignoreTrailingSlash: true, ignoreDuplicateSlashes: true (1.239458ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches both /prefix and /prefix/  with a / route - prefixTrailingSlash: "both", ignoreDuplicateSlashes: true (1.254625ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreDuplicateSlashes property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches only /prefix  with a / route - prefixTrailingSlash: "no-slash", ignoreTrailingSlash: false (1.371958ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches only /prefix  with a / route - prefixTrailingSlash: "no-slash", ignoreDuplicateSlashes: false (1.399084ms)
+(node:87117) [FSTDEP022] FastifyWarning: The router options for ignoreTrailingSlash property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ matches only /prefix/  with a / route - prefixTrailingSlash: "slash", ignoreTrailingSlash: false (1.335666ms)
+✔ calls onRoute only once when prefixing (1.295959ms)
+✔ preHandler (61.685416ms)
+✔ preHandler option should be called after preHandler hook (4.524792ms)
+✔ preHandler option could accept an array of functions (5.159083ms)
+✔ preHandler option could accept an array of async functions (8.282917ms)
+✔ preHandler option does not interfere with preHandler hook (2.375708ms)
+✔ onSend (3.663917ms)
+✔ onSend option should be called after onSend hook (2.151209ms)
+✔ onSend option could accept an array of functions (3.50575ms)
+✔ onSend option could accept an array of async functions (6.548ms)
+✔ onSend option does not interfere with onSend hook (1.775708ms)
+✔ onRequest (1.470375ms)
+✔ onRequest option should be called after onRequest hook (6.426084ms)
+✔ onRequest option could accept an array of functions (1.339125ms)
+✔ onRequest option could accept an array of async functions (1.48625ms)
+✔ onRequest option does not interfere with onRequest hook (1.567083ms)
+✔ onResponse (2.492708ms)
+✔ onResponse option should be called after onResponse hook (5.795042ms)
+✔ onResponse option could accept an array of functions (1.423458ms)
+✔ onResponse option could accept an array of async functions (1.913292ms)
+✔ onResponse option does not interfere with onResponse hook (2.468959ms)
+✔ preValidation (1.635042ms)
+✔ preValidation option should be called after preValidation hook (2.429875ms)
+✔ preValidation option could accept an array of functions (7.630042ms)
+✔ preValidation option could accept an array of async functions (1.613875ms)
+✔ preValidation option does not interfere with preValidation hook (1.198334ms)
+✔ preParsing (2.951333ms)
+✔ preParsing option should be called after preParsing hook (5.034125ms)
+✔ preParsing option could accept an array of functions (1.844334ms)
+✔ preParsing option could accept an array of async functions (1.670542ms)
+✔ preParsing option does not interfere with preParsing hook (3.798708ms)
+✔ preHandler option should be unique per route (5.3695ms)
+✔ preHandler option should handle errors (5.123083ms)
+✔ preHandler option should handle throwing objects (1.55075ms)
+✔ preHandler option should handle throwing objects by default (1.163166ms)
+✔ preHandler option should handle errors with custom status code (3.39875ms)
+✔ preHandler option should keep the context (2.682875ms)
+✔ preHandler option should keep the context (array) (1.533959ms)
+✔ onRequest option should be unique per route (1.770416ms)
+✔ onRequest option should handle errors (1.062625ms)
+✔ onRequest option should handle throwing objects (2.396833ms)
+✔ onRequest option should handle throwing objects by default (0.960083ms)
+✔ onRequest option should handle errors with custom status code (0.857167ms)
+✔ onRequest option should keep the context (2.333208ms)
+✔ onRequest option should keep the context (array) (1.29275ms)
+✔ preValidation option should be unique per route (1.986833ms)
+✔ preValidation option should handle errors (3.4955ms)
+✔ preValidation option should handle throwing objects (1.103041ms)
+✔ preValidation option should handle throwing objects by default (0.869083ms)
+✔ preValidation option should handle errors with custom status code (0.995416ms)
+✔ preValidation option should keep the context (0.959458ms)
+✔ preValidation option should keep the context (array) (1.382792ms)
+✔ preParsing option should be unique per route (3.724792ms)
+✔ preParsing option should handle errors (1.388458ms)
+✔ preParsing option should handle throwing objects (1.208166ms)
+✔ preParsing option should handle throwing objects by default (0.872291ms)
+✔ preParsing option should handle errors with custom status code (0.804042ms)
+✔ preParsing option should keep the context (6.199083ms)
+✔ preParsing option should keep the context (array) (2.414ms)
+✔ preValidation option should be called before preHandler hook (3.111209ms)
+✔ preSerialization option should be able to modify the payload (1.3155ms)
+✔ preParsing option should be called before preValidation hook (1.439458ms)
+✔ preParsing option should be able to modify the payload (1.41325ms)
+✔ preParsing option should be able to supply statusCode (1.611167ms)
+✔ onRequest option should be called before preParsing (2.509208ms)
+✔ onTimeout on route (540.829875ms)
+✔ onError on route (1.632917ms)
+✔ requestTimeout passed to server (51.649292ms)
+✔ requestTimeout should be set (0.384333ms)
+✔ requestTimeout should 0 (0.372542ms)
+✔ The request id header key can be customized (55.930584ms)
+✔ The request id header key can be customized (2.708333ms)
+✔ The request id header key can be customized (50.409416ms)
+✔ The request id header key can be customized (11.955167ms)
+✔ The request id header key can be customized (30.59775ms)
+✔ Return 400 when Host header is missing (64.569834ms)
+✔ Return 400 when Host header is missing with trust proxy (6.506833ms)
+✔ Return 200 when Host header is empty (1021.577333ms)
+✔ Return 200 when Host header is empty with trust proxy (1015.835625ms)
+✔ Return 200 when Host header is missing and http.requireHostHeader = false (1015.28825ms)
+✔ Return 200 when Host header is missing and http.requireHostHeader = false with trust proxy (1016.843542ms)
+✔ Return 200 when Host header is missing using HTTP/1.0 (4.1825ms)
+✔ Return 200 when Host header is missing with trust proxy using HTTP/1.0 (3.319208ms)
+✔ Return 200 when Host header is removed by schema (1032.964625ms)
+✔ Return 200 when Host header is removed by schema with trust proxy (1027.347333ms)
+✔ default 400 on request error (61.915083ms)
+✔ default 400 on request error with custom error handler (3.288958ms)
+✔ default clientError handler ignores ECONNRESET (32.586375ms)
+✔ default clientError handler ignores sockets in destroyed state (0.581459ms)
+✔ default clientError handler destroys sockets in writable state (0.41675ms)
+✔ default clientError handler destroys http sockets in non-writable state (0.322042ms)
+✔ error handler binding (3.884792ms)
+✔ encapsulated error handler binding (2.98025ms)
+✔ default clientError replies with bad request on reused keep-alive connection (5.377083ms)
+✔ request.routeOptions.method is an uppercase string /1 (42.870833ms)
+✔ request.routeOptions.method is an uppercase string /2 (10.606417ms)
+✔ request.routeOptions.method is an uppercase string /3 (5.341458ms)
+✔ request.routeOptions.method is an array with uppercase string (6.365542ms)
+✔ test request.routeOptions.version (7.51625ms)
+
+...120623 bytes truncated...
+
+The tool call succeeded but the output was truncated. Full output saved to: /Users/twaldin/.local/share/opencode/tool-output/tool_d5c3c9b300017P5VX34QLU2X1o
+Use the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.
+[0m
+[0m$ [0mnpx borp test/diagnostics-channel/error-status.test.js 2>&1 | grep -E "(✔|✖|Error|error-status|fail|pass|AssertionError)" | head -30
+✔ Error.status property support (59.66975ms)
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (4.09475ms)
+✖ diagnostics channel reports error status code for async handler (5.552917ms)
+✖ diagnostics channel reports custom error status code from error instance (2.233ms)
+✖ diagnostics channel reports status code set via reply.status before throw (1.853958ms)
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.554875ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (0.562041ms)
+✔ should response with a ReadableStream (98.089125ms)
+✔ should response with a Response (7.191875ms)
+✔ should response with a Response 204 (5.219125ms)
+✔ should response with a Response 304 (4.442542ms)
+✔ should response with a Response without body (4.379417ms)
+✔ able to use in onSend hook - ReadableStream (22.756333ms)
+✔ able to use in onSend hook - Response (14.243417ms)
+✔ Error when Response.bodyUsed (10.523416ms)
+✔ Error when Response.body.locked (2.339125ms)
+✔ Error when ReadableStream.locked (2.047875ms)
+✔ allow to pipe with fetch (41.042042ms)
+✔ allow to pipe with undici.fetch (12.445875ms)
+✔ Should register a versioned route (inject) (88.638417ms)
+✔ Should register a versioned route via route constraints (4.872584ms)
+✔ Should register the same route with different versions (2.662083ms)
+✔ The versioned route should take precedence (1.972083ms)
+✔ Versioned route but not version header should return a 404 (1.486833ms)
+✔ Should register a versioned route (server) (59.13975ms)
+✔ Shorthand route declaration (2.949958ms)
+✔ The not found handler should not erase the Accept-Version header (2.246209ms)
+✔ Bad accept version (inject) (19.833292ms)
+✔ Bad accept version (server) (17.24625ms)
+✔ test log stream (41.907167ms)
+[0m
+[0m$ [0mnpx borp test/diagnostics-channel/error-status.test.js 2>&1 | grep -A 20 "diagnostics channel reports error status code for sync handler"
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (4.008625ms)
+✖ diagnostics channel reports error status code for async handler (3.577208ms)
+✖ diagnostics channel reports custom error status code from error instance (1.873709ms)
+✖ diagnostics channel reports status code set via reply.status before throw (1.844542ms)
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.546125ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (0.559458ms)
+✔ should response with a ReadableStream (71.19ms)
+✔ should response with a Response (6.536ms)
+✔ should response with a Response 204 (2.139458ms)
+✔ should response with a Response 304 (1.545875ms)
+✔ should response with a Response without body (1.529542ms)
+✔ able to use in onSend hook - ReadableStream (10.424291ms)
+✔ able to use in onSend hook - Response (8.56025ms)
+✔ Error when Response.bodyUsed (12.304292ms)
+✔ Error when Response.body.locked (5.444084ms)
+✔ Error when ReadableStream.locked (3.001084ms)
+✔ allow to pipe with fetch (46.222916ms)
+✔ allow to pipe with undici.fetch (25.494ms)
+✔ Should register a versioned route (inject) (70.234375ms)
+✔ Should register a versioned route via route constraints (5.637542ms)
+✔ Should register the same route with different versions (2.66575ms)
+--
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (5.278375ms)
+✖ diagnostics channel reports error status code for async handler (2.942792ms)
+✖ diagnostics channel reports custom error status code from error instance (2.144834ms)
+✖ diagnostics channel reports status code set via reply.status before throw (2.025833ms)
+✔ diagnostics channel events report on errors (73.384708ms)
+✔ diagnostics channel handles an error before calling context handler (1.384583ms)
+✔ diagnostics channel async events fire in expected order (70.624458ms)
+✔ diagnostics channel async events fire in expected order (70.868875ms)
+✔ diagnostics channel sync events fire in expected order (70.013041ms)
+✔ should be the same as package.json (1.074291ms)
+✔ check generated code syntax (646.527625ms)
+﹣ ensure the current error serializer is latest (0.150166ms) # SKIP
+ℹ tests 2153
+ℹ suites 16
+ℹ pass 2141
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 10517.142041
+
+--
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (4.008625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'bar'
+  - 'winter is coming'
+  
+      at assert.<computed> [as strictEqual] (node:internal/test_runner/test:320:18)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/test/diagnostics-channel/error-status.test.js:16:14
+      at Channel.publish (node:diagnostics_channel:150:9)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js:65:22
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'bar',
+    expected: 'winter is coming',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/diagnostics-channel/error-status.test.js:78:1
+--
+✖ diagnostics channel reports error status code for sync handler with setErrorHandler (5.278375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'bar'
+  - 'winter is coming'
+  
+      at assert.<computed> [as strictEqual] (node:internal/test_runner/test:320:18)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/test/diagnostics-channel/error-status.test.js:16:14
+      at Channel.publish (node:diagnostics_channel:150:9)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-nsaNnF/lib/wrap-thenable.js:65:22
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'bar',
+    expected: 'winter is coming',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/diagnostics-channel/error-status.test.js:78:1
+[0m
+[0m→ [0mRead test/diagnostics-channel/error-status.test.js
+The tests are interfering with each other because the diagnostics channel is global. I need to fix the test isolation. Let me rewrite the tests to properly handle this:
+[0m
+[0m← [0mWrite test/diagnostics-channel/error-status.test.js
+Wrote file successfully.
+[0m
+[0m$ [0mnpx borp test/diagnostics-channel/error-status.test.js 2>&1 | grep -E "(✔|✖|Error|error-status|fail|pass|AssertionError)" | head -20
+✔ Error.status property support (76.684958ms)
+✔ diagnostics channel reports error status code for sync handler with setErrorHandler (3.668791ms)
+✔ diagnostics channel reports error status code for async handler (4.568333ms)
+✔ diagnostics channel reports custom error status code from error instance (2.576291ms)
+✔ diagnostics channel reports status code set via reply.status before throw (1.881625ms)
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.60975ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (0.603ms)
+✔ should response with a ReadableStream (84.976042ms)
+✔ should response with a Response (11.655709ms)
+✔ should response with a Response 204 (4.39825ms)
+✔ should response with a Response 304 (1.822167ms)
+✔ should response with a Response without body (1.731625ms)
+✔ able to use in onSend hook - ReadableStream (4.1625ms)
+✔ able to use in onSend hook - Response (19.505084ms)
+✔ Error when Response.bodyUsed (6.620708ms)
+✔ Error when Response.body.locked (2.084333ms)
+✔ Error when ReadableStream.locked (2.137125ms)
+✔ allow to pipe with fetch (43.006459ms)
+✔ allow to pipe with undici.fetch (16.722959ms)
+✔ Should register a versioned route (inject) (72.989209ms)
+[0m
+[0m$ [0mnpx borp 'test/diagnostics-channel/*.test.js' 2>&1 | grep -E "(✔|✖|fail|pass|Error)" | head -40
+✔ diagnostics channel sync events fire in expected order (88.053791ms)
+✔ diagnostics channel sync events fire in expected order (97.281125ms)
+✔ diagnostics channel sync events fire in expected order (100.756375ms)
+✔ diagnostics_channel when present and subscribers (113.079792ms)
+✔ diagnostics_channel when present and no subscribers (4.641375ms)
+✔ Error.status property support (49.92675ms)
+✔ diagnostics channel reports error status code for sync handler with setErrorHandler (4.727625ms)
+✔ diagnostics channel reports error status code for async handler (2.813458ms)
+✔ diagnostics channel reports custom error status code from error instance (2.454625ms)
+✔ diagnostics channel reports status code set via reply.status before throw (1.836166ms)
+✔ diagnostics channel events report on errors (81.842083ms)
+✔ diagnostics channel handles an error before calling context handler (1.131917ms)
+✔ diagnostics channel async events fire in expected order (89.354958ms)
+✔ diagnostics channel async events fire in expected order (88.835209ms)
+✔ diagnostics channel sync events fire in expected order (84.285667ms)
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.895ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (1.142291ms)
+✔ should response with a ReadableStream (84.872333ms)
+✔ should response with a Response (7.105041ms)
+✔ should response with a Response 204 (6.68225ms)
+✔ should response with a Response 304 (1.773792ms)
+✔ should response with a Response without body (1.695708ms)
+✔ able to use in onSend hook - ReadableStream (4.6725ms)
+✔ able to use in onSend hook - Response (5.80875ms)
+✔ Error when Response.bodyUsed (12.600875ms)
+✔ Error when Response.body.locked (2.391541ms)
+✔ Error when ReadableStream.locked (2.106ms)
+✔ allow to pipe with fetch (38.4745ms)
+✔ allow to pipe with undici.fetch (19.183167ms)
+✔ Should register a versioned route (inject) (54.100459ms)
+✔ Should register a versioned route via route constraints (3.694333ms)
+✔ Should register the same route with different versions (2.346291ms)
+✔ The versioned route should take precedence (1.802042ms)
+✔ Versioned route but not version header should return a 404 (1.381209ms)
+✔ Should register a versioned route (server) (34.152375ms)
+✔ Shorthand route declaration (2.383792ms)
+✔ The not found handler should not erase the Accept-Version header (1.908416ms)
+✔ Bad accept version (inject) (13.607459ms)
+✔ Bad accept version (server) (8.283583ms)
+✔ test log stream (40.714833ms)
+[0m
+All diagnostics channel tests pass. Let me run the full test suite to verify nothing is broken:
+[0m$ [0mnpm run unit 2>&1 | tail -20
+✔ diagnostics channel reports error status code for sync handler with setErrorHandler (64.052625ms)
+✔ diagnostics channel reports error status code for async handler (2.73525ms)
+✔ diagnostics channel reports custom error status code from error instance (2.157583ms)
+✔ diagnostics channel reports status code set via reply.status before throw (2.118042ms)
+✔ diagnostics channel events report on errors (182.838ms)
+✔ diagnostics channel handles an error before calling context handler (1.590334ms)
+✔ diagnostics channel async events fire in expected order (150.591542ms)
+✔ diagnostics channel async events fire in expected order (149.3605ms)
+✔ diagnostics channel sync events fire in expected order (137.2725ms)
+✔ should be the same as package.json (1.388125ms)
+✔ check generated code syntax (926.779375ms)
+﹣ ensure the current error serializer is latest (0.159208ms) # SKIP
+ℹ tests 2148
+ℹ suites 16
+ℹ pass 2144
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 10491.544334
+[0m
+[0m# [0mTodos
+[x] Understand the issue: error diagnostic channel always sends 200
+[x] Fix handle-request.js to set status code before publishing error
+[x] Fix wrap-thenable.js to set status code before publishing error
+[x] Write test to verify the fix
+[x] Run tests to verify solution
+[0m
+All 2144 tests pass. The fix is complete.
+
+**Summary:** Added `setReplyErrorStatusCode()` calls before publishing to the error diagnostics channel in `lib/handle-request.js` (lines 149, 161) and `lib/wrap-thenable.js` (line 55). This ensures `reply.statusCode` reflects the correct error status (from `error.statusCode`/`error.status` or defaults to 500) rather than always being 200.
+
+> fastify@5.6.2 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.2 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.2 lint:eslint
+> eslint
+
+sh: eslint: command not found
+
+> fastify@5.6.2 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.2 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.2 lint:eslint
+> eslint
+
+sh: eslint: command not found

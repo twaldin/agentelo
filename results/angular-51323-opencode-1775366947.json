@@ -1,0 +1,22 @@
+{
+  "run_id": "angular-51323-opencode-1775366947",
+  "challenge_id": "angular-51323",
+  "harness": "opencode",
+  "model": "opencode/minimax-m2.5-free",
+  "agent_hash": "68d8ec5cefd8",
+  "started_at": "2026-04-05T05:33:30.260Z",
+  "finished_at": "2026-04-05T05:34:37.090Z",
+  "tests_passed": false,
+  "time_seconds": 0.121,
+  "exit_code": 127,
+  "diff_lines": 6,
+  "diff": "diff --git a/packages/compiler/src/ml_parser/lexer.ts b/packages/compiler/src/ml_parser/lexer.ts\nindex 3c8b04ab61..88320622d8 100644\n--- a/packages/compiler/src/ml_parser/lexer.ts\n+++ b/packages/compiler/src/ml_parser/lexer.ts\n@@ -1431,7 +1431,11 @@ function isDigitEntityEnd(code: number): boolean {\n }\n \n function isNamedEntityEnd(code: number): boolean {\n-  return code === chars.$SEMICOLON || code === chars.$EOF || !chars.isAsciiLetter(code);\n+  return (\n+    code === chars.$SEMICOLON ||\n+    code === chars.$EOF ||\n+    !(chars.isAsciiLetter(code) || chars.isDigit(code))\n+  );\n }\n \n function isExpansionCaseStart(peek: number): boolean {\n",
+  "tampered": false,
+  "tampered_files": [],
+  "log_file": "/Users/twaldin/agentelo/results/angular-51323-opencode-1775366947.log",
+  "timed_out": false,
+  "config_files": [],
+  "baseline": true,
+  "home_isolation": "/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-home-fDVTrm",
+  "config_files_hashed": []
+}

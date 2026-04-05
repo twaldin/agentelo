@@ -1,0 +1,24 @@
+{
+  "id": "jq-3273",
+  "repo": "jqlang/jq",
+  "repoUrl": "https://github.com/jqlang/jq",
+  "issue": {
+    "number": 3273,
+    "title": "Strange behaviours of slurping streaming input without line terminators at the end",
+    "body": "**Describe the bug**\nWhen the input steam has no line terminator (and space) at the end, the combination of `--slurp` and `--stream` flags behaves oddly.\n\n**To Reproduce**\n```sh\n $ printf \"[1]\\n\" | jq -c -s --stream .\n[[[0],1],[[0]]] # ok\n\n $ printf \"[1]\" | jq -c -s --stream .  \n[[[0],1]]\n[[0]] # unexpected\n```\n\n**Expected behavior**\nThe second command outputs as same as the first command.\n\n**Environment (please complete the following information):**\n\n- OS and Version: not related\n- jq version: 1.7.1 (and 1.7, 1.6)\n\n**Additional context**\nThis is a close issue of #1534 but with the streaming parser flag.\n"
+  },
+  "pr": {
+    "number": 3279,
+    "url": "https://github.com/jqlang/jq/pull/3279"
+  },
+  "buggyCommit": "7d8c096e487a6ef5f7294e4862938d594ad67f57",
+  "fixCommit": "4e3088f1888f367ce744d830423848d15a03f5d0",
+  "fixDiff": "diff --git a/src/util.c b/src/util.c\nindex 25bc5d5f88..bcb86da836 100644\n--- a/src/util.c\n+++ b/src/util.c\n@@ -271,12 +271,11 @@ static int jq_util_input_read_more(jq_util_input_state *state) {\n         fclose(state->current_input);\n       }\n       state->current_input = NULL;\n-      jv_free(state->current_filename);\n-      state->current_filename = jv_invalid();\n-      state->current_line = 0 ;\n     }\n     const char *f = next_file(state);\n     if (f != NULL) {\n+      jv_free(state->current_filename);\n+      state->current_line = 0;\n       if (!strcmp(f, \"-\")) {\n         state->current_input = stdin;\n         state->current_filename = jv_string(\"<stdin>\");\n@@ -288,7 +287,6 @@ static int jq_util_input_read_more(jq_util_input_state *state) {\n           state->failures++;\n         }\n       }\n-      state->current_line = 0;\n     }\n   }\n \n@@ -344,8 +342,7 @@ static int jq_util_input_read_more(jq_util_input_state *state) {\n       }\n     }\n   }\n-  return state->curr_file == state->nfiles &&\n-      (!state->current_input || feof(state->current_input) || ferror(state->current_input));\n+  return state->curr_file == state->nfiles && !state->current_input;\n }\n \n jv jq_util_input_next_input_cb(jq_state *jq, void *data) {\n@@ -399,7 +396,6 @@ jv jq_util_input_get_current_line(jq_state* jq) {\n // When slurping, it returns just one value\n jv jq_util_input_next_input(jq_util_input_state *state) {\n   int is_last = 0;\n-  int has_more = 0;\n   jv value = jv_invalid(); // need more input\n   do {\n     if (state->parser == NULL) {\n@@ -429,10 +425,6 @@ jv jq_util_input_next_input(jq_util_input_state *state) {\n       }\n       value = jv_parser_next(state->parser);\n       if (jv_is_valid(state->slurped)) {\n-        // When slurping an input that doesn't have a trailing newline,\n-        // we might have more than one value on the same line, so let's check\n-        // to see if we have more data to parse.\n-        has_more = jv_parser_remaining(state->parser);\n         if (jv_is_valid(value)) {\n           state->slurped = jv_array_append(state->slurped, value);\n           value = jv_invalid();\n@@ -442,7 +434,7 @@ jv jq_util_input_next_input(jq_util_input_state *state) {\n         return value;\n       }\n     }\n-  } while (!is_last || has_more);\n+  } while (!is_last);\n \n   if (jv_is_valid(state->slurped)) {\n     value = state->slurped;\ndiff --git a/tests/shtest b/tests/shtest\nindex a2459e5117..5853efffbc 100755\n--- a/tests/shtest\n+++ b/tests/shtest\n@@ -155,6 +155,13 @@ cmp $d/out $d/expected\n printf \"[1,2][3,4]\\n\" | $JQ -cs add > $d/out 2>&1\n cmp $d/out $d/expected\n \n+# Regression test for #3273\n+echo \"[[[0],1],[[0]],[[0],2],[[0]]]\" > $d/expected\n+printf \"[1][2]\" | $JQ -c -s --stream . > $d/out 2>&1\n+cmp $d/out $d/expected\n+printf \"[1][2]\\n\" | $JQ -c -s --stream . > $d/out 2>&1\n+cmp $d/out $d/expected\n+\n # Regression test for --raw-output0\n printf \"a\\0b\\0\" > $d/expected\n printf '[\"a\", \"b\"]' | $VALGRIND $Q $JQ --raw-output0 '.[]' > $d/out\n",
+  "testCommand": null,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 11,
+    "linesRemoved": 12
+  },
+  "minedAt": "2026-04-05T05:11:51.377Z"
+}

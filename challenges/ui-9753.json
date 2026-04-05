@@ -1,0 +1,24 @@
+{
+  "id": "ui-9753",
+  "repo": "shadcn-ui/ui",
+  "repoUrl": "https://github.com/shadcn-ui/ui",
+  "issue": {
+    "number": 9753,
+    "title": "[bug]: \"Select\" Component (BaseUI) render the \"value\" prop not the Text",
+    "body": "### Describe the bug\n\n```\n\t\t\t\t\t\t<Select>\n\t\t\t\t\t\t\t<SelectTrigger className=\"w-[180px]\">\n\t\t\t\t\t\t\t\t<SelectValue placeholder=\"Theme\" />\n\t\t\t\t\t\t\t</SelectTrigger>\n\t\t\t\t\t\t\t<SelectContent>\n\t\t\t\t\t\t\t\t<SelectGroup>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"light\">Light</SelectItem>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"dark\">Dark</SelectItem>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"system\">System</SelectItem>\n\t\t\t\t\t\t\t\t</SelectGroup>\n\t\t\t\t\t\t\t</SelectContent>\n\t\t\t\t\t\t</Select>\n```\n\n\nIn this example the Select component render values when select it, \"light\" instead of \"Light\"\n\n### Affected component/components\n\nSelect\n\n### How to reproduce\n\ntry this and change the selected one to anything\n\n\n```\n\t\t\t\t\t\t<Select>\n\t\t\t\t\t\t\t<SelectTrigger className=\"w-[180px]\">\n\t\t\t\t\t\t\t\t<SelectValue placeholder=\"Theme\" />\n\t\t\t\t\t\t\t</SelectTrigger>\n\t\t\t\t\t\t\t<SelectContent>\n\t\t\t\t\t\t\t\t<SelectGroup>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"light\">Light</SelectItem>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"dark\">Dark</SelectItem>\n\t\t\t\t\t\t\t\t\t<SelectItem value=\"system\">System</SelectItem>\n\t\t\t\t\t\t\t\t</SelectGroup>\n\t\t\t\t\t\t\t</SelectContent>\n\t\t\t\t\t\t</Select>\n```\n\n\n### Codesandbox/StackBlitz link\n\ngg\n\n### Logs\n\n```bash\n\n```\n\n### System Info\n\n```bash\nMacOS, Brave, Nextjs, BaseUI\n```\n\n### Before submitting\n\n- [x] I've made research efforts and searched the documentation\n- [x] I've searched for existing issues"
+  },
+  "pr": {
+    "number": 9755,
+    "url": "https://github.com/shadcn-ui/ui/pull/9755"
+  },
+  "buggyCommit": "bb7cf2c4259ba55bceea6be1c9b254d714f05083",
+  "fixCommit": "fb2a3433e2c3b1c1011a4e7e3bbe18de7ff15892",
+  "fixDiff": "diff --git a/apps/v4/content/docs/components/base/select.mdx b/apps/v4/content/docs/components/base/select.mdx\nindex 5282d7d547c..53e0c848afb 100644\n--- a/apps/v4/content/docs/components/base/select.mdx\n+++ b/apps/v4/content/docs/components/base/select.mdx\n@@ -67,15 +67,23 @@ import {\n ```\n \n ```tsx showLineNumbers\n-<Select>\n+const items = [\n+  { label: \"Light\", value: \"light\" },\n+  { label: \"Dark\", value: \"dark\" },\n+  { label: \"System\", value: \"system\" },\n+]\n+\n+<Select items={items}>\n   <SelectTrigger className=\"w-[180px]\">\n     <SelectValue placeholder=\"Theme\" />\n   </SelectTrigger>\n   <SelectContent>\n     <SelectGroup>\n-      <SelectItem value=\"light\">Light</SelectItem>\n-      <SelectItem value=\"dark\">Dark</SelectItem>\n-      <SelectItem value=\"system\">System</SelectItem>\n+      {items.map((item) => (\n+        <SelectItem key={item.value} value={item.value}>\n+          {item.label}\n+        </SelectItem>\n+      ))}\n     </SelectGroup>\n   </SelectContent>\n </Select>\n",
+  "testCommand": "npm test",
+  "difficulty": {
+    "filesChanged": 1,
+    "linesAdded": 12,
+    "linesRemoved": 4
+  },
+  "minedAt": "2026-04-05T05:11:34.275Z"
+}

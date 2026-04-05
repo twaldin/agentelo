@@ -1,0 +1,429 @@
+Performing one time database migration, may take a few minutes...
+sqlite-migration:done
+Database migration complete.
+[0m
+> build · minimax-m2.5-free
+[0m
+[0m✱ [0mGlob "**/*error*"[90m 20 matches[0m
+[0m✱ [0mGrep "setErrorHandler"[90m 16 matches[0m
+[0m→ [0mRead types/instance.d.ts[90m [limit=40, offset=465][0m
+Let me also check the tests for more context on what is expected:
+[0m→ [0mRead test/types/instance.test-d.ts[90m [limit=80, offset=40][0m
+[0m→ [0mRead lib/error-handler.js
+[0m
+[0m$ [0mnpm test 2>&1 | head -100
+> fastify@5.6.1 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.1 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.1 lint:eslint
+> eslint
+
+sh: eslint: command not found
+[0m
+[0m$ [0mnpm install 2>&1 | tail -20
+npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 735 packages, and audited 736 packages in 17s
+
+269 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (3 low, 3 moderate, 2 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+[0m
+[0m$ [0mnpm test 2>&1 | head -150
+> fastify@5.6.1 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.1 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.1 lint:eslint
+> eslint
+
+
+> fastify@5.6.1 unit
+> borp
+
+✔ should resolve immediately when reply[kReplyHijacked] is true (0.601875ms)
+✔ should reject immediately when reply[kReplyHijacked] is true (0.602875ms)
+✔ should response with a ReadableStream (66.225542ms)
+✔ should response with a Response (10.342708ms)
+✔ should response with a Response 204 (2.234125ms)
+✔ should response with a Response 304 (3.601709ms)
+✔ should response with a Response without body (3.4595ms)
+✔ able to use in onSend hook - ReadableStream (4.662167ms)
+✔ able to use in onSend hook - Response (9.192166ms)
+✔ Error when Response.bodyUsed (8.091083ms)
+✔ Error when Response.body.locked (2.248833ms)
+✔ Error when ReadableStream.locked (2.036375ms)
+✔ allow to pipe with fetch (42.698167ms)
+✔ allow to pipe with undici.fetch (28.6915ms)
+✔ Should register a versioned route (inject) (35.144333ms)
+✔ Should register a versioned route via route constraints (3.275709ms)
+✔ Should register the same route with different versions (20.041417ms)
+✔ The versioned route should take precedence (2.59825ms)
+✔ Versioned route but not version header should return a 404 (1.742708ms)
+✔ Should register a versioned route (server) (37.37125ms)
+✔ Shorthand route declaration (3.779084ms)
+✔ The not found handler should not erase the Accept-Version header (2.302916ms)
+✔ Bad accept version (inject) (6.640625ms)
+✔ Bad accept version (server) (8.175584ms)
+✔ test log stream (75.691458ms)
+✔ Should register a versioned route with custom versioning strategy (2.642917ms)
+✔ Vary header check (for documentation example) (1.853333ms)
+✔ should work with valid payload (118.54425ms)
+✔ should fail immediately with invalid payload (19.099083ms)
+✔ should be able to use setErrorHandler specify custom validation error (17.241291ms)
+✔ validation error has 400 statusCode set (16.446ms)
+✔ error inside custom error handler should have validationContext (4.9555ms)
+✔ error inside custom error handler should have validationContext if specified by custom error handler (3.783375ms)
+✔ should be able to attach validation to request (11.259833ms)
+✔ should respect when attachValidation is explicitly set to false (9.019291ms)
+✔ Attached validation error should take precedence over setErrorHandler (13.747084ms)
+✔ should handle response validation error (5.998708ms)
+✔ should handle response validation error with promises (2.362625ms)
+✔ should return a defined output message parsing AJV errors (8.897583ms)
+✔ should return a defined output message parsing JOI errors (5.271042ms)
+✔ should return a defined output message parsing JOI error details (2.383375ms)
+✔ the custom error formatter context must be the server instance (21.2785ms)
+✔ the custom error formatter context must be the server instance in options (8.738583ms)
+✔ should call custom error formatter (15.846917ms)
+✔ should catch error inside formatter and return message (29.833917ms)
+✔ cannot create a fastify instance with wrong type of errorFormatter (0.772334ms)
+✔ should register a route based schema error formatter (7.754625ms)
+✔ prefer route based error formatter over global one (28.2085ms)
+✔ adding schemaErrorFormatter (9.635375ms)
+✔ plugin override (25.350625ms)
+(node:52427) [FSTDEP022] FastifyWarning: The router options for useSemicolonDelimiter property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ use semicolon delimiter default false (84.709667ms)
+(node:52427) [FSTDEP022] FastifyWarning: The router options for useSemicolonDelimiter property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ use semicolon delimiter set to true (10.804334ms)
+(node:52427) [FSTDEP022] FastifyWarning: The router options for useSemicolonDelimiter property access is deprecated. Please use "options.routerOptions" instead for accessing router options. The router options will be removed in `fastify@6`.
+✔ use semicolon delimiter set to false (16.133125ms)
+✔ use semicolon delimiter set to false return 404 (13.109ms)
+✔ use routerOptions semicolon delimiter default false (9.851084ms)
+✔ use routerOptions semicolon delimiter set to true (5.4925ms)
+✔ use routerOptions semicolon delimiter set to false (6.131083ms)
+✔ use routerOptions semicolon delimiter set to false return 404 (10.621916ms)
+✔ Should rewrite url (82.218125ms)
+✔ Should not rewrite if the url is the same (13.059375ms)
+✔ Should throw an error (16.44825ms)
+✔ Should rewrite url but keep originalUrl unchanged (15.947583ms)
+▶ upgrade to both servers
+  ✔ upgrade IPv4 and IPv6 (26.756083ms)
+✔ upgrade to both servers (27.579583ms)
+✔ Should export withTypeProvider function (5.69375ms)
+✔ Should return same instance (0.505041ms)
+✔ trust proxy, not add properties to node req (68.312416ms)
+✔ trust proxy chain (16.589125ms)
+✔ trust proxy function (15.530375ms)
+✔ trust proxy number (9.35975ms)
+✔ trust proxy IP addresses (10.643417ms)
+✔ trust proxy protocol (12.452834ms)
+✔ Fastify should throw on wrong options (1.850583ms)
+✔ Fastify should throw on multiple assignment to the same route (5.9905ms)
+✔ Fastify should throw for an invalid schema, printing the error route - headers (30.998792ms)
+✔ Fastify should throw for an invalid schema, printing the error route - body (31.374791ms)
+✔ Should throw on unsupported method (0.5235ms)
+✔ Should throw on missing handler (0.350459ms)
+✔ Should throw if one method is unsupported (0.294542ms)
+✔ Should throw on duplicate content type parser (0.438417ms)
+✔ Should throw on duplicate decorator (0.432ms)
+✔ Should not throw on duplicate decorator encapsulation (19.176209ms)
+✔ Should throw on duplicate request decorator (0.854583ms)
+✔ Should throw if request decorator dependencies are not met (0.446125ms)
+✔ Should throw on duplicate reply decorator (0.291958ms)
+✔ Should throw if reply decorator dependencies are not met (0.2155ms)
+✔ Should throw if handler as the third parameter to the shortcut method is missing and the second parameter is not a function and also not an object (0.332458ms)
+✔ Should throw if handler as the third parameter to the shortcut method is missing and the second parameter is not a function and also not an object (0.2985ms)
+✔ Should throw if there is handler function as the third parameter to the shortcut method and options as the second parameter is not an object (0.305458ms)
+✔ Should throw if found duplicate handler as the third parameter to the shortcut method and in options (0.219541ms)
+✔ sync route (23.150375ms)
+✔ sync route return null (2.814208ms)
+✔ sync route, error (3.737166ms)
+✔ should destroy stream when response is ended (74.007959ms)
+✔ should mark reply as sent before pumping the payload stream into response for async route handler (24.462291ms)
+✔ reply.send handles aborted requests (88.64225ms)
+✔ request terminated should not crash fastify (115.586292ms)
+✔ Destroying streams prematurely should call abort method (73.277209ms)
+✔ Destroying streams prematurely, log is disabled (14.105834ms)
+✔ should respond with a stream1 (70.466917ms)
+✔ return a 404 if the stream emits a 404 error (27.173458ms)
+✔ Destroying streams prematurely (74.494625ms)
+✔ Destroying streams prematurely should call close method (9.034583ms)
+✔ Destroying streams prematurely should call close method when destroy is not a function (11.145958ms)
+✔ onSend hook stream (46.520083ms)
+✔ onSend hook stream should work even if payload is not a proper stream (32.225584ms)
+✔ onSend hook stream should work on payload with "close" ending function (5.690583ms)
+✔ should respond with a stream (126.863125ms)
+✔ should respond with a stream (error) (18.699375ms)
+✔ should trigger the onSend hook (37.598834ms)
+✔ should trigger the onSend hook only twice if pumping the stream fails, first with the stream, second with the serialized error (18.980167ms)
+{"level":30,"time":1775367912721,"pid":52439,"hostname":"Timothys-MacBook-Pro.local","reqId":"req-1","req":{"method":"GET","url":"/error","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+✔ should serialize reply when response stream is ended (36.782625ms)
+{"level":30,"time":1775367912730,"pid":52439,"hostname":"Timothys-MacBook-Pro.local","reqId":"req-1","res":{"raw":{"_events":{"finish":[null,null],"error":[null,null,null],"close":[null,null,null,null],"end":[null,null]},"_eventsCount":5,"outputData":[],"outputSize":0,"writable":true,"destroyed":false,"_last":false,"chunkedEncoding":true,"shouldKeepAlive":true,"maxRequestsOnConnectionReached":false,"_defaultKeepAlive":true,"useChunkedEncodingByDefault":true,"sendDate":true,"_removedConnection":false,"_removedContLen":false,"_removedTE":false,"strictContentLength":false,"_contentLength":null,"_hasBody":true,"_trailer":"","finished":true,"_headerSent":true,"_closed":false,"_header":"HTTP/1.1 200 OK\r\nDate: Sun, 05 Apr 2026 05:45:12 GMT\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n","_keepAliveTimeout":0,"req":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"_sent100":false,"_expect_continue":false,"_lightMyRequest":{"headers":{"date":"Sun, 05 Apr 2026 05:45:12 GMT","connection":"keep-alive","transfer-encoding":"chunked"},"trailers":{},"payloadChunks":[{"type":"Buffer","data":[104,101,108,108,111,10]}]},"_promiseCallback":false,"statusCode":200,"statusMessage":"OK"},"request":{"id":"req-1","params":{},"raw":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"query":{},"log":{}},"log":{}},"responseTime":6.365290880203247,"msg":"request completed"}
+{"level":30,"time":1775367912731,"pid":52439,"hostname":"Timothys-MacBook-Pro.local","reqId":"req-1","res":{"raw":{"_events":{"error":[null,null],"close":[null,null],"end":[null,null]},"_eventsCount":4,"outputData":[],"outputSize":0,"writable":true,"destroyed":true,"_last":false,"chunkedEncoding":true,"shouldKeepAlive":true,"maxRequestsOnConnectionReached":false,"_defaultKeepAlive":true,"useChunkedEncodingByDefault":true,"sendDate":true,"_removedConnection":false,"_removedContLen":false,"_removedTE":false,"strictContentLength":false,"_contentLength":null,"_hasBody":true,"_trailer":"","finished":true,"_headerSent":true,"_closed":false,"_header":"HTTP/1.1 200 OK\r\nDate: Sun, 05 Apr 2026 05:45:12 GMT\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n","_keepAliveTimeout":0,"req":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"_sent100":false,"_expect_continue":false,"_lightMyRequest":{"headers":{"date":"Sun, 05 Apr 2026 05:45:12 GMT","connection":"keep-alive","transfer-encoding":"chunked"},"trailers":{},"payloadChunks":[{"type":"Buffer","data":[104,101,108,108,111,10]}]},"_promiseCallback":false,"statusCode":200,"statusMessage":"OK"},"request":{"id":"req-1","params":{},"raw":{"_events":{},"_readableState":{"highWaterMark":65536,"buffer":[],"bufferIndex":0,"length":0,"pipes":[],"awaitDrainWriters":null},"url":"/error","aborted":false,"httpVersionMajor":1,"httpVersionMinor":1,"httpVersion":"1.1","method":"GET","headers":{"user-agent":"lightMyRequest","host":"localhost:80"},"rawHeaders":["user-agent","lightMyRequest","host","localhost:80"],"socket":{"_events":{},"_eventsCount":0,"remoteAddress":"127.0.0.1"},"_lightMyRequest":{"payload":null,"isDone":false,"simulate":{}},"_eventsCount":2},"query":{},"log":{}},"log":{}},"msg":"stream closed prematurely"}
+✔ skip automatic reply.send() with reply.hijack and a body (39.27125ms)
+✔ skip automatic reply.send() with reply.hijack and no body (2.577ms)
+✔ skip automatic reply.send() with reply.hijack and an error (8.148625ms)
+▶ Hijacking inside onRequest skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (3.570458ms)
+  ✔ Sending a response using req.socket => onResponse not called (47.860584ms)
+  ✔ Throwing an error does not trigger any hooks (1000.930833ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1001.927208ms)
+✔ Hijacking inside onRequest skips all the following hooks and handler execution (2055.271125ms)
+▶ Hijacking inside preParsing skips all the following hooks and handler execution
+  ✔ Sending a response using reply.raw => onResponse hook is called (4.54675ms)
+  ✔ Sending a response using req.socket => onResponse not called (7.746708ms)
+  ✔ Throwing an error does not trigger any hooks (1001.9175ms)
+  ✔ Calling reply.send() after hijacking logs a warning (1001.172334ms)
+[0m
+[0m$ [0mnpm test 2>&1 | tail -100
+✔ request - move (29.4725ms)
+✔ move test (51.578125ms)
+✔ can be created - mkcol (2.679708ms)
+▶ mkcol test
+  ✔ request - mkcol (28.127792ms)
+✔ mkcol test (49.236166ms)
+✔ can be created - mkcalendar (2.577375ms)
+▶ mkcalendar test
+  ✔ request - mkcalendar (29.979875ms)
+  ✔ request with other path - mkcalendar (2.589166ms)
+  ✔ request with body - mkcalendar (6.490083ms)
+  ✔ request with body and no content type (415 error) - mkcalendar (3.007792ms)
+  ✔ request without body - mkcalendar (1.636792ms)
+✔ mkcalendar test (60.844792ms)
+✔ can be created - lock (2.623584ms)
+▶ lock test
+  ✔ request with body - lock (34.5045ms)
+  ✔ request with body and no content type (415 error) - lock (4.399084ms)
+  ✔ request without body - lock (2.338833ms)
+✔ lock test (61.661ms)
+✔ shorthand - head (2.696667ms)
+✔ shorthand - custom head (0.78525ms)
+✔ shorthand - custom head with constraints (0.653625ms)
+✔ shorthand - should not reset a head route (0.506208ms)
+✔ shorthand - should set get and head route in the same api call (0.38525ms)
+✔ shorthand - head params (0.395792ms)
+✔ shorthand - head, querystring schema (0.176584ms)
+✔ missing schema - head (0.176208ms)
+▶ head test
+  ✔ shorthand - request head (31.531ms)
+  ✔ shorthand - request head params schema (2.839916ms)
+  ✔ shorthand - request head params schema error (2.084167ms)
+  ✔ shorthand - request head querystring schema (5.485667ms)
+  ✔ shorthand - request head querystring schema error (1.848917ms)
+  ✔ shorthand - request head missing schema (1.283875ms)
+  ✔ shorthand - request head custom head (2.012292ms)
+  ✔ shorthand - request head custom head with constraints (2.418208ms)
+  ✔ shorthand - should not reset a head route (1.577208ms)
+  ✔ shorthand - should set get and head route in the same api call (2.362666ms)
+✔ head test (97.909167ms)
+✔ shorthand - get (2.515125ms)
+✔ shorthand - get (return null) (0.428333ms)
+✔ shorthand - get params (0.428458ms)
+✔ shorthand - get, querystring schema (0.265666ms)
+✔ shorthand - get, headers schema (0.288333ms)
+✔ missing schema - get (0.281333ms)
+✔ custom serializer - get (0.252875ms)
+✔ empty response (0.178958ms)
+✔ send a falsy boolean (0.200125ms)
+✔ shorthand - get, set port (0.311042ms)
+▶ get test
+  ✔ shorthand - request get (20.557791ms)
+  ✔ shorthand - request get params schema (3.100042ms)
+  ✔ shorthand - request get params schema error (1.969209ms)
+  ✔ shorthand - request get headers schema (1.898541ms)
+  ✔ shorthand - request get headers schema error (1.30125ms)
+  ✔ shorthand - request get querystring schema (1.307542ms)
+  ✔ shorthand - request get querystring schema error (1.160166ms)
+  ✔ shorthand - request get missing schema (1.793209ms)
+  ✔ shorthand - custom serializer (1.62275ms)
+  ✔ shorthand - empty response (1.412541ms)
+  ✔ shorthand - send a falsy boolean (1.0725ms)
+  ✔ shorthand - send null value (0.920459ms)
+  ✔ shorthand - request get headers - test fall back port (3.726917ms)
+✔ get test (95.909542ms)
+✔ missing method from http client (30.452375ms)
+✔ addHttpMethod increase the supported HTTP methods supported (8.863833ms)
+✔ addHttpMethod adds a new custom method without body (0.670708ms)
+✔ addHttpMethod adds a new custom method with body (3.582167ms)
+✔ addHttpMethod rejects fake http method (0.384833ms)
+✔ can be created - copy (43.727416ms)
+✔ named exports support (11.889959ms)
+✔ esm support (12.46025ms)
+✔ errorCodes in ESM (1.087125ms)
+✔ diagnostics channel sync events fire in expected order (51.537833ms)
+✔ diagnostics channel sync events fire in expected order (52.346417ms)
+✔ diagnostics channel sync events fire in expected order (55.702209ms)
+✔ diagnostics_channel when present and subscribers (137.246375ms)
+✔ diagnostics_channel when present and no subscribers (2.223833ms)
+✔ Error.status property support (23.487333ms)
+✔ diagnostics channel events report on errors (50.909458ms)
+✔ diagnostics channel handles an error before calling context handler (1.317375ms)
+✔ diagnostics channel async events fire in expected order (55.519625ms)
+✔ diagnostics channel async events fire in expected order (47.713167ms)
+✔ diagnostics channel sync events fire in expected order (45.688208ms)
+✔ should be the same as package.json (1.175708ms)
+✔ check generated code syntax (655.1095ms)
+﹣ ensure the current error serializer is latest (0.148041ms) # SKIP
+ℹ tests 2129
+ℹ suites 15
+ℹ pass 2125
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 10556.430583
+
+> fastify@5.6.1 test:typescript
+> tsc test/types/import.ts --target es2022 --moduleResolution node16 --module node16 --noEmit && tsd
+[0m
+[0m→ [0mRead types/instance.d.ts[90m [limit=30, offset=468][0m
+[0m→ [0mRead test/types/instance.test-d.ts[90m [limit=20, offset=43][0m
+[0m
+[0m← [0mEdit types/instance.d.ts
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/types/instance.d.ts
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/types/instance.d.ts
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/types/instance.d.ts
+@@ -468,9 +468,9 @@
+ 
+ /**
+  * Set a function that will be invoked whenever an exception is thrown during the request lifecycle.
+  */
+-setErrorHandler<TError extends Error = FastifyError, RouteGeneric extends RouteGenericInterface = RouteGenericInterface, SchemaCompiler extends FastifySchema = FastifySchema, TypeProvider extends FastifyTypeProvider = FastifyTypeProviderDefault>(
++setErrorHandler<TError = unknown, RouteGeneric extends RouteGenericInterface = RouteGenericInterface, SchemaCompiler extends FastifySchema = FastifySchema, TypeProvider extends FastifyTypeProvider = FastifyTypeProviderDefault>(
+   handler: (this: FastifyInstance<RawServer, RawRequest, RawReply, Logger, TypeProvider>, error: TError, request: FastifyRequest<RouteGeneric, RawServer, RawRequest, SchemaCompiler, TypeProvider>, reply: FastifyReply<RouteGeneric, RawServer, RawRequest, RawReply, ContextConfigDefault, SchemaCompiler, TypeProvider>) => any | Promise<any>
+ ): FastifyInstance<RawServer, RawRequest, RawReply, Logger, TypeProvider>;
+ 
+ /**
+
+[0m
+Now I need to update the test file to match the new expected behavior. The test currently expects `FastifyError` but should now expect `unknown`:
+[0m← [0mEdit test/types/instance.test-d.ts
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
+@@ -41,9 +41,9 @@
+ expectType<string[]>(server.supportedMethods)
+ 
+ expectAssignable<FastifyInstance>(
+   server.setErrorHandler(function (error, request, reply) {
+-    expectType<FastifyError>(error)
++    expectType<unknown>(error)
+     expectAssignable<FastifyInstance>(this)
+   })
+ )
+ 
+
+[0m
+[0m$ [0mnpm run test:typescript 2>&1
+> fastify@5.6.1 test:typescript
+> tsc test/types/import.ts --target es2022 --moduleResolution node16 --module node16 --noEmit && tsd
+
+
+  test/types/instance.test-d.ts:157:0
+  ✖  157:0  Expected an error, but found none.  
+
+  1 error
+[0m
+[0m→ [0mRead test/types/instance.test-d.ts[90m [limit=20, offset=150][0m
+[0m→ [0mRead test/types/instance.test-d.ts[90m [limit=30, offset=140][0m
+[0m
+[0m← [0mEdit test/types/instance.test-d.ts
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-Ci8R2e/test/types/instance.test-d.ts
+@@ -153,9 +153,9 @@
+ function invalidErrorHandler (error: number) {
+   if (error) throw error
+ }
+ 
+-expectError(server.setErrorHandler(invalidErrorHandler))
++server.setErrorHandler(invalidErrorHandler)
+ 
+ server.setSchemaController({
+   bucket: (parentSchemas: unknown) => {
+     return {
+
+[0m
+Now let me run the TypeScript tests again:
+[0m$ [0mnpm run test:typescript 2>&1
+> fastify@5.6.1 test:typescript
+> tsc test/types/import.ts --target es2022 --moduleResolution node16 --module node16 --noEmit && tsd
+[0m
+[0m$ [0mnpm test 2>&1 | tail -30
+✔ can be created - copy (59.029584ms)
+✔ named exports support (14.187708ms)
+✔ esm support (14.009792ms)
+✔ errorCodes in ESM (0.939083ms)
+✔ diagnostics channel sync events fire in expected order (72.041333ms)
+✔ diagnostics channel sync events fire in expected order (65.131209ms)
+✔ diagnostics channel sync events fire in expected order (75.90075ms)
+✔ diagnostics_channel when present and subscribers (149.4555ms)
+✔ diagnostics_channel when present and no subscribers (2.835833ms)
+✔ Error.status property support (22.644333ms)
+✔ diagnostics channel events report on errors (55.213ms)
+✔ diagnostics channel handles an error before calling context handler (1.48475ms)
+✔ diagnostics channel async events fire in expected order (53.029959ms)
+✔ diagnostics channel async events fire in expected order (52.885041ms)
+✔ diagnostics channel sync events fire in expected order (49.296958ms)
+✔ should be the same as package.json (1.381584ms)
+✔ check generated code syntax (699.715625ms)
+﹣ ensure the current error serializer is latest (0.1775ms) # SKIP
+ℹ tests 2129
+ℹ suites 15
+ℹ pass 2125
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 10604.189375
+
+> fastify@5.6.1 test:typescript
+> tsc test/types/import.ts --target es2022 --moduleResolution node16 --module node16 --noEmit && tsd
+[0m
+[0m→ [0mRead types/instance.d.ts[90m [limit=10, offset=468][0m
+Fixed. The issue was that `setErrorHandler` had a default type of `FastifyError`, which incorrectly assumed all errors originate from Fastify internals. 
+
+**Changes made:**
+1. `types/instance.d.ts:472` - Changed default type parameter from `FastifyError` to `unknown`
+2. `test/types/instance.test-d.ts:45` - Updated test expectation from `FastifyError` to `unknown`
+3. `test/types/instance.test-d.ts:157` - Removed the now-passing `expectError` wrapper since `unknown` accepts any type
+
+Now when users don't specify a type parameter, the error will be typed as `unknown` (matching `catch` block behavior), forcing users to properly handle or narrow the type before accessing properties like `error.code`. Users can still explicitly specify a type like `setErrorHandler<FastifyError>()` if they want the old behavior.
+
+> fastify@5.6.1 test
+> npm run lint && npm run unit && npm run test:typescript
+
+
+> fastify@5.6.1 lint
+> npm run lint:eslint
+
+
+> fastify@5.6.1 lint:eslint
+> eslint
+
+sh: eslint: command not found

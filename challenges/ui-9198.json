@@ -1,0 +1,24 @@
+{
+  "id": "ui-9198",
+  "repo": "shadcn-ui/ui",
+  "repoUrl": "https://github.com/shadcn-ui/ui",
+  "issue": {
+    "number": 9198,
+    "title": "[bug]: ALT + D toggles dark/light theme",
+    "body": "### Describe the bug\n\nALT + D is the default keyboard shortcut in Chrome on Windows and Linux (I'm not sure about macOS) for focusing and modifying the address bar. However, it seems that ui.shadcn.com has overridden this shortcut to toggle the theme between dark mode and light mode instead\n\n### Affected component/components\n\nN/A\n\n### How to reproduce\n\n1. Go to https://ui.shadcn.com/docs/installation/react-router\n2. Press ALT + D \n3, See the dark mode changes to light mode\n\n### System Info\n\n```bash\nLinux, Chrome\n```\n\n### Before submitting\n\n- [x] I've made research efforts and searched the documentation\n- [x] I've searched for existing issues"
+  },
+  "pr": {
+    "number": 9273,
+    "url": "https://github.com/shadcn-ui/ui/pull/9273"
+  },
+  "buggyCommit": "aaed0a186c01464eddfa16f7d946a2689374c127",
+  "fixCommit": "70c158990da7881deed7d2dcb0c3efd46d629ac0",
+  "fixDiff": "diff --git a/apps/v4/components/mode-switcher.tsx b/apps/v4/components/mode-switcher.tsx\nindex 42226d2403e..ac4b80697bc 100644\n--- a/apps/v4/components/mode-switcher.tsx\n+++ b/apps/v4/components/mode-switcher.tsx\n@@ -29,7 +29,7 @@ export function ModeSwitcher() {\n \n   React.useEffect(() => {\n     const down = (e: KeyboardEvent) => {\n-      if ((e.key === \"d\" || e.key === \"D\") && !e.metaKey && !e.ctrlKey) {\n+      if ((e.key === \"d\" || e.key === \"D\") && !e.metaKey && !e.ctrlKey && !e.altKey) {\n         if (\n           (e.target instanceof HTMLElement && e.target.isContentEditable) ||\n           e.target instanceof HTMLInputElement ||\n@@ -96,7 +96,7 @@ export function DarkModeScript() {\n             (function() {\n               // Forward D key\n               document.addEventListener('keydown', function(e) {\n-                if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey) {\n+                if ((e.key === 'd' || e.key === 'D') && !e.metaKey && !e.ctrlKey && !e.altKey) {\n                   if (\n                     (e.target instanceof HTMLElement && e.target.isContentEditable) ||\n                     e.target instanceof HTMLInputElement ||\n",
+  "testCommand": "npm test",
+  "difficulty": {
+    "filesChanged": 1,
+    "linesAdded": 2,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-05T05:11:35.991Z"
+}

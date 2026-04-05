@@ -1,0 +1,16 @@
+Performing one time database migration, may take a few minutes...
+sqlite-migration:done
+Database migration complete.
+[0m
+> build · nemotron-3-super-free
+[0m
+[0m✱ [0mGlob "**/*.js"[90m 100 matches[0m
+[0m✱ [0mGrep "diagnosticsChannel"[90m 0 matches[0m
+[0m✱ [0mGrep "reply.statusCode"[90m 26 matches[0m
+[0m→ [0mRead lib/handle-request.js
+[0m→ [0mRead lib/error-handler.js
+[0m→ [0mRead fastify.js
+[0m✱ [0mGlob "lib/reply.js"[90m 1 match[0m
+[0m→ [0mRead lib/reply.js
+[0m✗ [0medit failed
+[91m[1mError: [0mNo changes to apply: oldString and newString are identical.

@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+'use strict';
+
+const { execFileSync, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const AGENTELO = path.resolve(__dirname, 'agentelo');
+const MAX_CONCURRENT = 5;
+
+// Models to seed — free/unlimited first
+const MODELS = [
+  // Free OpenCode models (unlimited)
+  { harness: 'opencode', model: 'opencode/minimax-m2.5-free' },
+  { harness: 'opencode', model: 'opencode/qwen3.6-plus-free' },
+  { harness: 'opencode', model: 'opencode/nemotron-3-super-free' },
+  { harness: 'opencode', model: 'opencode/gpt-5-nano' },
+  { harness: 'opencode', model: 'opencode/big-pickle' },
+  // GPT via OpenCode (rate limited but generous)
+  { harness: 'opencode', model: 'openai/gpt-5.4-mini' },
+  { harness: 'opencode', model: 'openai/gpt-5.4' },
+];
+
+const challenges = fs.readdirSync(CHALLENGES_DIR)
+  .filter(f => f.endsWith('.json'))
+  .map(f => f.replace('.json', ''))
+  // Sort smaller repos first (fastify, koa, svelte, etc before angular, deno)
+  .sort((a, b) => {
+    const small = ['fastify', 'koa', 'svelte', 'ui', 'fastapi', 'next.js'];
+    const aSmall = small.some(s => a.startsWith(s)) ? 0 : 1;
+    const bSmall = small.some(s => b.startsWith(s)) ? 0 : 1;
+    return aSmall - bSmall;
+  });
+
+console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models = ${challenges.length * MODELS.length} runs`);
+console.log(`Max concurrent: ${MAX_CONCURRENT}`);
+
+// Build job queue — interleave: each challenge gets all models before moving on
+const jobs = [];
+for (const c of challenges) {
+  for (const m of MODELS) {
+    // Check if result already exists
+    const resultPattern = `${c}-${m.harness}`;
+    const existing = fs.readdirSync(path.resolve(__dirname, '..', 'results')).filter(f => f.startsWith(resultPattern) && f.endsWith('.json'));
+    if (existing.length > 0) continue;
+    jobs.push({ ...m, challenge: c });
+  }
+}
+
+console.log(`${jobs.length} jobs remaining (skipping existing results)`);
+
+let running = 0;
+let completed = 0;
+let failed = 0;
+let idx = 0;
+
+function runNext() {
+  if (idx >= jobs.length && running === 0) {
+    console.log(`\nDone. Completed: ${completed}, Failed: ${failed}`);
+    process.exit(0);
+  }
+  while (running < MAX_CONCURRENT && idx < jobs.length) {
+    const job = jobs[idx++];
+    running++;
+    console.log(`[${completed+failed+running}/${jobs.length}] Starting: ${job.challenge} × ${job.model}`);
+
+    const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    });
+
+    let output = '';
+    child.stdout.on('data', d => output += d);
+    child.stderr.on('data', d => output += d);
+
+    child.on('close', (code) => {
+      running--;
+      if (code === 0 && output.includes('Tests passed: YES')) {
+        completed++;
+        console.log(`  ✓ ${job.challenge} × ${job.model} — PASSED`);
+      } else if (code === 0) {
+        completed++;
+        console.log(`  ✗ ${job.challenge} × ${job.model} — completed but tests failed`);
+      } else {
+        failed++;
+        console.log(`  ✗ ${job.challenge} × ${job.model} — error (exit ${code})`);
+      }
+      runNext();
+    });
+  }
+}
+
+// Ensure results dir
+try { fs.mkdirSync(path.resolve(__dirname, '..', 'results'), { recursive: true }); } catch {}
+
+runNext();

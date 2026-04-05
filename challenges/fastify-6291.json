@@ -1,0 +1,24 @@
+{
+  "id": "fastify-6291",
+  "repo": "fastify/fastify",
+  "repoUrl": "https://github.com/fastify/fastify",
+  "issue": {
+    "number": 6291,
+    "title": "`reply.send(string)` does not serialize strings as JSON even if the `Content-Type` is set to `application/json`",
+    "body": "### Prerequisites\n\n- [x] I have written a descriptive issue title\n- [x] I have searched existing issues to ensure the bug has not already been reported\n\n\n### Fastify version\n\n5.5.0\n\n### Plugin version\n\n_No response_\n\n### Node.js version\n\n22.14.0\n\n### Operating system\n\nWindows\n\n### Operating system version (i.e. 20.04, 11.3, 10)\n\n24H2\n\n### Description\n\nAccording to the [documentation](https://fastify.dev/docs/latest/Reference/Reply/#strings:~:text=unless%20the%20Content%2DType%20header%20is%20set%20to%20application/json%3B%20charset%3Dutf%2D8%2C%20in%20which%20case%20it%20will%20be%20JSON%2Dserialized%20like%20an%20object), if `Content-Type` is set to `application/json; charset=utf-8`, `reply.send(string)` should serialize the string in JSON as an object. The current behavior does not match the documentation, which send the string in raw without any serialization.\n\nCode to reproduce:\n\n```js\nfastify.get(\n  \"/\",\n  async function (request, reply) {\n    return reply\n      .type(\"application/json; charset=utf-8\")\n      .send(\"Hello\");\n  },\n);\n```\n\nIt is expected to return `\"Hello\"`, but it returns `Hello` instead. I checked the relevant logic and it seems that the problem comes from:\n\nhttps://github.com/fastify/fastify/blob/b84733e997340076240d93db5bbeef716df58756/lib/reply.js#L203-L206\n\nwhich serializes the payload *only if it is not a string*.\n\n\n### Link to code that reproduces the bug\n\nProvided in the description.\n\n### Expected Behavior\n\n_No response_"
+  },
+  "pr": {
+    "number": 6466,
+    "url": "https://github.com/fastify/fastify/pull/6466"
+  },
+  "buggyCommit": "e1e4fe75910c36e1b9ebb87026ca16c053a9c1f2",
+  "fixCommit": "b48826f07beaa925809c5e347d67a7e2502eb156",
+  "fixDiff": "diff --git a/docs/Reference/Reply.md b/docs/Reference/Reply.md\nindex ed21f9756ec..572f12748b0 100644\n--- a/docs/Reference/Reply.md\n+++ b/docs/Reference/Reply.md\n@@ -671,9 +671,20 @@ fastify.get('/json', options, function (request, reply) {\n If you pass a string to `send` without a `Content-Type`, it will be sent as\n `text/plain; charset=utf-8`. If you set the `Content-Type` header and pass a\n string to `send`, it will be serialized with the custom serializer if one is\n-set, otherwise, it will be sent unmodified (unless the `Content-Type` header is\n-set to `application/json; charset=utf-8`, in which case it will be\n-JSON-serialized like an object — see the section above).\n+set, otherwise, it will be sent unmodified.\n+\n+> **Note:** Even when the `Content-Type` header is set to `application/json`,\n+> strings are sent unmodified by default. To serialize a string as JSON, you\n+> must set a custom serializer:\n+\n+```js\n+fastify.get('/json-string', async function (request, reply) {\n+  reply\n+    .type('application/json; charset=utf-8')\n+    .serializer(JSON.stringify)\n+    .send('Hello') // Returns \"Hello\" (JSON-encoded string)\n+})\n+```\n ```js\n fastify.get('/json', options, function (request, reply) {\n   reply.send('plain string')\n",
+  "testCommand": "npm test",
+  "difficulty": {
+    "filesChanged": 1,
+    "linesAdded": 14,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-05T05:08:51.163Z"
+}

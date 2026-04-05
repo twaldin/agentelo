@@ -1,0 +1,24 @@
+{
+  "id": "deno-20101",
+  "repo": "denoland/deno",
+  "repoUrl": "https://github.com/denoland/deno",
+  "issue": {
+    "number": 20101,
+    "title": "`removeEventListener` removes listeners with different `capture`",
+    "body": "`EventTarget.prototype.removeEventListener` removes a listener even if it has a different `capture`.\r\n\r\n```ts\r\nconst target = new EventTarget();\r\nconst fn = () => {\r\n  fn.called = true;\r\n};\r\ndeclare const event: string;\r\ntarget.addEventListener(event, fn, true);\r\ntarget.removeEventListener(event, fn, false);\r\ntarget.dispatchEvent(new Event(event));\r\n\r\nconsole.assert(fn.called);\r\n```\r\n\r\nThe same listener is always removed.\r\n\r\nhttps://github.com/denoland/deno/blob/03e963f57831367a39996c7d88bc9875e97d52d7/ext/web/02_event.js#L1040-L1042\r\n\r\nSpec ref: https://dom.spec.whatwg.org/#dom-eventtarget-removeeventlistener"
+  },
+  "pr": {
+    "number": 32605,
+    "url": "https://github.com/denoland/deno/pull/32605"
+  },
+  "buggyCommit": "71ac11e15ad5ea5088458e1a0b4a8c6109a18f07",
+  "fixCommit": "c09b7f4511abe8b156839ecfc5941178db8aa5a1",
+  "fixDiff": "diff --git a/ext/web/02_event.js b/ext/web/02_event.js\nindex 2c7e3d3ce1dbaa..9d391328a08780 100644\n--- a/ext/web/02_event.js\n+++ b/ext/web/02_event.js\n@@ -834,7 +834,10 @@ function invokeEventListeners(tuple, eventImpl) {\n function normalizeEventHandlerOptions(\n   options,\n ) {\n-  if (typeof options === \"boolean\" || typeof options === \"undefined\") {\n+  if (\n+    typeof options === \"boolean\" || typeof options === \"undefined\" ||\n+    options === null\n+  ) {\n     return {\n       capture: Boolean(options),\n     };\ndiff --git a/tests/unit/event_target_test.ts b/tests/unit/event_target_test.ts\nindex 34f0b73c9935e7..cbb6b7bbc92e0a 100644\n--- a/tests/unit/event_target_test.ts\n+++ b/tests/unit/event_target_test.ts\n@@ -132,6 +132,31 @@ Deno.test(function removingNullEventListenerShouldSucceed() {\n   assertEquals(document.removeEventListener(\"x\", null), undefined);\n });\n \n+Deno.test(function removeEventListenerWithNullOptions() {\n+  const target = new EventTarget();\n+  let callCount = 0;\n+  const listener = () => {\n+    ++callCount;\n+  };\n+\n+  // null options should be treated as capture: false\n+  target.addEventListener(\"test\", listener);\n+  // @ts-expect-error: testing runtime behavior with null (not in TS types but valid per DOM spec)\n+  target.removeEventListener(\"test\", listener, null);\n+  target.dispatchEvent(new Event(\"test\"));\n+  assertEquals(callCount, 0);\n+\n+  // null options should not remove a capture listener\n+  target.addEventListener(\"test\", listener, true);\n+  // @ts-expect-error: testing runtime behavior with null (not in TS types but valid per DOM spec)\n+  target.removeEventListener(\"test\", listener, null);\n+  target.dispatchEvent(new Event(\"test\"));\n+  assertEquals(callCount, 1);\n+\n+  // cleanup\n+  target.removeEventListener(\"test\", listener, true);\n+});\n+\n Deno.test(function constructedEventTargetUseObjectPrototype() {\n   const target = new EventTarget();\n   const event = new Event(\"toString\", { bubbles: true, cancelable: false });\n",
+  "testCommand": "cargo test",
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 29,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-05T05:12:06.791Z"
+}

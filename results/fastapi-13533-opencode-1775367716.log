@@ -1,0 +1,2191 @@
+Performing one time database migration, may take a few minutes...
+sqlite-migration:done
+Database migration complete.
+[0m
+> build · minimax-m2.5-free
+[0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=120, offset=680][0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=80, offset=800][0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=50, offset=875][0m
+[0m
+[0m# [0mTodos
+[ ] Fix x-form-urlencoded regression: prevent re-adding form fields that should use defaults
+[ ] Fix multipart forms regression: handle empty form field values properly
+[ ] Run tests to verify fixes
+[0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=30, offset=723][0m
+Let me look at what PR #12117 changed - it mentions the check for empty field was dropped:
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && git log --oneline -20
+c3373205 🔖 Release version 0.123.1
+3b4b5ab8 📝 Update release notes
+8f99a2b7 🐛 Avoid accessing non-existing "$ref" key for Pydantic v2 compat remapping (#14361)
+74b4c3c9 📝 Update release notes
+bf322d0e 🐛 Fix Windows UnicodeEncodeError in CLI test (#14295)
+327bad18 📝 Update release notes
+20f40b29 🐛 Fix `TypeError` when encoding a decimal with a `NaN` or `Infinity` value (#12935)
+ee490906 📝 Update release notes
+6e82df81 🔧 Update sponsors: add Greptile (#14429)
+e752224b 📝 Update release notes
+0dee7140 👥 Update FastAPI GitHub topic repositories (#14426)
+938f4710 📝 Update release notes
+6400d8a6 ⬆ Bump markdown-include-variants from 0.0.6 to 0.0.7 (#14423)
+f8e46d98 📝 Update release notes
+8a7ad3d2 👥 Update FastAPI People - Sponsors (#14422)
+d661bb13 📝 Update release notes
+32aba57b 👥 Update FastAPI People - Contributors and Translators (#14420)
+f2bab952 🔖 Release version 0.123.0
+c38e3e01 📝 Update release notes
+7fbd3046 🐛 Cache dependencies that don't use scopes and don't have sub-dependencies with scopes (#14419)
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && git log --oneline --all | grep -i "12134\|12117\|form" | head -20
+fa3588c3 ✏️ Fix typo for `client_secret` in OAuth2 form docstrings (#14946)
+34053064 Fix schema for `byte` fields inside JSON (do not add `"format": "binary"`)
+506d278d Update schema for UploadFile (add `format: binary`)
+90ebf74f 🎨 Auto format
+e8b98d21 🐛 Fix JSON Schema for files, use `contentMediaType` instead of `format: binary` (#14953)
+404aadf1 🎨 Auto format
+2a2aafa0 Update tests for passing empty str to Form
+3441e141 Check call args for empty string with Form
+22d795d8 Add tests for nullable Form parameter with\without default
+cb0035a5 🎨 Auto format
+841c5c31 🎨 Auto format
+e6a08f31 🎨 Auto format
+6c50c687 Fix formatting
+34e88415 ✅ Run performance tests only on Pydantic v2 (#14608)
+23bbd3fe 🎨 Auto format
+caee1d31 👷 Add performance tests with CodSpeed (#14558)
+4c4d5201 📝 Tweak links format (#14505)
+cd9d093f 📝 Update docs about re-raising validation errors, do not include string as is to not leak information (#14487)
+cb3792d3 🐛 Fix unformatted `{type_}` in FastAPIError (#14416)
+6cf40df2 🐛 Fix parsing extra `Form` parameter list (#14303)
+[0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=50, offset=770][0m
+[0m✱ [0mGrep "_extract_form_body"[90m in tests · 0 matches[0m
+[0m✱ [0mGrep "Form.*embed"[90m in tests · 1 match[0m
+[0m✱ [0mGrep "Optional\[str\].*Form"[90m in tests · 2 matches[0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=35, offset=869][0m
+I now understand both bugs. Let me trace through the code:
+
+**Bug 1 (x-form-urlencoded)**: In `_extract_form_body`, when a Form field receives an empty string `""`, `_get_multidict_value` correctly returns the default (`None`). But then lines 905-907 blindly re-add all keys from the received body that aren't in `values`, overwriting the default with `""`.
+
+**Bug 2 (multipart)**: Same root cause - the blind re-addition at lines 905-907.
+
+The fix is to track processed keys (both field name and alias) and not re-add them. Let me implement this:
+[0m
+[0m← [0mEdit fastapi/dependencies/utils.py
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py
+@@ -870,8 +870,9 @@
+     body_fields: List[ModelField],
+     received_body: FormData,
+ ) -> Dict[str, Any]:
+     values = {}
++    processed_keys: set = set()
+ 
+     for field in body_fields:
+         value = _get_multidict_value(field, received_body)
+         field_info = field.field_info
+@@ -901,10 +902,12 @@
+                     tg.start_soon(process_fn, sub_value.read)
+             value = serialize_sequence_value(field=field, value=results)
+         if value is not None:
+             values[field.alias] = value
++        processed_keys.add(field.alias)
++        processed_keys.add(field.name)
+     for key, value in received_body.items():
+-        if key not in values:
++        if key not in processed_keys:
+             values[key] = value
+     return values
+ 
+ 
+
+[0m
+[0m# [0mTodos
+[x] Fix x-form-urlencoded regression: prevent re-adding form fields that should use defaults
+[ ] Fix multipart forms regression: handle empty form field values properly
+[ ] Run tests to verify fixes
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && python -c "
+from fastapi import FastAPI, Form
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app)
+
+# Test with empty string form field
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None}')
+"
+
+zsh:1: command not found: python
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && python3 -c "
+from fastapi import FastAPI, Form
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app)
+
+# Test with empty string form field
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None}')
+"
+
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    from fastapi import FastAPI, Form
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/__init__.py", line 5, in <module>
+    from starlette import status as status
+ModuleNotFoundError: No module named 'starlette'
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && pip install -e . 2>&1 | tail -10
+Successfully built fastapi
+Installing collected packages: fastapi
+  Attempting uninstall: fastapi
+    Found existing installation: fastapi 0.123.7
+    Uninstalling fastapi-0.123.7:
+      Successfully uninstalled fastapi-0.123.7
+Successfully installed fastapi-0.123.1
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && pip install -e . --no-deps 2>&1 | tail -5
+Successfully uninstalled fastapi-0.123.1
+Successfully installed fastapi-0.123.1
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && python3 -c "
+from fastapi import FastAPI, Form
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app)
+
+# Test with empty string form field
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None}')
+"
+
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    from fastapi import FastAPI, Form
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/__init__.py", line 5, in <module>
+    from starlette import status as status
+ModuleNotFoundError: No module named 'starlette'
+[0m
+[0m$ [0mpip list | grep -i starlette
+starlette                     0.50.0
+[0m
+[0m$ [0mpip show starlette fastapi pydantic
+Name: starlette
+Version: 0.50.0
+Summary: The little ASGI library that shines.
+Home-page: https://github.com/Kludex/starlette
+Author: 
+Author-email: Tom Christie <tom@tomchristie.com>
+License: 
+Location: /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages
+Requires: anyio, typing-extensions
+Required-by: fastapi
+---
+Name: fastapi
+Version: 0.123.1
+Summary: FastAPI framework, high performance, easy to learn, fast to code, ready for production
+Home-page: https://github.com/fastapi/fastapi
+Author: 
+Author-email: =?utf-8?q?Sebasti=C3=A1n_Ram=C3=ADrez?= <tiangolo@gmail.com>
+License: 
+Location: /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages
+Editable project location: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+Requires: annotated-doc, pydantic, starlette, typing-extensions
+Required-by: 
+---
+Name: pydantic
+Version: 2.11.4
+Summary: Data validation using Python type hints
+Home-page: https://github.com/pydantic/pydantic
+Author: 
+Author-email: Samuel Colvin <s@muelcolvin.com>, Eric Jolibois <em.jolibois@gmail.com>, Hasan Ramezani <hasan.r67@gmail.com>, Adrian Garcia Badaracco <1755071+adriangb@users.noreply.github.com>, Terrence Dorsey <terry@pydantic.dev>, David Montague <david@pydantic.dev>, Serge Matveenko <lig@countzero.co>, Marcelo Trylesinski <marcelotryle@gmail.com>, Sydney Runkle <sydneymarierunkle@gmail.com>, David Hewitt <mail@davidhewitt.io>, Alex Hall <alex.mojaki@gmail.com>, Victorien Plot <contact@vctrn.dev>
+License: 
+Location: /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages
+Requires: annotated-types, pydantic-core, typing-extensions, typing-inspection
+Required-by: aider-chat, fastapi, google-generativeai, litellm, openai
+[0m
+[0m$ [0mpython3 -c "import starlette; print('OK')"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import starlette; print('OK')
+    ^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'starlette'
+[0m
+[0m$ [0mwhich python3 && pip show starlette | grep Location
+/opt/homebrew/bin/python3
+Location: /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c "
+from fastapi import FastAPI, Form
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app)
+
+# Test with empty string form field
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None}')
+"
+
+Form data requires "python-multipart" to be installed. 
+You can install "python-multipart" with: 
+
+pip install python-multipart
+
+Traceback (most recent call last):
+  File "<string>", line 8, in <module>
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/routing.py", line 1078, in decorator
+    self.add_api_route(
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/routing.py", line 1017, in add_api_route
+    route = route_class(
+            ^^^^^^^^^^^^
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/routing.py", line 636, in __init__
+    self.dependant = get_dependant(
+                     ^^^^^^^^^^^^^^
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py", line 259, in get_dependant
+    param_details = analyze_param(
+                    ^^^^^^^^^^^^^^
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py", line 496, in analyze_param
+    ensure_multipart_is_installed()
+  File "/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py", line 121, in ensure_multipart_is_installed
+    raise RuntimeError(multipart_not_installed_error) from None
+RuntimeError: Form data requires "python-multipart" to be installed. 
+You can install "python-multipart" with: 
+
+pip install python-multipart
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/pip install python-multipart 2>&1 | tail -5
+Installing collected packages: python-multipart
+Successfully installed python-multipart-0.0.22
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c "
+from fastapi import FastAPI, Form
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app)
+
+# Test with empty string form field
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None}')
+"
+
+Response: {'name': None}
+Expected: {"name": None}
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c "
+from fastapi import FastAPI, Form, File
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+@app.post('/')
+def root(
+    file: Annotated[Optional[bytes], File()] = None,
+    name: Annotated[Optional[str], Form(embed=True)] = None,
+):
+    return {'name': name, 'file': file}
+
+client = TestClient(app)
+
+# Test with empty string form field and no file
+r = client.post('/', data={'name': ''})
+print('Response:', r.json())
+print('Expected: {\"name\": None, \"file\": None}')
+"
+
+Response: {'name': None, 'file': None}
+Expected: {"name": None, "file": None}
+[0m
+[0m# [0mTodos
+[x] Fix x-form-urlencoded regression: prevent re-adding form fields that should use defaults
+[x] Fix multipart forms regression: handle empty form field values properly
+[ ] Run tests to verify fixes
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_multipart* -v 2>&1 | tail -30
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3: No module named pytest
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/pip install pytest 2>&1 | tail -5
+Installing collected packages: pluggy, iniconfig, pytest
+Successfully installed iniconfig-2.3.0 pluggy-1.6.0 pytest-9.0.2
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/pip install httpx anyio 2>&1 | tail -5
+Requirement already satisfied: h11>=0.16 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from httpcore==1.*->httpx) (0.16.0)
+Requirement already satisfied: typing_extensions>=4.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from anyio) (4.15.0)
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/pip install httpx anyio 2>&1 | tail -5
+Requirement already satisfied: h11>=0.16 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from httpcore==1.*->httpx) (0.16.0)
+Requirement already satisfied: typing_extensions>=4.5 in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (from anyio) (4.15.0)
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_multipart*.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 11 items
+
+tests/test_multipart_installation.py::test_incorrect_multipart_installed_form PASSED [  9%]
+tests/test_multipart_installation.py::test_incorrect_multipart_installed_file_upload PASSED [ 18%]
+tests/test_multipart_installation.py::test_incorrect_multipart_installed_file_bytes PASSED [ 27%]
+tests/test_multipart_installation.py::test_incorrect_multipart_installed_multi_form PASSED [ 36%]
+tests/test_multipart_installation.py::test_incorrect_multipart_installed_form_file PASSED [ 45%]
+tests/test_multipart_installation.py::test_no_multipart_installed PASSED [ 54%]
+tests/test_multipart_installation.py::test_no_multipart_installed_file PASSED [ 63%]
+tests/test_multipart_installation.py::test_no_multipart_installed_file_bytes PASSED [ 72%]
+tests/test_multipart_installation.py::test_no_multipart_installed_multi_form PASSED [ 81%]
+tests/test_multipart_installation.py::test_no_multipart_installed_form_file PASSED [ 90%]
+tests/test_multipart_installation.py::test_old_multipart_installed PASSED [100%]
+
+============================== 11 passed in 0.19s ==============================
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_form*.py -v 2>&1 | tail -40
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 5 items / 1 error
+
+==================================== ERRORS ====================================
+______________ ERROR collecting tests/test_forms_single_model.py _______________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/tests/test_forms_single_model.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_forms_single_model.py:3: in <module>
+    from dirty_equals import IsDict
+E   ModuleNotFoundError: No module named 'dirty_equals'
+=========================== short test summary info ============================
+ERROR tests/test_forms_single_model.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.35s ===============================
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/pip install dirty-equals 2>&1 | tail -3
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/pip install dirty-equals
+Requirement already satisfied: dirty-equals in /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages (0.11)
+
+[notice] A new release of pip is available: 24.3.1 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_form*.py -v 2>&1 | tail -40
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 9 items
+
+tests/test_forms_from_non_typing_sequences.py::test_python_list_param_as_form PASSED [ 11%]
+tests/test_forms_from_non_typing_sequences.py::test_python_set_param_as_form PASSED [ 22%]
+tests/test_forms_from_non_typing_sequences.py::test_python_tuple_param_as_form PASSED [ 33%]
+tests/test_forms_single_model.py::test_send_all_data PASSED              [ 44%]
+tests/test_forms_single_model.py::test_defaults PASSED                   [ 55%]
+tests/test_forms_single_model.py::test_invalid_data PASSED               [ 66%]
+tests/test_forms_single_model.py::test_no_data PASSED                    [ 77%]
+tests/test_forms_single_param.py::test_single_form_field PASSED          [ 88%]
+tests/test_forms_single_param.py::test_openapi_schema PASSED             [100%]
+
+============================== 9 passed in 0.30s ===============================
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c "
+from fastapi import FastAPI, Form, File
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+app = FastAPI()
+
+# Test 1: Form with embed=True and empty string
+@app.post('/test1')
+def test1(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+# Test 2: Form without embed
+@app.post('/test2')
+def test2(name: Annotated[Optional[str], Form()] = None):
+    return {'name': name}
+
+# Test 3: Form with actual value
+@app.post('/test3')
+def test3(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client = TestClient(app, raise_server_exceptions=False)
+
+# Test 1: empty string should become None
+r = client.post('/test1', data={'name': ''})
+print('Test1 (empty str -> None):', r.json(), 'PASS' if r.json()['name'] is None else 'FAIL')
+
+# Test 2: empty string should become None (non-embedded)
+r = client.post('/test2', data={'name': ''})
+print('Test2 (empty str -> None):', r.json(), 'PASS' if r.json()['name'] is None else 'FAIL')
+
+# Test 3: with actual value
+r = client.post('/test3', data={'name': 'hello'})
+print('Test3 (with value):', r.json(), 'PASS' if r.json()['name'] == 'hello' else 'FAIL')
+
+# Test 4: no data at all
+r = client.post('/test1', data={})
+print('Test4 (no data):', r.json(), 'PASS' if r.json()['name'] is None else 'FAIL')
+
+# Test 5: multipart with file
+@app.post('/test5')
+def test5(
+    file: Annotated[Optional[bytes], File()] = None,
+    name: Annotated[Optional[str], Form(embed=True)] = None,
+):
+    return {'name': name, 'file': file}
+
+r = client.post('/test5', data={'name': ''})
+print('Test5 (multipart empty):', r.json(), 'PASS' if r.json()['name'] is None and r.json()['file'] is None else 'FAIL')
+"
+
+Test1 (empty str -> None): {'name': None} PASS
+Test2 (empty str -> None): {'name': None} PASS
+Test3 (with value): {'name': 'hello'} PASS
+Test4 (no data): {'name': None} PASS
+Test5 (multipart empty): {'name': None, 'file': None} PASS
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/ -k "form" -v 2>&1 | tail -50
+ERROR tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial004.py
+ERROR tests/test_tutorial/test_query_param_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_query_param_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_query_params/test_tutorial006.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial010.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial011.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial012.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial013.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial014.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial015.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001_02.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001_03.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial002.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial003.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial002_pv1.py
+ERROR tests/test_tutorial/test_request_forms/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_forms_and_files/test_tutorial001.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_01.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_04.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_05.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial004.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial005.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial006.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial001.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial001_pv1.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial004.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial005.py
+ERROR tests/test_tutorial/test_security/test_tutorial001.py
+ERROR tests/test_tutorial/test_security/test_tutorial003.py
+ERROR tests/test_tutorial/test_security/test_tutorial005.py
+ERROR tests/test_tutorial/test_security/test_tutorial006.py
+ERROR tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py
+ERROR tests/test_tutorial/test_separate_openapi_schemas/test_tutorial002.py
+ERROR tests/test_tutorial/test_settings/test_app02.py
+ERROR tests/test_tutorial/test_settings/test_tutorial001.py
+ERROR tests/test_tutorial/test_sql_databases/test_tutorial001.py
+ERROR tests/test_tutorial/test_sql_databases/test_tutorial002.py
+ERROR tests/test_tutorial/test_testing/test_main_b.py
+ERROR tests/test_tutorial/test_testing_dependencies/test_tutorial001.py
+ERROR tests/test_tutorial/test_websockets/test_tutorial002.py
+ERROR tests/test_tutorial/test_websockets/test_tutorial003_py39.py
+ERROR tests/test_tutorial/test_wsgi/test_tutorial001.py
+ERROR tests/test_typing_python39.py
+ERROR tests/test_union_body_discriminator.py
+!!!!!!!!!!!!!!!!!! Interrupted: 114 errors during collection !!!!!!!!!!!!!!!!!!!
+===================== 959 deselected, 114 errors in 2.63s ======================
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_request_forms.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... ERROR: file or directory not found: tests/test_request_forms.py
+
+collected 0 items
+
+============================ no tests ran in 0.00s =============================
+[0m
+[0m✱ [0mGlob "tests/**/test_request_forms*"[90m in . · 0 matches[0m
+[0m✱ [0mGlob "tests/**/test_*form*.py"[90m in . · 7 matches[0m
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_file_and_form_order_issue_9116.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 4 items
+
+tests/test_file_and_form_order_issue_9116.py::test_file_form_order[/file_before_form] PASSED [ 25%]
+tests/test_file_and_form_order_issue_9116.py::test_file_form_order[/file_after_form] PASSED [ 50%]
+tests/test_file_and_form_order_issue_9116.py::test_file_list_form_order[/file_list_before_form] PASSED [ 75%]
+tests/test_file_and_form_order_issue_9116.py::test_file_list_form_order[/file_list_after_form] PASSED [100%]
+
+============================== 4 passed in 0.25s ===============================
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_union_forms.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 5 items
+
+tests/test_union_forms.py::test_post_user_form PASSED                    [ 20%]
+tests/test_union_forms.py::test_post_company_form PASSED                 [ 40%]
+tests/test_union_forms.py::test_invalid_form_data PASSED                 [ 60%]
+tests/test_union_forms.py::test_empty_form PASSED                        [ 80%]
+tests/test_union_forms.py::test_openapi_schema PASSED                    [100%]
+
+============================== 5 passed in 0.25s ===============================
+[0m
+[0m✱ [0mGrep "empty.*form.*default"[90m in tests · 0 matches[0m
+[0m✱ [0mGrep "name.*Form.*embed"[90m in tests · 0 matches[0m
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_deprecated.py tests/test_application.py tests/test_params_repr.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... ERROR: file or directory not found: tests/test_deprecated.py
+
+collected 0 items
+
+============================ no tests ran in 0.00s =============================
+[0m
+[0m✱ [0mGrep "Form.*default.*\"\""[90m in tests · 0 matches[0m
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=50, offset=869][0m
+Let me verify that the fix handles the full flow correctly:
+[0m→ [0mRead fastapi/dependencies/utils.py[90m [limit=50, offset=914][0m
+[0m
+[0m$ [0mcd /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi && /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -m pytest tests/test_forms*.py tests/test_file_and_form_order_issue_9116.py tests/test_union_forms.py -v 2>&1 | tail -30
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0 -- /Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+cachedir: .pytest_cache
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collecting ... collected 18 items
+
+tests/test_forms_from_non_typing_sequences.py::test_python_list_param_as_form PASSED [  5%]
+tests/test_forms_from_non_typing_sequences.py::test_python_set_param_as_form PASSED [ 11%]
+tests/test_forms_from_non_typing_sequences.py::test_python_tuple_param_as_form PASSED [ 16%]
+tests/test_forms_single_model.py::test_send_all_data PASSED              [ 22%]
+tests/test_forms_single_model.py::test_defaults PASSED                   [ 27%]
+tests/test_forms_single_model.py::test_invalid_data PASSED               [ 33%]
+tests/test_forms_single_model.py::test_no_data PASSED                    [ 38%]
+tests/test_forms_single_param.py::test_single_form_field PASSED          [ 44%]
+tests/test_forms_single_param.py::test_openapi_schema PASSED             [ 50%]
+tests/test_file_and_form_order_issue_9116.py::test_file_form_order[/file_before_form] PASSED [ 55%]
+tests/test_file_and_form_order_issue_9116.py::test_file_form_order[/file_after_form] PASSED [ 61%]
+tests/test_file_and_form_order_issue_9116.py::test_file_list_form_order[/file_list_before_form] PASSED [ 66%]
+tests/test_file_and_form_order_issue_9116.py::test_file_list_form_order[/file_list_after_form] PASSED [ 72%]
+tests/test_union_forms.py::test_post_user_form PASSED                    [ 77%]
+tests/test_union_forms.py::test_post_company_form PASSED                 [ 83%]
+tests/test_union_forms.py::test_invalid_form_data PASSED                 [ 88%]
+tests/test_union_forms.py::test_empty_form PASSED                        [ 94%]
+tests/test_union_forms.py::test_openapi_schema PASSED                    [100%]
+
+============================== 18 passed in 0.62s ==============================
+[0m
+[0m$ [0m/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -c "
+from fastapi import FastAPI, Form, File
+from fastapi.testclient import TestClient
+from typing import Annotated, Optional
+
+# Test MRE 1: x-form-urlencoded
+app1 = FastAPI()
+@app1.post('/')
+def root1(name: Annotated[Optional[str], Form(embed=True)] = None):
+    return {'name': name}
+
+client1 = TestClient(app1, raise_server_exceptions=False)
+r = client1.post('/', data={'name': ''})
+print('MRE1 (x-form-urlencoded):', r.json())
+assert r.json()['name'] is None, f'Expected None, got {r.json()[\"name\"]!r}'
+
+# Test MRE 2: multipart forms
+app2 = FastAPI()
+@app2.post('/')
+def root2(
+    file: Annotated[Optional[bytes], File()] = None,
+    name: Annotated[Optional[str], Form(embed=True)] = None,
+):
+    return {'name': name, 'file': file}
+
+client2 = TestClient(app2, raise_server_exceptions=False)
+r = client2.post('/', data={'name': ''})
+print('MRE2 (multipart):', r.json())
+assert r.json()['name'] is None, f'Expected None, got {r.json()[\"name\"]!r}'
+assert r.json()['file'] is None, f'Expected None, got {r.json()[\"file\"]!r}'
+
+print('Both MREs fixed!')
+"
+
+MRE1 (x-form-urlencoded): {'name': None}
+MRE2 (multipart): {'name': None, 'file': None}
+Both MREs fixed!
+[0m
+[0m# [0mTodos
+[x] Fix x-form-urlencoded regression: prevent re-adding form fields that should use defaults
+[x] Fix multipart forms regression: handle empty form field values properly
+[x] Run tests to verify fixes
+[0m
+Both regressions have been fixed with a single change in `/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-AHakdi/fastapi/dependencies/utils.py`:
+
+**The issue**: In `_extract_form_body()`, the code was blindly re-adding all form fields from the received body that weren't in `values`, even when those fields should use their default values (like `None` for optional fields).
+
+**The fix**: Track which form field names have been processed, so only truly unhandled fields are added:
+
+```python
+async def _extract_form_body(
+    body_fields: List[ModelField],
+    received_body: FormData,
+) -> Dict[str, Any]:
+    values = {}
+    processed_keys: set = set()  # Track processed field names
+
+    for field in body_fields:
+        # ... existing value extraction ...
+        if value is not None:
+            values[field.alias] = value
+        processed_keys.add(field.alias)  # Mark as processed
+        processed_keys.add(field.name)
+    for key, value in received_body.items():
+        if key not in processed_keys:  # Only add truly unhandled fields
+            values[key] = value
+    return values
+```
+
+This fixes both issues:
+1. **x-form-urlencoded**: Empty string `name=""` now correctly returns `None` instead of `""`
+2. **multipart forms**: Empty string `name=""` with optional File field now correctly returns `None` for both
+============================= test session starts ==============================
+platform darwin -- Python 3.12.5, pytest-9.0.2, pluggy-1.6.0
+rootdir: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1
+configfile: pyproject.toml
+plugins: anyio-4.13.0
+collected 985 items / 114 errors
+
+==================================== ERRORS ====================================
+____________________ ERROR collecting tests/test_compat.py _____________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_compat.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_compat.py:17: in <module>
+    from .utils import needs_py_lt_314, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_______________ ERROR collecting tests/test_compat_params_v1.py ________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_compat_params_v1.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_compat_params_v1.py:6: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+________________ ERROR collecting tests/test_computed_fields.py ________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_computed_fields.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_computed_fields.py:5: in <module>
+    from .utils import needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_datetime_custom_encoder.py ____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_datetime_custom_encoder.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_datetime_custom_encoder.py:7: in <module>
+    from .utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_default_response_class.py _____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_default_response_class.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_default_response_class.py:3: in <module>
+    import orjson
+E   ModuleNotFoundError: No module named 'orjson'
+_ ERROR collecting tests/test_filter_pydantic_sub_model/test_filter_pydantic_sub_model_pv1.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_filter_pydantic_sub_model/test_filter_pydantic_sub_model_pv1.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_filter_pydantic_sub_model/test_filter_pydantic_sub_model_pv1.py:5: in <module>
+    from ..utils import needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_________ ERROR collecting tests/test_filter_pydantic_sub_model_pv2.py _________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_filter_pydantic_sub_model_pv2.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_filter_pydantic_sub_model_pv2.py:9: in <module>
+    from .utils import needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____ ERROR collecting tests/test_get_model_definitions_formfeed_escape.py _____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_get_model_definitions_formfeed_escape.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_get_model_definitions_formfeed_escape.py:11: in <module>
+    from .utils import needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_inherited_custom_class.py _____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_inherited_custom_class.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_inherited_custom_class.py:8: in <module>
+    from .utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_______________ ERROR collecting tests/test_jsonable_encoder.py ________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_jsonable_encoder.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_jsonable_encoder.py:15: in <module>
+    from .utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+________________ ERROR collecting tests/test_no_schema_split.py ________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_no_schema_split.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_no_schema_split.py:10: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____ ERROR collecting tests/test_openapi_separate_input_output_schemas.py _____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_openapi_separate_input_output_schemas.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_openapi_separate_input_output_schemas.py:5: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____________ ERROR collecting tests/test_orjson_response_class.py _____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_orjson_response_class.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_orjson_response_class.py:4: in <module>
+    from sqlalchemy.sql.elements import quoted_name
+E   ModuleNotFoundError: No module named 'sqlalchemy'
+_______________ ERROR collecting tests/test_pydantic_v1_v2_01.py _______________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_pydantic_v1_v2_01.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_pydantic_v1_v2_01.py:4: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+______________ ERROR collecting tests/test_pydantic_v1_v2_list.py ______________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_pydantic_v1_v2_list.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_pydantic_v1_v2_list.py:4: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____________ ERROR collecting tests/test_pydantic_v1_v2_mixed.py ______________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_pydantic_v1_v2_mixed.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_pydantic_v1_v2_mixed.py:4: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_pydantic_v1_v2_multifile/test_multifile.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_pydantic_v1_v2_multifile/test_multifile.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_pydantic_v1_v2_multifile/test_multifile.py:3: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_pydantic_v1_v2_noneable.py ____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_pydantic_v1_v2_noneable.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_pydantic_v1_v2_noneable.py:4: in <module>
+    from tests.utils import pydantic_snapshot, skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+______________ ERROR collecting tests/test_read_with_orm_mode.py _______________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_read_with_orm_mode.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_read_with_orm_mode.py:7: in <module>
+    from .utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____________ ERROR collecting tests/test_regex_deprecated_body.py _____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_regex_deprecated_body.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_regex_deprecated_body.py:7: in <module>
+    from .utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_regex_deprecated_params.py ____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_regex_deprecated_params.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_regex_deprecated_params.py:7: in <module>
+    from .utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+______ ERROR collecting tests/test_response_model_as_return_annotation.py ______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_response_model_as_return_annotation.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_response_model_as_return_annotation.py:10: in <module>
+    from tests.utils import needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+___________ ERROR collecting tests/test_schema_compat_pydantic_v2.py ___________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_schema_compat_pydantic_v2.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_schema_compat_pydantic_v2.py:4: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____________ ERROR collecting tests/test_schema_ref_pydantic_v2.py _____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_schema_ref_pydantic_v2.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_schema_ref_pydantic_v2.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_____ ERROR collecting tests/test_top_level_security_scheme_in_openapi.py ______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_top_level_security_scheme_in_openapi.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_top_level_security_scheme_in_openapi.py:7: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_additional_status_codes/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_additional_status_codes/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_additional_status_codes/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_authentication_error_status_code/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_authentication_error_status_code/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_authentication_error_status_code/test_tutorial001.py:5: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_background_tasks/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_background_tasks/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_background_tasks/test_tutorial002.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_bigger_applications/test_main.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_bigger_applications/test_main.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_bigger_applications/test_main.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+______ ERROR collecting tests/test_tutorial/test_body/test_tutorial001.py ______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body/test_tutorial001.py:8: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_body_fields/test_tutorial001.py ___
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body_fields/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body_fields/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_body_multiple_params/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body_multiple_params/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body_multiple_params/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_body_multiple_params/test_tutorial003.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body_multiple_params/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body_multiple_params/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_body_nested_models/test_tutorial009.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body_nested_models/test_tutorial009.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body_nested_models/test_tutorial009.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_body_updates/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_body_updates/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_body_updates/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py39, needs_py310, needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_conditional_openapi/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_conditional_openapi/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_conditional_openapi/test_tutorial001.py:5: in <module>
+    from ...utils import needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_cookie_param_models/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_cookie_param_models/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_cookie_param_models/test_tutorial001.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_cookie_param_models/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_cookie_param_models/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_cookie_param_models/test_tutorial002.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_cookie_params/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_cookie_params/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_cookie_params/test_tutorial001.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_custom_response/test_tutorial009c.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_custom_response/test_tutorial009c.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_custom_response/test_tutorial009c.py:3: in <module>
+    from docs_src.custom_response.tutorial009c import app
+docs_src/custom_response/tutorial009c.py:3: in <module>
+    import orjson
+E   ModuleNotFoundError: No module named 'orjson'
+__ ERROR collecting tests/test_tutorial/test_dataclasses/test_tutorial003.py ___
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dataclasses/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dataclasses/test_tutorial003.py:5: in <module>
+    from ...utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial004.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial004.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial006.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial006.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial006.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial008b.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial008b.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial008b.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial008c.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial008c.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial008c.py:8: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial008d.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial008d.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial008d.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial008e.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial008e.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial008e.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_dependencies/test_tutorial012.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_dependencies/test_tutorial012.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_dependencies/test_tutorial012.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_extra_data_types/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_extra_data_types/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_extra_data_types/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_extra_models/test_tutorial003.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_extra_models/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_extra_models/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_extra_models/test_tutorial004.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_extra_models/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_extra_models/test_tutorial004.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_extra_models/test_tutorial005.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_extra_models/test_tutorial005.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_extra_models/test_tutorial005.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_param_models/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_param_models/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_param_models/test_tutorial001.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_param_models/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_param_models/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_param_models/test_tutorial002.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_param_models/test_tutorial003.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_param_models/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_param_models/test_tutorial003.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_params/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_params/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_params/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_params/test_tutorial002.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_params/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_params/test_tutorial002.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_header_params/test_tutorial003.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_header_params/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_header_params/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial004.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial004.py:5: in <module>
+    from ...utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007.py:4: in <module>
+    from ...utils import needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007_pv1.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007_pv1.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007_pv1.py:4: in <module>
+    from ...utils import needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_path_operation_configurations/test_tutorial005.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_path_operation_configurations/test_tutorial005.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_path_operation_configurations/test_tutorial005.py:6: in <module>
+    from ...utils import needs_py39, needs_py310, needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial001.py:7: in <module>
+    from tests.utils import skip_module_if_py_gte_314
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial002.py:5: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial003.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial003.py:5: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial004.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial004.py:5: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_param_models/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_param_models/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_param_models/test_tutorial001.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_param_models/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_param_models/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_param_models/test_tutorial002.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+__ ERROR collecting tests/test_tutorial/test_query_params/test_tutorial006.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params/test_tutorial006.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params/test_tutorial006.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial010.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial010.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial010.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial011.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial011.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial011.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial012.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial012.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial012.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial013.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial013.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial013.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial014.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial014.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial014.py:6: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_query_params_str_validations/test_tutorial015.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_query_params_str_validations/test_tutorial015.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_query_params_str_validations/test_tutorial015.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_files/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_files/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_files/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_files/test_tutorial001_02.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_files/test_tutorial001_02.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_files/test_tutorial001_02.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_files/test_tutorial001_03.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_files/test_tutorial001_03.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_files/test_tutorial001_03.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_files/test_tutorial002.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_files/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_files/test_tutorial002.py:8: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_files/test_tutorial003.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_files/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_files/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_form_models/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_form_models/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_form_models/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_form_models/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_form_models/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_form_models/test_tutorial002.py:6: in <module>
+    from ...utils import needs_py39, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_form_models/test_tutorial002_pv1.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_form_models/test_tutorial002_pv1.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_form_models/test_tutorial002_pv1.py:6: in <module>
+    from ...utils import needs_py39, needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_forms/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_forms/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_forms/test_tutorial001.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_request_forms_and_files/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_request_forms_and_files/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_request_forms_and_files/test_tutorial001.py:8: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial003.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial003_01.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial003_01.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial003_01.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial003_04.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial003_04.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial003_04.py:6: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial003_05.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial003_05.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial003_05.py:6: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial004.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial004.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial005.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial005.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial005.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_response_model/test_tutorial006.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_response_model/test_tutorial006.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_response_model/test_tutorial006.py:7: in <module>
+    from ...utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_schema_extra_example/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_schema_extra_example/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_schema_extra_example/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py310, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_schema_extra_example/test_tutorial001_pv1.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_schema_extra_example/test_tutorial001_pv1.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_schema_extra_example/test_tutorial001_pv1.py:6: in <module>
+    from ...utils import needs_py310, needs_pydanticv1
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_schema_extra_example/test_tutorial004.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_schema_extra_example/test_tutorial004.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_schema_extra_example/test_tutorial004.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_schema_extra_example/test_tutorial005.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_schema_extra_example/test_tutorial005.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_schema_extra_example/test_tutorial005.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_tutorial/test_security/test_tutorial001.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_security/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_security/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_tutorial/test_security/test_tutorial003.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_security/test_tutorial003.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_security/test_tutorial003.py:7: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_tutorial/test_security/test_tutorial005.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_security/test_tutorial005.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_security/test_tutorial005.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_tutorial/test_security/test_tutorial006.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_security/test_tutorial006.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_security/test_tutorial006.py:7: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py39, needs_py310, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_separate_openapi_schemas/test_tutorial002.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_separate_openapi_schemas/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_separate_openapi_schemas/test_tutorial002.py:6: in <module>
+    from ...utils import needs_py39, needs_py310, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_______ ERROR collecting tests/test_tutorial/test_settings/test_app02.py _______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_settings/test_app02.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_settings/test_app02.py:3: in <module>
+    from ...utils import needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+____ ERROR collecting tests/test_tutorial/test_settings/test_tutorial001.py ____
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_settings/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_settings/test_tutorial001.py:7: in <module>
+    from ...utils import needs_pydanticv1, needs_pydanticv2
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_sql_databases/test_tutorial001.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_sql_databases/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_sql_databases/test_tutorial001.py:7: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_sql_databases/test_tutorial002.py __
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_sql_databases/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_sql_databases/test_tutorial002.py:7: in <module>
+    from inline_snapshot import Is, snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_______ ERROR collecting tests/test_tutorial/test_testing/test_main_b.py _______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_testing/test_main_b.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_testing/test_main_b.py:6: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_testing_dependencies/test_tutorial001.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_testing_dependencies/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_testing_dependencies/test_tutorial001.py:6: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+___ ERROR collecting tests/test_tutorial/test_websockets/test_tutorial002.py ___
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_websockets/test_tutorial002.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_websockets/test_tutorial002.py:8: in <module>
+    from ...utils import needs_py39, needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+_ ERROR collecting tests/test_tutorial/test_websockets/test_tutorial003_py39.py _
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_websockets/test_tutorial003_py39.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_websockets/test_tutorial003_py39.py:5: in <module>
+    from ...utils import needs_py39
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+______ ERROR collecting tests/test_tutorial/test_wsgi/test_tutorial001.py ______
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_tutorial/test_wsgi/test_tutorial001.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tutorial/test_wsgi/test_tutorial001.py:3: in <module>
+    from docs_src.wsgi.tutorial001 import app
+docs_src/wsgi/tutorial001.py:3: in <module>
+    from flask import Flask, request
+E   ModuleNotFoundError: No module named 'flask'
+________________ ERROR collecting tests/test_typing_python39.py ________________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_typing_python39.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_typing_python39.py:4: in <module>
+    from .utils import needs_py310
+tests/utils.py:5: in <module>
+    from inline_snapshot import Snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+___________ ERROR collecting tests/test_union_body_discriminator.py ____________
+ImportError while importing test module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-mLysq1/tests/test_union_body_discriminator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_union_body_discriminator.py:6: in <module>
+    from inline_snapshot import snapshot
+E   ModuleNotFoundError: No module named 'inline_snapshot'
+=========================== short test summary info ============================
+ERROR tests/test_compat.py
+ERROR tests/test_compat_params_v1.py
+ERROR tests/test_computed_fields.py
+ERROR tests/test_datetime_custom_encoder.py
+ERROR tests/test_default_response_class.py
+ERROR tests/test_filter_pydantic_sub_model/test_filter_pydantic_sub_model_pv1.py
+ERROR tests/test_filter_pydantic_sub_model_pv2.py
+ERROR tests/test_get_model_definitions_formfeed_escape.py
+ERROR tests/test_inherited_custom_class.py
+ERROR tests/test_jsonable_encoder.py
+ERROR tests/test_no_schema_split.py
+ERROR tests/test_openapi_separate_input_output_schemas.py
+ERROR tests/test_orjson_response_class.py
+ERROR tests/test_pydantic_v1_v2_01.py
+ERROR tests/test_pydantic_v1_v2_list.py
+ERROR tests/test_pydantic_v1_v2_mixed.py
+ERROR tests/test_pydantic_v1_v2_multifile/test_multifile.py
+ERROR tests/test_pydantic_v1_v2_noneable.py
+ERROR tests/test_read_with_orm_mode.py
+ERROR tests/test_regex_deprecated_body.py
+ERROR tests/test_regex_deprecated_params.py
+ERROR tests/test_response_model_as_return_annotation.py
+ERROR tests/test_schema_compat_pydantic_v2.py
+ERROR tests/test_schema_ref_pydantic_v2.py
+ERROR tests/test_top_level_security_scheme_in_openapi.py
+ERROR tests/test_tutorial/test_additional_status_codes/test_tutorial001.py
+ERROR tests/test_tutorial/test_authentication_error_status_code/test_tutorial001.py
+ERROR tests/test_tutorial/test_background_tasks/test_tutorial002.py
+ERROR tests/test_tutorial/test_bigger_applications/test_main.py
+ERROR tests/test_tutorial/test_body/test_tutorial001.py
+ERROR tests/test_tutorial/test_body_fields/test_tutorial001.py
+ERROR tests/test_tutorial/test_body_multiple_params/test_tutorial001.py
+ERROR tests/test_tutorial/test_body_multiple_params/test_tutorial003.py
+ERROR tests/test_tutorial/test_body_nested_models/test_tutorial009.py
+ERROR tests/test_tutorial/test_body_updates/test_tutorial001.py
+ERROR tests/test_tutorial/test_conditional_openapi/test_tutorial001.py
+ERROR tests/test_tutorial/test_cookie_param_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_cookie_param_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_cookie_params/test_tutorial001.py
+ERROR tests/test_tutorial/test_custom_response/test_tutorial009c.py
+ERROR tests/test_tutorial/test_dataclasses/test_tutorial003.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial001.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial004.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial006.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial008b.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial008c.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial008d.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial008e.py
+ERROR tests/test_tutorial/test_dependencies/test_tutorial012.py
+ERROR tests/test_tutorial/test_extra_data_types/test_tutorial001.py
+ERROR tests/test_tutorial/test_extra_models/test_tutorial003.py
+ERROR tests/test_tutorial/test_extra_models/test_tutorial004.py
+ERROR tests/test_tutorial/test_extra_models/test_tutorial005.py
+ERROR tests/test_tutorial/test_header_param_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_header_param_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_header_param_models/test_tutorial003.py
+ERROR tests/test_tutorial/test_header_params/test_tutorial001.py
+ERROR tests/test_tutorial/test_header_params/test_tutorial002.py
+ERROR tests/test_tutorial/test_header_params/test_tutorial003.py
+ERROR tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial004.py
+ERROR tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007.py
+ERROR tests/test_tutorial/test_path_operation_advanced_configurations/test_tutorial007_pv1.py
+ERROR tests/test_tutorial/test_path_operation_configurations/test_tutorial005.py
+ERROR tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial001.py
+ERROR tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial002.py
+ERROR tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial003.py
+ERROR tests/test_tutorial/test_pydantic_v1_in_v2/test_tutorial004.py
+ERROR tests/test_tutorial/test_query_param_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_query_param_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_query_params/test_tutorial006.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial010.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial011.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial012.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial013.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial014.py
+ERROR tests/test_tutorial/test_query_params_str_validations/test_tutorial015.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001_02.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial001_03.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial002.py
+ERROR tests/test_tutorial/test_request_files/test_tutorial003.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial002.py
+ERROR tests/test_tutorial/test_request_form_models/test_tutorial002_pv1.py
+ERROR tests/test_tutorial/test_request_forms/test_tutorial001.py
+ERROR tests/test_tutorial/test_request_forms_and_files/test_tutorial001.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_01.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_04.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial003_05.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial004.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial005.py
+ERROR tests/test_tutorial/test_response_model/test_tutorial006.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial001.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial001_pv1.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial004.py
+ERROR tests/test_tutorial/test_schema_extra_example/test_tutorial005.py
+ERROR tests/test_tutorial/test_security/test_tutorial001.py
+ERROR tests/test_tutorial/test_security/test_tutorial003.py
+ERROR tests/test_tutorial/test_security/test_tutorial005.py
+ERROR tests/test_tutorial/test_security/test_tutorial006.py
+ERROR tests/test_tutorial/test_separate_openapi_schemas/test_tutorial001.py
+ERROR tests/test_tutorial/test_separate_openapi_schemas/test_tutorial002.py
+ERROR tests/test_tutorial/test_settings/test_app02.py
+ERROR tests/test_tutorial/test_settings/test_tutorial001.py
+ERROR tests/test_tutorial/test_sql_databases/test_tutorial001.py
+ERROR tests/test_tutorial/test_sql_databases/test_tutorial002.py
+ERROR tests/test_tutorial/test_testing/test_main_b.py
+ERROR tests/test_tutorial/test_testing_dependencies/test_tutorial001.py
+ERROR tests/test_tutorial/test_websockets/test_tutorial002.py
+ERROR tests/test_tutorial/test_websockets/test_tutorial003_py39.py
+ERROR tests/test_tutorial/test_wsgi/test_tutorial001.py
+ERROR tests/test_typing_python39.py
+ERROR tests/test_union_body_discriminator.py
+!!!!!!!!!!!!!!!!!! Interrupted: 114 errors during collection !!!!!!!!!!!!!!!!!!!
+============================= 114 errors in 2.91s ==============================

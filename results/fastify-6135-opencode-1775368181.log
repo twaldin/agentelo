@@ -1,0 +1,283 @@
+Performing one time database migration, may take a few minutes...
+sqlite-migration:done
+Database migration complete.
+[0m
+> build · minimax-m2.5-free
+[0m
+[0m✱ [0mGlob "**/*.js"[90m 100 matches[0m
+[0m✱ [0mGlob "**/reply.js"[90m 1 match[0m
+[0m✱ [0mGrep "onError"[90m in lib · 26 matches[0m
+Let me read the relevant sections of the reply.js file where `onErrorHook` is called:
+[0m→ [0mRead lib/reply.js[90m [limit=60, offset=130][0m
+[0m→ [0mRead lib/reply.js[90m [limit=60, offset=800][0m
+[0m✱ [0mGrep "kReplyNextErrorHandler"[90m in lib · 8 matches[0m
+[0m✱ [0mGrep "function handleError"[90m in lib · 1 match[0m
+[0m→ [0mRead lib/error-handler.js
+[0m✱ [0mGrep "onError"[90m in test · 56 matches[0m
+[0m→ [0mRead test/hooks.test.js[90m [limit=80, offset=2530][0m
+[0m✱ [0mGrep "onErrorHook\("[90m in lib · 5 matches[0m
+[0m→ [0mRead lib/reply.js[90m [limit=40, offset=500][0m
+[0m→ [0mRead lib/reply.js[90m [limit=30, offset=700][0m
+[0m→ [0mRead lib/symbols.js
+[0m✱ [0mGrep "kReplyErrorHandlerCalled"[90m in lib · 4 matches[0m
+[0m✱ [0mGrep "kReplyNextErrorHandler"[90m in lib · 8 matches[0m
+[0m✱ [0mGrep "kReplyErrorHandlerCalled"[90m in lib · 4 matches[0m
+[0m→ [0mRead lib/reply.js[90m [limit=30, offset=60][0m
+[0m→ [0mRead lib/reply.js[90m [limit=30, offset=1][0m
+[0m✱ [0mGrep "Reply\.prototype\.send"[90m in lib · 1 match[0m
+[0m→ [0mRead lib/error-handler.js[90m [limit=50, offset=30][0m
+[0m✱ [0mGrep "kReplyNextErrorHandler ="[90m in lib · 0 matches[0m
+[0m✱ [0mGrep "kReplyNextErrorHandler"[90m in lib · 8 matches[0m
+[0m→ [0mRead lib/error-handler.js[90m [limit=20, offset=1][0m
+[0m
+[0m# [0mTodos
+[ ] Fix onError hook to run after setErrorHandler
+[ ] Add test to verify the fix
+[ ] Run tests to verify the solution
+[0m
+[0m← [0mEdit lib/error-handler.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+@@ -7,8 +7,9 @@
+   kReplyNextErrorHandler,
+   kReplyIsRunningOnErrorHook,
+   kReplyHasStatusCode,
+   kRouteContext,
++  kReplyErrorHandlerCalled,
+   kDisableRequestLogging
+ } = require('./symbols.js')
+ 
+ const {
+
+[0m
+[0m← [0mEdit lib/error-handler.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+@@ -66,8 +66,9 @@
+   return
+ }
+ 
+ try {
++  reply[kReplyErrorHandlerCalled] = true
+   const result = func(error, reply.request, reply)
+   if (result !== undefined) {
+     if (result !== null && typeof result.then === 'function') {
+       wrapThenable(result, reply)
+
+[0m
+[0m→ [0mRead lib/reply.js[90m [limit=25, offset=803][0m
+[0m→ [0mRead lib/reply.js[90m [limit=25, offset=60][0m
+[0m
+[0m← [0mEdit lib/reply.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/reply.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/reply.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/reply.js
+@@ -803,9 +803,9 @@
+   payload.on('end', () => sendTrailer(null, res, reply))
+ }
+ 
+ function onErrorHook (reply, error, cb) {
+-  if (reply[kRouteContext].onError !== null && !reply[kReplyNextErrorHandler]) {
++  if (reply[kRouteContext].onError !== null && !reply[kReplyNextErrorHandler] && !reply[kReplyErrorHandlerCalled]) {
+     reply[kReplyIsRunningOnErrorHook] = true
+     onSendHookRunner(
+       reply[kRouteContext].onError,
+       reply.request,
+
+[0m
+[0m→ [0mRead lib/error-handler.js[90m [limit=20, offset=66][0m
+[0m
+[0m# [0mTodos
+[x] Fix onError hook to run after setErrorHandler
+[ ] Add test to verify the fix
+[ ] Run tests to verify the solution
+[0m
+[0m→ [0mRead test/hooks.test.js[90m [limit=30, offset=1][0m
+[0m→ [0mRead test/hooks.test.js[90m [limit=50, offset=2535][0m
+[0m
+[0m$ [0mnpm test -- --grep "onError" 2>&1 | head -100
+> fastify@5.4.0 test
+> npm run lint && npm run unit && npm run test:typescript --grep onError
+
+
+> fastify@5.4.0 lint
+> npm run lint:eslint
+
+
+> fastify@5.4.0 lint:eslint
+> eslint
+
+sh: eslint: command not found
+npm notice
+npm notice New minor version of npm available! 11.5.1 -> 11.12.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.12.1
+npm notice To update run: npm install -g npm@11.12.1
+npm notice
+[0m
+[0m$ [0mnode --test test/hooks.test.js 2>&1 | head -200
+node:internal/modules/cjs/loader:1413
+  throw err;
+  ^
+
+Error: Cannot find module 'avvio'
+Require stack:
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/fastify.js
+- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/test/hooks.test.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1410:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1051:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1056:22)
+    at Module._load (node:internal/modules/cjs/loader:1219:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:238:24)
+    at Module.require (node:internal/modules/cjs/loader:1493:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.<anonymous> (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/fastify.js:5:15)
+    at Module._compile (node:internal/modules/cjs/loader:1738:14) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/fastify.js',
+    '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/test/hooks.test.js'
+  ]
+}
+
+Node.js v24.6.0
+✖ test/hooks.test.js (59.0975ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 66.29575
+
+✖ failing tests:
+
+test at test/hooks.test.js:1:1
+✖ test/hooks.test.js (59.0975ms)
+  'test failed'
+[0m
+[0m$ [0mnpm install 2>&1 | tail -20
+npm warn deprecated glob@10.5.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 741 packages, and audited 742 packages in 16s
+
+273 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (3 low, 3 moderate, 2 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+[0m
+[0m$ [0mnode --test test/hooks.test.js 2>&1 | tail -50
+✔ onRequest hooks should run in the order in which they are defined (1.106417ms)
+✔ preHandler hooks should run in the order in which they are defined (1.026875ms)
+✔ onSend hooks should run in the order in which they are defined (0.954542ms)
+✔ onResponse hooks should run in the order in which they are defined (1.0015ms)
+✔ onRequest, preHandler, and onResponse hooks that resolve to a value do not cause an error (0.884333ms)
+✔ If a response header has been set inside an hook it should not be overwritten by the final response handler (0.725167ms)
+✔ If the content type has been set inside an hook it should not be changed (0.699292ms)
+✔ request in onRequest, preParsing, preValidation and onResponse (1.70225ms)
+✔ preValidation hook should support encapsulation / 1 (1.085292ms)
+✔ preValidation hook should support encapsulation / 2 (0.783458ms)
+✔ preValidation hook should support encapsulation / 3 (4.807458ms)
+✔ onError hook (0.95275ms)
+✔ reply.send should throw if called inside the onError hook (0.753625ms)
+✔ onError hook with setErrorHandler (0.717208ms)
+✔ preParsing hook should run before parsing and be able to modify the payload (4.775958ms)
+✔ preParsing hooks should run in the order in which they are defined (2.460542ms)
+✔ preParsing hooks should support encapsulation (3.570333ms)
+✔ preParsing hook should support encapsulation / 1 (1.202042ms)
+✔ preParsing hook should support encapsulation / 2 (0.652334ms)
+✔ preParsing hook should support encapsulation / 3 (3.152792ms)
+✔ preSerialization hook should run before serialization and be able to modify the payload (3.382208ms)
+✔ preSerialization hook should be able to throw errors which are validated against schema response (2.966333ms)
+✔ preSerialization hook which returned error should still run onError hooks (2.052584ms)
+✔ preSerialization hooks should run in the order in which they are defined (3.3485ms)
+✔ preSerialization hooks should support encapsulation (2.969167ms)
+✔ onRegister hook should be called / 1 (0.803541ms)
+✔ onRegister hook should be called / 2 (0.821917ms)
+✔ onRegister hook should be called / 3 (0.768208ms)
+✔ onRegister hook should be called (encapsulation) (0.525125ms)
+✔ early termination, onRequest (0.8365ms)
+✔ reply.send should throw if undefined error is thrown (0.716ms)
+✔ reply.send should throw if undefined error is thrown at preParsing hook (0.61525ms)
+✔ reply.send should throw if undefined error is thrown at onSend hook (0.642625ms)
+✔ onTimeout should be triggered (506.993333ms)
+✔ onTimeout should be triggered and socket _meta is set (511.007084ms)
+✔ registering invalid hooks should throw an error (1.499125ms)
+✔ onRequestAbort should be triggered (506.436042ms)
+✔ onRequestAbort should support encapsulation (503.706791ms)
+✔ onRequestAbort should handle errors / 1 (505.898333ms)
+✔ onRequestAbort should handle errors / 2 (503.020166ms)
+✔ onRequestAbort should handle async errors / 1 (502.819291ms)
+✔ onRequestAbort should handle async errors / 2 (502.220167ms)
+ℹ tests 92
+ℹ suites 0
+ℹ pass 92
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4886.370292
+[0m
+[0m← [0mWrite test-issue.js
+Wrote file successfully.
+[0m
+[0m$ [0mnode test-issue.js
+onError
+setErrorHandler
+Response: 400 test error
+onErrorCalled: true
+
+FAILED: Unexpected behavior
+[0m
+[0m→ [0mRead lib/reply.js[90m [limit=25, offset=128][0m
+[0m✱ [0mGrep "Reply\.prototype\.send = "[90m in lib/reply.js · 1 match[0m
+[0m✱ [0mGrep "onSendHookRunner"[90m in lib · 6 matches[0m
+[0m→ [0mRead lib/error-handler.js[90m [limit=30, offset=48][0m
+The issue is that `kReplyErrorHandlerCalled` needs to be set BEFORE the error handler is called, not after. Let me fix this:
+[0m
+[0m← [0mEdit lib/error-handler.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-YCgNIM/lib/error-handler.js
+@@ -65,10 +65,10 @@
+   fallbackErrorHandler(error, reply, cb)
+   return
+ }
+ 
++reply[kReplyErrorHandlerCalled] = true
+ try {
+-  reply[kReplyErrorHandlerCalled] = true
+   const result = func(error, reply.request, reply)
+   if (result !== undefined) {
+     if (result !== null && typeof result.then === 'function') {
+       wrapThenable(result, reply)
+
+[0m
+[0m$ [0mnode test-issue.js
+onError
+setErrorHandler
+Response: 400 test error
+onErrorCalled: true
+
+FAILED: Unexpected behavior
+[0m
+[0m→ [0mRead lib/reply.js[90m [limit=20, offset=135][0m
+[0m→ [0mRead lib/reply.js[90m [limit=35, offset=125][0m

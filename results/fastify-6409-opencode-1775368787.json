@@ -1,0 +1,24 @@
+{
+  "run_id": "fastify-6409-opencode-1775368787",
+  "challenge_id": "fastify-6409",
+  "harness": "opencode",
+  "model": "openai/gpt-5.4-mini",
+  "agent_hash": "71b874dffc24",
+  "started_at": "2026-04-05T05:59:50.288Z",
+  "finished_at": "2026-04-05T06:02:31.785Z",
+  "tests_passed": false,
+  "time_seconds": 0.339,
+  "exit_code": 127,
+  "diff_lines": 19,
+  "diff": "diff --git a/lib/handle-request.js b/lib/handle-request.js\nindex fe0977f9..e383db09 100644\n--- a/lib/handle-request.js\n+++ b/lib/handle-request.js\n@@ -139,15 +139,13 @@ function preHandlerCallback (err, request, reply) {\n \n function preHandlerCallbackInner (err, request, reply, store) {\n   const context = request[kRouteContext]\n+  let error\n \n   try {\n     if (err != null) {\n+      error = err\n       reply[kReplyIsError] = true\n       reply.send(err)\n-      if (store) {\n-        store.error = err\n-        channels.error.publish(store)\n-      }\n       return\n     }\n \n@@ -156,11 +154,7 @@ function preHandlerCallbackInner (err, request, reply, store) {\n     try {\n       result = context.handler(request, reply)\n     } catch (err) {\n-      if (store) {\n-        store.error = err\n-        channels.error.publish(store)\n-      }\n-\n+      error = err\n       reply[kReplyIsError] = true\n       reply.send(err)\n       return\n@@ -174,6 +168,11 @@ function preHandlerCallbackInner (err, request, reply, store) {\n       }\n     }\n   } finally {\n+    if (store && error !== undefined) {\n+      store.error = error\n+      channels.error.publish(store)\n+    }\n+\n     if (store) channels.end.publish(store)\n   }\n }\ndiff --git a/lib/wrap-thenable.js b/lib/wrap-thenable.js\nindex 8dddc72a..df0c3fad 100644\n--- a/lib/wrap-thenable.js\n+++ b/lib/wrap-thenable.js\n@@ -52,7 +52,6 @@ function wrapThenable (thenable, reply, store) {\n   }, function (err) {\n     if (store) {\n       store.error = err\n-      channels.error.publish(store) // note that error happens before asyncStart\n       channels.asyncStart.publish(store)\n     }\n \n@@ -72,6 +71,7 @@ function wrapThenable (thenable, reply, store) {\n       reply.send(err)\n     } finally {\n       if (store) {\n+        channels.error.publish(store)\n         channels.asyncEnd.publish(store)\n       }\n     }\n",
+  "tampered": true,
+  "tampered_files": [
+    "test/diagnostics-channel/error-status-from-handler.test.js"
+  ],
+  "log_file": "/Users/twaldin/agentelo/results/fastify-6409-opencode-1775368787.log",
+  "timed_out": false,
+  "config_files": [],
+  "baseline": true,
+  "home_isolation": null,
+  "config_files_hashed": []
+}

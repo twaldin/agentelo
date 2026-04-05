@@ -1,0 +1,2424 @@
+[0m
+> build · big-pickle
+[0m
+Running the[0m$ [0mls -la
+total 544
+drwx------@    20 twaldin  staff     640 Apr  5 02:12 .
+drwx------@ 13957 twaldin  staff  446624 Apr  5 02:12 ..
+-rw-r--r--@     1 twaldin  staff      64 Apr  5 02:12 .codecov.yml[0m→ [0mRead __tests__/response/body.test.js
+[0m→ [0mRead __tests__/application/respond.test.js
+[0m→ [0mRead test-helpers/stream.js
+5 twaldin  staff     160 Apr  5 02:12 .github
+-rw-r--r--@     1 twaldin  staff      61 Apr  5 02:12 .gitignore
+-rw-r--r--@     1 twaldin  staff      51 Apr  5 02:12 .mailmap
+-rw-r--r--@     1 twaldin  staff    6486 Apr  5 02:12 AUTHORS
+-rw-r--r--@     1 twaldin  staff    3228 Apr  5 02:12 CODE_OF_CONDUCT.md
+-rw-r--r--@     1 twaldin  staff   32681 Apr  5 02:12 History.md
+-rw-r--r--@     1 twaldin  staff    1079 Apr  5 02:12 LICENSE
+-rw-r--r--@     1 twaldin  staff   17333 Apr  5 02:12 Readme.md
+drwxr-xr-x@     9 twaldin  staff     288 Apr  5 02:12 __tests__
+drwxr-xr-x@    12 twaldin  staff     384 Apr  5 02:12 docs
+drwxr-xr-x@     9 twaldin  staff     288 Apr  5 02:12 lib
+drwxr-xr-x@   337 twaldin  staff   10784 Apr  5 02:12 node_modules
+-rw-r--r--@     1 twaldin  staff  185074 Apr  5 02:12 package-lock.json
+-rw-r--r--@     1 twaldin  staff    1711 Apr  5 02:12 package.json
+drwxr-xr-x@     4 twaldin  staff     128 Apr  5 02:12 test-helpers
+[0m
+[0m→ [0mRead Readme.md
+[0m
+[0m$ [0mfind . -name "*fetch*" -type f
+[0m
+[0m$ [0mls -la __tests__/
+total 16
+drwxr-xr-x@  9 twaldin  staff   288 Apr  5 02:12 .
+drwx------@ 20 twaldin  staff   640 Apr  5 02:12 ..
+-rw-r--r--@  1 twaldin  staff   291 Apr  5 02:12 .eslintrc.yml
+drwxr-xr-x@ 13 twaldin  staff   416 Apr  5 02:12 application
+drwxr-xr-x@  9 twaldin  staff   288 Apr  5 02:12 context
+drwxr-xr-x@  3 twaldin  staff    96 Apr  5 02:12 lib
+-rw-r--r--@  1 twaldin  staff  1313 Apr  5 02:12 load-with-esm.test.js
+drwxr-xr-x@ 32 twaldin  staff  1024 Apr  5 02:12 request
+drwxr-xr-x@ 25 twaldin  staff   800 Apr  5 02:12 response
+[0m
+[0m$ [0mgit clone https://github.com/AtnesNess/koa-node-fetch-issue.git /tmp/koa-node-fetch-issue 2>/dev/null || echo "Failed to clone repo"
+[0m✱ [0mGlob "**/context/*.js"[90m 7 matches[0m
+[0m✱ [0mGlob "**/lib/**/*.js"[90m 8 matches[0m
+[0m→ [0mRead lib/context.js
+[0m→ [0mRead lib/response.js
+[0m→ [0mRead lib/response.js[90m [offset=175, limit=20][0m
+[0m✱ [0mGlob "__tests__/response/**/*.test.js"[90m 23 matches[0m
+[0m→ [0mRead __tests__/response/body.test.js
+[0m→ [0mRead test-helpers/context.js
+[0m→ [0mRead test-helpers/stream.js
+[0m→ [0mRead lib/application.js
+[0m
+[0m$ [0mgrep -r "abort\|destroy\|memory" __tests__/ --include="*.js" | head -10
+__tests__//response/writable.test.js:      client.destroy()
+__tests__//response/writable.test.js:      client.destroy()
+__tests__//response/writable.test.js:      client.destroy()
+__tests__//response/flushHeaders.test.js:      res.destroy()
+__tests__//response/flushHeaders.test.js:        assert(err.message === 'aborted')
+__tests__//application/index.test.js:      ctx.socket.destroy(new Error('boom'))
+[0m
+[0m→ [0mRead __tests__/response/writable.test.js
+[0m→ [0mRead __tests__/response/flushHeaders.test.js
+[0m→ [0mRead lib/is-stream.js
+[0m
+[0m$ [0mnpm test 2>&1 | head -20
+> koa@3.0.3 test
+> node --test
+
+▶ app.compose
+  ✔ should work with default compose  (20.210291ms)
+  ✔ should work with configurable compose (2.775583ms)
+✔ app.compose (23.687459ms)
+▶ app.context
+  ✔ should merge properties (15.240792ms)
+  ✔ should not affect the original prototype (1.976333ms)
+✔ app.context (17.959084ms)
+▶ app.currentContext
+  ✔ should get currentContext return context when asyncLocalStorage enable (32.912334ms)
+  ✔ should get currentContext return undefined when asyncLocalStorage disable (2.250375ms)
+  ✔ should get currentContext return context in error handler when asyncLocalStorage enable (1.781875ms)
+  ✔ should get currentContext return undefined in error handler when asyncLocalStorage disable (1.285916ms)
+  ✔ should support a custom asyncLocalStorage (1.231458ms)
+✔ app.currentContext (40.294541ms)
+▶ app
+[0m
+[0m← [0mEdit lib/response.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
+@@ -171,20 +171,22 @@
+   this.length = val.length
+   return
+ }
+ 
+-// stream
+-if (isStream(val)) {
+-  onFinish(this.res, destroy.bind(null, val))
+-  if (original !== val) {
+-    val.once('error', err => this.ctx.onerror(err))
+-    // overwriting
+-    if (original != null) this.remove('Content-Length')
+-  }
++ // stream
++ if (isStream(val)) {
++   const destroyStream = destroy.bind(null, val)
++   onFinish(this.res, destroyStream)
++   this.res.on('close', destroyStream)
++   if (original !== val) {
++     val.once('error', err => this.ctx.onerror(err))
++     // overwriting
++     if (original != null) this.remove('Content-Length')
++   }
+ 
+-  if (setType) this.type = 'bin'
+-  return
+-}
++   if (setType) this.type = 'bin'
++   return
++ }
+ 
+ // ReadableStream
+ if (val instanceof ReadableStream) {
+   if (setType) this.type = 'bin'
+
+[0m
+[0m$ [0mnpm test 2>&1 | grep -A 10 -B 5 "TCP\|memory\|leak\|abort"
+[0m
+[0m$ [0mnpm test 2>&1 | tail -20
+at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1081:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:763:18)
+      at Test.postRun (node:internal/test_runner/test:1210:19)
+      at Test.run (node:internal/test_runner/test:1138:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:763:7)
+
+test at __tests__/response/length.test.js:27:7
+✖ should return a number (21.248041ms)
+  TypeError [Error]: this.res.on is not a function
+      at set body (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js:179:17)
+      at TestContext.<anonymous> (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/__tests__/response/length.test.js:54:18)
+      at Test.runInAsyncScope (node:async_hooks:214:14)
+      at Test.run (node:internal/test_runner/test:1081:25)
+      at Test.start (node:internal/test_runner/test:978:17)
+      at node:internal/test_runner/test:1483:71
+      at node:internal/per_context/primordials:483:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:451:29)
+      at node:internal/per_context/primordials:483:9
+[0m
+[0m← [0mEdit lib/response.js
+Index: /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
+===================================================================
+--- /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
++++ /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/lib/response.js
+@@ -175,9 +175,11 @@
+ // stream
+ if (isStream(val)) {
+   const destroyStream = destroy.bind(null, val)
+   onFinish(this.res, destroyStream)
+-  this.res.on('close', destroyStream)
++  if (typeof this.res.on === 'function') {
++    this.res.on('close', destroyStream)
++  }
+   if (original !== val) {
+     val.once('error', err => this.ctx.onerror(err))
+     // overwriting
+     if (original != null) this.remove('Content-Length')
+
+[0m
+[0m$ [0mnpm test 2>&1 | tail -20
+code: 'ERR_MODULE_NOT_FOUND',
+    url: 'file:///private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/dist/koa.mjs'
+  }
+
+test at __tests__/load-with-esm.test.js:11:3
+✖ should match exports own property names (3.900708ms)
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/dist/koa.mjs' imported from /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/__tests__/load-with-esm.test.js
+      at finalizeResolution (node:internal/modules/esm/resolve:274:11)
+      at moduleResolve (node:internal/modules/esm/resolve:864:10)
+      at defaultResolve (node:internal/modules/esm/resolve:990:11)
+      at #cachedDefaultResolve (node:internal/modules/esm/loader:735:20)
+      at ModuleLoader.resolve (node:internal/modules/esm/loader:712:38)
+      at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+      at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:663:36)
+      at TracingChannel.tracePromise (node:diagnostics_channel:344:14)
+      at ModuleLoader.import (node:internal/modules/esm/loader:662:21)
+      at defaultImportModuleDynamicallyForScript (node:internal/modules/esm/utils:243:31) {
+    code: 'ERR_MODULE_NOT_FOUND',
+    url: 'file:///private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/dist/koa.mjs'
+  }
+[0m
+[0m$ [0mnpm test 2>&1 | grep -E "(✔|✖|tests?|passed|failed)" | tail -10
+✔ when response finished (7.477125ms)
+✔ res.writable (34.094167ms)
+ℹ tests 400
+✖ failing tests:
+test at __tests__/load-with-esm.test.js:5:3
+✖ should default export koa (3.027ms)
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/dist/koa.mjs' imported from /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/__tests__/load-with-esm.test.js
+test at __tests__/load-with-esm.test.js:11:3
+✖ should match exports own property names (2.039167ms)
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/dist/koa.mjs' imported from /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-dUCpz7/__tests__/load-with-esm.test.js
+[0m
+[0m$ [0mnpm test 2>&1 | grep -E "(✔|✖|passed|failed)" | tail -5
+✔ when response finished (7.218125ms)
+✔ res.writable (30.581458ms)
+✖ failing tests:
+✖ should default export koa (2.939708ms)
+✖ should match exports own property names (1.817833ms)
+[0m
+[0m→ [0mRead lib/response.js[90m [offset=175, limit=20][0m
+ed (5.082208ms)
+    ▶ with secure
+      ✔ should get secure from request (1.975625ms)
+    ✔ with secure (2.096208ms)
+  ✔ ctx.cookies.set() (20.267375ms)
+  ▶ ctx.cookies=
+    ✔ should override cookie work (10.747916ms)
+  ✔ ctx.cookies= (10.914834ms)
+✔ ctx.cookies (31.481084ms)
+▶ ctx.inspect()
+  ✔ should return a json representation (1.277292ms)
+  ✔ should not crash when called on the prototype (0.287833ms)
+✔ ctx.inspect() (2.123667ms)
+▶ ctx.onerror(err)
+  ✔ should respond (15.210958ms)
+  ✔ should unset all headers (2.0565ms)
+  ✔ should set headers specified in the error (1.501667ms)
+  ✔ should ignore error after headerSent (1.277125ms)
+
+  Error: Not found
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:102:19
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ✔ should set status specified in the error using statusCode (1.583875ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:121:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ▶ when invalid err.statusCode
+    ▶ not number
+      ✔ should respond 500 (1.345375ms)
+    ✔ not number (1.476833ms)
+  ✔ when invalid err.statusCode (1.587667ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:142:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ▶ when invalid err.status
+    ▶ not number
+      ✔ should respond 500 (1.529792ms)
+    ✔ not number (1.642667ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:160:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ▶ not http status code
+      ✔ should respond 500 (4.752375ms)
+    ✔ not http status code (6.115708ms)
+  ✔ when invalid err.status (25.201166ms)
+  ▶ when error from another scope thrown
+    ✔ should handle it like a normal error (2.929166ms)
+  ✔ when error from another scope thrown (3.063125ms)
+
+  Error: non-error thrown: "string error"
+      at Object.onerror (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/context.js:118:31)
+      at onerror (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:190:34)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+
+  ▶ when non-error thrown
+    ✔ should respond with non-error thrown message (3.325ms)
+    ✔ should use res.getHeaderNames() accessor when available (0.372083ms)
+    ✔ should stringify error if it is an object (1.391458ms)
+  ✔ when non-error thrown (5.211416ms)
+✔ ctx.onerror(err) (57.552542ms)
+▶ ctx.state
+  ✔ should provide a ctx.state namespace (16.920167ms)
+✔ ctx.state (17.7125ms)
+Sun, 05 Apr 2026 06:12:54 GMT http-errors deprecated non-error status code; use only 4xx or 5xx status codes at lib/context.js:96:11
+▶ ctx.throw(msg)
+  ✔ should set .status to 500 (0.785917ms)
+✔ ctx.throw(msg) (1.420042ms)
+▶ ctx.throw(err)
+  ✔ should set .status to 500 (0.167291ms)
+✔ ctx.throw(err) (0.246666ms)
+▶ ctx.throw(status, err)
+  ✔ should throw the error and set .status (0.132083ms)
+✔ ctx.throw(status, err) (0.199708ms)
+▶ ctx.throw(status, msg)
+  ✔ should throw an error (0.164916ms)
+✔ ctx.throw(status, msg) (0.22325ms)
+▶ ctx.throw(status)
+  ✔ should throw an error (0.190708ms)
+  ▶ when not valid status
+    ✔ should not expose (2.591375ms)
+  ✔ when not valid status (2.684958ms)
+✔ ctx.throw(status) (3.006375ms)
+▶ ctx.throw(status, msg, props)
+  ✔ should mixin props (0.21375ms)
+  ▶ when props include status
+    ✔ should be ignored (0.144083ms)
+  ✔ when props include status (0.185833ms)
+✔ ctx.throw(status, msg, props) (0.496584ms)
+▶ ctx.throw(msg, props)
+  ✔ should mixin props (0.151292ms)
+✔ ctx.throw(msg, props) (0.191416ms)
+▶ ctx.throw(status, props)
+  ✔ should mixin props (0.182375ms)
+✔ ctx.throw(status, props) (0.226834ms)
+▶ ctx.throw(err, props)
+  ✔ should mixin props (0.109375ms)
+✔ ctx.throw(err, props) (0.14225ms)
+▶ ctx.toJSON()
+  ✔ should return a json representation (1.670166ms)
+✔ ctx.toJSON() (2.325834ms)
+▶ search-params
+  ▶ stringify
+    ✔ Should stringify a simple object (0.827792ms)
+    ✔ Should stringify an object with an array (0.092541ms)
+    ✔ Should stringify an object with an array with a single value (0.090625ms)
+    ✔ Stringify an object with an array with a single empty value (0.072916ms)
+    ✔ Should not stringify an object with a nested object (0.07825ms)
+  ✔ stringify (2.3195ms)
+  ▶ parse
+    ✔ Should parse a simple query string (0.402583ms)
+    ✔ Should parse a query string with same key and multiple values (0.092292ms)
+    ✔ Should parse a query string with an array with a single empty value (0.08825ms)
+  ✔ parse (0.714542ms)
+✔ search-params (3.360916ms)
+▶ Load with esm
+  ✖ should default export koa (2.851292ms)
+  ✖ should match exports own property names (1.69075ms)
+  ✔ CommonJS exports default property (33.481417ms)
+  ✔ CommonJS exports default property referencing self (0.112959ms)
+✖ Load with esm (38.889583ms)
+▶ ctx.accept
+  ✔ should return an Accept instance (0.798708ms)
+✔ ctx.accept (1.515333ms)
+▶ ctx.accept=
+  ✔ should replace the accept object (1.251833ms)
+✔ ctx.accept= (1.347ms)
+▶ ctx.accepts(types)
+  ▶ with no arguments
+    ▶ when Accept is populated
+      ✔ should return all accepted types (1.957166ms)
+    ✔ when Accept is populated (2.578959ms)
+  ✔ with no arguments (2.717375ms)
+  ▶ with no valid types
+    ▶ when Accept is populated
+      ✔ should return false (0.369625ms)
+    ✔ when Accept is populated (0.460125ms)
+    ▶ when Accept is not populated
+      ✔ should return the first type (0.1705ms)
+    ✔ when Accept is not populated (0.250459ms)
+  ✔ with no valid types (0.869291ms)
+  ▶ when extensions are given
+    ✔ should convert to mime types (0.343584ms)
+  ✔ when extensions are given (1.636708ms)
+  ▶ when an array is given
+    ✔ should return the first match (0.379625ms)
+  ✔ when an array is given (0.479584ms)
+  ▶ when multiple arguments are given
+    ✔ should return the first match (0.585209ms)
+  ✔ when multiple arguments are given (0.699792ms)
+  ▶ when value present in Accept is an exact match
+    ✔ should return the type (0.262875ms)
+  ✔ when value present in Accept is an exact match (0.327958ms)
+  ▶ when value present in Accept is a type match
+    ✔ should return the type (0.319291ms)
+  ✔ when value present in Accept is a type match (0.388916ms)
+  ▶ when value present in Accept is a subtype match
+    ✔ should return the type (0.311166ms)
+  ✔ when value present in Accept is a subtype match (0.379584ms)
+✔ ctx.accepts(types) (8.124375ms)
+▶ ctx.acceptsCharsets()
+  ▶ with no arguments
+    ▶ when Accept-Charset is populated
+      ✔ should return accepted types (1.560583ms)
+    ✔ when Accept-Charset is populated (2.101792ms)
+  ✔ with no arguments (2.2165ms)
+  ▶ with multiple arguments
+    ▶ when Accept-Charset is populated
+      ▶ if any types match
+        ✔ should return the best fit (0.293625ms)
+      ✔ if any types match (0.392541ms)
+      ▶ if no types match
+        ✔ should return false (0.18575ms)
+      ✔ if no types match (0.279542ms)
+    ✔ when Accept-Charset is populated (0.824875ms)
+    ▶ when Accept-Charset is not populated
+      ✔ should return the first type (0.182459ms)
+    ✔ when Accept-Charset is not populated (0.281917ms)
+  ✔ with multiple arguments (1.261916ms)
+  ▶ with an array
+    ✔ should return the best fit (0.199458ms)
+  ✔ with an array (0.276458ms)
+✔ ctx.acceptsCharsets() (4.125875ms)
+▶ ctx.acceptsEncodings()
+  ▶ with no arguments
+    ▶ when Accept-Encoding is populated
+      ✔ should return accepted types (1.699792ms)
+    ✔ when Accept-Encoding is populated (2.235583ms)
+    ▶ when Accept-Encoding is not populated
+      ✔ should return identity (0.2235ms)
+    ✔ when Accept-Encoding is not populated (0.30875ms)
+  ✔ with no arguments (2.72725ms)
+  ▶ with multiple arguments
+    ✔ should return the best fit (0.199125ms)
+  ✔ with multiple arguments (0.279959ms)
+  ▶ with an array
+    ✔ should return the best fit (0.171792ms)
+  ✔ with an array (0.276ms)
+✔ ctx.acceptsEncodings() (3.693166ms)
+▶ ctx.acceptsLanguages(langs)
+  ▶ with no arguments
+    ▶ when Accept-Language is populated
+      ✔ should return accepted types (1.600417ms)
+    ✔ when Accept-Language is populated (2.137708ms)
+  ✔ with no arguments (2.253375ms)
+  ▶ with multiple arguments
+    ▶ when Accept-Language is populated
+      ▶ if any types types match
+        ✔ should return the best fit (0.308334ms)
+      ✔ if any types types match (0.406875ms)
+      ▶ if no types match
+        ✔ should return false (0.195875ms)
+      ✔ if no types match (0.293625ms)
+    ✔ when Accept-Language is populated (0.854125ms)
+    ▶ when Accept-Language is not populated
+      ✔ should return the first type (0.177291ms)
+    ✔ when Accept-Language is not populated (0.280375ms)
+  ✔ with multiple arguments (1.291291ms)
+  ▶ with an array
+    ✔ should return the best fit (0.184ms)
+  ✔ with an array (0.251208ms)
+✔ ctx.acceptsLanguages(langs) (4.170792ms)
+▶ req.charset
+  ▶ with no content-type present
+    ✔ should return "" (0.899334ms)
+  ✔ with no content-type present (1.474583ms)
+  ▶ with charset present
+    ✔ should return "" (0.252709ms)
+  ✔ with charset present (0.336625ms)
+  ▶ with a charset
+    ✔ should return the charset (0.421792ms)
+    ✔ should return "" if content-type is invalid (0.153833ms)
+  ✔ with a charset (0.690416ms)
+✔ req.charset (2.945ms)
+▶ ctx.fresh
+  ▶ the request method is not GET and HEAD
+    ✔ should return false (0.773709ms)
+  ✔ the request method is not GET and HEAD (1.335958ms)
+  ▶ the response is non-2xx
+    ✔ should return false (0.327666ms)
+  ✔ the response is non-2xx (0.411667ms)
+  ▶ the response is 2xx
+    ▶ and etag matches
+      ✔ should return true (0.273209ms)
+    ✔ and etag matches (0.355459ms)
+    ▶ and etag does not match
+      ✔ should return false (0.156583ms)
+    ✔ and etag does not match (0.254292ms)
+  ✔ the response is 2xx (0.748125ms)
+✔ ctx.fresh (2.933583ms)
+▶ ctx.get(name)
+  ✔ should return the field value (0.795541ms)
+✔ ctx.get(name) (1.499417ms)
+▶ req.header
+  ✔ should return the request header object (0.935584ms)
+  ✔ should set the request header object (0.166167ms)
+✔ req.header (1.8595ms)
+▶ req.headers
+  ✔ should return the request header object (0.940875ms)
+  ✔ should set the request header object (0.174708ms)
+✔ req.headers (1.885375ms)
+▶ req.host
+  ✔ should return host with port (0.871042ms)
+  ▶ with no host present
+    ✔ should return "" (0.166541ms)
+  ✔ with no host present (0.265625ms)
+  ▶ when less then HTTP/2
+    ✔ should not use :authority header (0.16875ms)
+  ✔ when less then HTTP/2 (0.251291ms)
+  ▶ when HTTP/2
+    ✔ should use :authority header (0.158042ms)
+    ✔ should use host header as fallback (0.133084ms)
+  ✔ when HTTP/2 (0.401708ms)
+  ▶ when X-Forwarded-Host is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored on HTTP/1 (0.180417ms)
+      ✔ should be ignored on HTTP/2 (0.133875ms)
+    ✔ and proxy is not trusted (0.468833ms)
+    ▶ and proxy is trusted
+      ✔ should be used on HTTP/1 (0.149833ms)
+      ✔ should be used on HTTP/2 (0.156292ms)
+    ✔ and proxy is trusted (0.41275ms)
+  ✔ when X-Forwarded-Host is present (1.04425ms)
+✔ req.host (3.688917ms)
+▶ req.hostname
+  ✔ should return hostname void of port (0.8855ms)
+  ▶ with no host present
+    ✔ should return "" (0.174834ms)
+  ✔ with no host present (0.272292ms)
+  ▶ with IPv6 in host
+    ✔ should parse localhost void of port (0.339416ms)
+    ✔ should parse localhost with port 80 (0.135292ms)
+    ✔ should parse localhost with non-special schema port (0.136583ms)
+    ✔ should reduce IPv6 with non-special schema port as hostname (0.147041ms)
+    ✔ should return empty string when invalid (0.158542ms)
+  ✔ with IPv6 in host (1.132ms)
+  ▶ when X-Forwarded-Host is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.150791ms)
+    ✔ and proxy is not trusted (0.249458ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.152042ms)
+    ✔ and proxy is trusted (0.2165ms)
+  ✔ when X-Forwarded-Host is present (0.6145ms)
+✔ req.hostname (3.743917ms)
+▶ ctx.href
+  ✔ should return the full request url (1.040708ms)
+  ✔ should work with `GET http://example.com/foo` (17.031542ms)
+✔ ctx.href (18.953625ms)
+▶ ctx.idempotent
+  ▶ when the request method is idempotent
+    ✔ should return true (1.098208ms)
+  ✔ when the request method is idempotent (2.035958ms)
+  ▶ when the request method is not idempotent
+    ✔ should return false (0.214167ms)
+  ✔ when the request method is not idempotent (0.3415ms)
+✔ ctx.idempotent (2.786833ms)
+▶ req.inspect()
+  ▶ with no request.req present
+    ✔ should return null (0.727084ms)
+  ✔ with no request.req present (1.215333ms)
+  ✔ should return a json representation (0.836792ms)
+✔ req.inspect() (2.383166ms)
+▶ req.ip
+  ▶ with req.ips present
+    ✔ should return req.ips[0] (0.851959ms)
+  ✔ with req.ips present (1.397375ms)
+  ▶ with no req.ips present
+    ✔ should return req.socket.remoteAddress (0.220875ms)
+    ▶ with req.socket.remoteAddress not present
+      ✔ should return an empty string (0.213459ms)
+    ✔ with req.socket.remoteAddress not present (0.295208ms)
+  ✔ with no req.ips present (0.726917ms)
+  ✔ should be lazy inited and cached (0.148625ms)
+  ✔ should reset ip work (0.134708ms)
+✔ req.ip (2.874125ms)
+▶ req.ips
+  ▶ when X-Forwarded-For is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (1.219958ms)
+    ✔ and proxy is not trusted (1.756083ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.280167ms)
+    ✔ and proxy is trusted (0.362708ms)
+  ✔ when X-Forwarded-For is present (2.287417ms)
+  ▶ when options.proxyIpHeader is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.16525ms)
+    ✔ and proxy is not trusted (0.25275ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.159167ms)
+    ✔ and proxy is trusted (0.258208ms)
+  ✔ when options.proxyIpHeader is present (0.678791ms)
+  ▶ when options.maxIpsCount is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.158958ms)
+    ✔ and proxy is not trusted (0.232542ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.158625ms)
+    ✔ and proxy is trusted (0.212333ms)
+  ✔ when options.maxIpsCount is present (0.565958ms)
+✔ req.ips (3.923333ms)
+▶ ctx.is(type)
+  ✔ should ignore params (1.400458ms)
+  ▶ when no body is given
+    ✔ should return null (0.179333ms)
+  ✔ when no body is given (0.282375ms)
+  ▶ when no content type is given
+    ✔ should return false (0.185833ms)
+  ✔ when no content type is given (0.27375ms)
+  ▶ give no types
+    ✔ should return the mime type (0.238625ms)
+  ✔ give no types (0.328083ms)
+  ▶ given one type
+    ✔ should return the type or false (0.299125ms)
+  ✔ given one type (0.399125ms)
+  ▶ given multiple types
+    ✔ should return the first match or false (0.26725ms)
+  ✔ given multiple types (0.392125ms)
+  ▶ when Content-Type: application/x-www-form-urlencoded
+    ✔ should match "urlencoded" (0.192583ms)
+  ✔ when Content-Type: application/x-www-form-urlencoded (0.258917ms)
+✔ ctx.is(type) (4.300583ms)
+▶ ctx.length
+  ✔ should return length in content-length (0.815708ms)
+  ✔ should return undefined with no content-length present (0.154167ms)
+✔ ctx.length (1.751375ms)
+▶ ctx.origin
+  ✔ should return the origin of url (0.8065ms)
+✔ ctx.origin (1.509958ms)
+▶ ctx.path
+  ✔ should return the pathname (0.795666ms)
+✔ ctx.path (1.444917ms)
+▶ ctx.path=
+  ✔ should set the pathname (0.213583ms)
+  ✔ should change .url but not .originalUrl (0.133958ms)
+  ✔ should not affect parseurl (0.114541ms)
+✔ ctx.path= (0.596667ms)
+▶ req.protocol
+  ▶ when encrypted
+    ✔ should return "https" (0.67375ms)
+  ✔ when encrypted (1.16725ms)
+  ▶ when unencrypted
+    ✔ should return "http" (0.153417ms)
+  ✔ when unencrypted (0.223375ms)
+  ▶ when X-Forwarded-Proto is set
+    ▶ and proxy is trusted
+      ✔ should be used (0.195125ms)
+      ▶ and X-Forwarded-Proto is empty
+        ✔ should return "http" (0.147583ms)
+      ✔ and X-Forwarded-Proto is empty (0.231667ms)
+    ✔ and proxy is trusted (0.539416ms)
+    ▶ and proxy is not trusted
+      ✔ should not be used (0.13ms)
+    ✔ and proxy is not trusted (0.21075ms)
+  ✔ when X-Forwarded-Proto is set (0.878291ms)
+✔ req.protocol (2.64125ms)
+▶ ctx.query
+  ▶ when missing
+    ✔ should return an empty object (0.960208ms)
+    ✔ should return the same object each time it's accessed (0.19825ms)
+  ✔ when missing (1.723833ms)
+  ✔ should return a parsed query string (0.168042ms)
+✔ ctx.query (2.396583ms)
+▶ ctx.query=
+  ✔ should stringify and replace the query string and search (3.578584ms)
+  ✔ should change .url but not .originalUrl (0.204083ms)
+✔ ctx.query= (4.0445ms)
+▶ ctx.querystring
+  ✔ should return the querystring (0.999208ms)
+  ▶ when ctx.req not present
+    ✔ should return an empty string (0.24825ms)
+  ✔ when ctx.req not present (0.384667ms)
+✔ ctx.querystring (2.294917ms)
+▶ ctx.querystring=
+  ✔ should replace the querystring (0.27025ms)
+  ✔ should update ctx.search and ctx.query (0.296291ms)
+  ✔ should change .url but not .originalUrl (0.168916ms)
+  ✔ should not affect parseurl (0.151042ms)
+✔ ctx.querystring= (1.064292ms)
+▶ ctx.search=
+  ✔ should replace the search (0.980917ms)
+  ✔ should update ctx.querystring and ctx.query (0.287417ms)
+  ✔ should change .url but not .originalUrl (0.150959ms)
+  ▶ when missing
+    ✔ should return "" (0.14575ms)
+  ✔ when missing (0.237125ms)
+✔ ctx.search= (2.497708ms)
+▶ req.secure
+  ✔ should return true when encrypted (0.975083ms)
+✔ req.secure (1.905459ms)
+▶ req.stale
+  ✔ should be the inverse of req.fresh (1.03625ms)
+✔ req.stale (1.731833ms)
+▶ req.subdomains
+  ✔ should return subdomain array (8.564541ms)
+  ✔ should work with no host present (0.202625ms)
+  ✔ should check if the host is an ip address, even with a port (0.160459ms)
+✔ req.subdomains (9.778292ms)
+▶ req.type
+  ✔ should return type void of parameters (0.700292ms)
+  ✔ should return empty string with no host present (0.137333ms)
+✔ req.type (1.512334ms)
+▶ req.URL
+  ✔ should not throw when host is void (0.874792ms)
+  ✔ should not throw when header.host is invalid (0.226625ms)
+  ✔ should return empty object when invalid (0.607667ms)
+✔ req.URL (2.494417ms)
+▶ ctx.append(name, val)
+  ✔ should append multiple headers (3.427208ms)
+  ✔ should accept array of values (0.208083ms)
+  ✔ should get reset by res.set(field, val) (0.185125ms)
+  ✔ should work with res.set(field, val) first (0.153709ms)
+✔ ctx.append(name, val) (4.838708ms)
+▶ ctx.attachment([filename])
+  ▶ security: prevent Content-Type override (GHSA-c5vw-j4hf-j526)
+    ✔ should NOT override Content-Type when already set (1.223666ms)
+    ✔ should preserve safe Content-Type for SVG files (0.256167ms)
+    ✔ should set Content-Type when not previously set (0.27325ms)
+  ✔ security: prevent Content-Type override (GHSA-c5vw-j4hf-j526) (2.382541ms)
+  ▶ when given a filename
+    ✔ should set the filename param (0.21925ms)
+  ✔ when given a filename (0.303542ms)
+  ▶ when omitting filename
+    ✔ should not set filename param (0.149542ms)
+  ✔ when omitting filename (0.226167ms)
+  ▶ when given a non-ascii filename
+    ✔ should set the encodeURI filename param (0.311167ms)
+    ✔ should work with http client (42.43175ms)
+  ✔ when given a non-ascii filename (42.979833ms)
+✔ ctx.attachment([filename]) (46.379333ms)
+▶ contentDisposition(filename, options)
+  ▶ with "fallback" option
+    ✔ should require a string or Boolean (0.484625ms)
+    ✔ should default to true (0.161458ms)
+    ▶ when "false"
+      ✔ should not generate ISO-8859-1 fallback (0.470666ms)
+      ✔ should keep ISO-8859-1 filename (0.157083ms)
+    ✔ when "false" (0.883042ms)
+    ▶ when "true"
+      ✔ should generate ISO-8859-1 fallback (0.251083ms)
+      ✔ should pass through ISO-8859-1 filename (0.149708ms)
+    ✔ when "true" (0.532083ms)
+    ▶ when a string
+      ✔ should require an ISO-8859-1 string (0.250541ms)
+      ✔ should use as ISO-8859-1 fallback (0.159708ms)
+      ✔ should use as fallback even when filename is ISO-8859-1 (0.126667ms)
+      ✔ should do nothing if equal to filename (0.104666ms)
+      ✔ should use the basename of the string (0.091833ms)
+      ✔ should do nothing without filename option (0.109375ms)
+    ✔ when a string (0.953334ms)
+  ✔ with "fallback" option (3.184666ms)
+  ▶ with "type" option
+    ✔ should default to attachment (0.119125ms)
+    ✔ should require a string (0.138292ms)
+    ✔ should require a valid type (0.097542ms)
+    ✔ should create a header with inline type (0.075334ms)
+    ✔ should create a header with inline type and filename (0.09025ms)
+    ✔ should normalize type (0.071916ms)
+  ✔ with "type" option (0.697292ms)
+✔ contentDisposition(filename, options) (3.9945ms)
+▶ ctx.back([alt])
+  ✔ should redirect to Referrer (1.685458ms)
+  ✔ should redirect to the same origin referrer (0.259208ms)
+  ✔ should redirect to root if the same origin referrer is not present (0.18625ms)
+  ✔ should redirect to Referer to a relative path (0.191625ms)
+  ✔ should redirect to Referer to a same origin url (0.202125ms)
+  ✔ should default to alt (0.15975ms)
+  ✔ should default redirect to / (0.155875ms)
+  ✔ should fix Trailing Double-Slash security issue (0.200958ms)
+✔ ctx.back([alt]) (3.938375ms)
+▶ res.body=
+  ▶ when Content-Type is set
+    ✔ should not override (1.169625ms)
+    ▶ when body is an object
+      ✔ should override as json (11.779792ms)
+    ✔ when body is an object (11.887041ms)
+    ✔ should override length (0.22675ms)
+  ✔ when Content-Type is set (13.929041ms)
+  ▶ when a string is given
+    ✔ should default to text (0.235917ms)
+    ✔ should set length (3.16375ms)
+    ▶ and contains a non-leading <
+      ✔ should default to text (0.269833ms)
+    ✔ and contains a non-leading < (0.389125ms)
+  ✔ when a string is given (3.999958ms)
+  ▶ when an html string is given
+    ✔ should default to html (0.195375ms)
+    ✔ should set length (0.157291ms)
+    ✔ should set length when body is overridden (0.181833ms)
+    ▶ when it contains leading whitespace
+      ✔ should default to html (0.196375ms)
+    ✔ when it contains leading whitespace (0.244875ms)
+  ✔ when an html string is given (0.92625ms)
+  ▶ when an xml string is given
+    ✔ should default to html (0.218291ms)
+  ✔ when an xml string is given (0.256584ms)
+  ▶ when a stream is given
+    ✔ should default to an octet stream (0.418042ms)
+    ✔ should support custom stream (0.171792ms)
+    ✔ should add error handler to the stream, but only once (0.208583ms)
+  ✔ when a stream is given (0.870875ms)
+  ▶ when a buffer is given
+    ✔ should default to an octet stream (0.126125ms)
+    ✔ should set length (0.102584ms)
+  ✔ when a buffer is given (0.278083ms)
+  ▶ when an object is given
+    ✔ should default to json (0.115625ms)
+  ✔ when an object is given (0.159291ms)
+  ▶ when a ReadableStream is given
+    ✔ should default to an octet stream (0.4885ms)
+  ✔ when a ReadableStream is given (0.523584ms)
+  ▶ when a Blob is given
+    ✔ should default to an octet stream (0.253833ms)
+    ✔ should set length (0.160875ms)
+  ✔ when a Blob is given (0.463959ms)
+  ▶ when a response is given
+    ✔ should set the status (0.937709ms)
+    ✔ should set headers (0.592291ms)
+    ✔ should redirect (0.342708ms)
+  ✔ when a response is given (1.935708ms)
+✔ res.body= (23.991ms)
+▶ res.etag=
+  ✔ should not modify an etag with quotes (0.845917ms)
+  ✔ should not modify a weak etag (0.208666ms)
+  ✔ should add quotes around an etag if necessary (0.136542ms)
+✔ res.etag= (1.985416ms)
+▶ res.etag
+  ✔ should return etag (0.153541ms)
+✔ res.etag (0.237125ms)
+▶ ctx.flushHeaders()
+  ✔ should set headersSent (24.163875ms)
+  ✔ should allow a response afterwards (2.576208ms)
+  ✔ should send the correct status code (2.914833ms)
+  ✔ should ignore set header after flushHeaders (1.832792ms)
+  ✔ should flush headers first and delay to send data (35.847791ms)
+  ✔ should catch stream error (5.317583ms)
+✔ ctx.flushHeaders() (73.753459ms)
+▶ ctx.get(name)
+  ✔ should get a field value, case insensitive (1.222958ms)
+  ✔ should have the same behavior as ctx.res.getHeader on undefined and null values (0.256667ms)
+  ✔ should not convert header value type (0.245417ms)
+  ✔ should return undefined for non-existent headers (0.132833ms)
+✔ ctx.get(name) (3.2935ms)
+▶ ctx.response.has(name)
+  ✔ should check a field value, case insensitive way (0.869083ms)
+  ✔ should return false for non-existent header (0.190417ms)
+✔ ctx.response.has(name) (1.789708ms)
+▶ res.header
+  ✔ should return the response header object (1.361459ms)
+  ✔ should use res.getHeaders() accessor when available (0.193125ms)
+  ✔ should return the response header object when no mocks are in use (15.523ms)
+  ▶ when res._headers not present
+    ✔ should return empty object (0.190958ms)
+  ✔ when res._headers not present (0.307958ms)
+✔ res.header (18.278125ms)
+▶ res.header
+  ✔ should return the response header object (9.860875ms)
+  ▶ when res._headers not present
+    ✔ should return empty object (0.318459ms)
+  ✔ when res._headers not present (0.456291ms)
+✔ res.header (11.204417ms)
+▶ res.inspect()
+  ▶ with no response.res present
+    ✔ should return null (1.3035ms)
+  ✔ with no response.res present (1.908375ms)
+  ✔ should return a json representation (1.075583ms)
+✔ res.inspect() (3.444458ms)
+▶ response.is(type)
+  ✔ should ignore params (1.255334ms)
+  ▶ when no type is set
+    ✔ should return false (0.190834ms)
+  ✔ when no type is set (0.305167ms)
+  ▶ when given no types
+    ✔ should return the type (0.278458ms)
+  ✔ when given no types (0.38825ms)
+  ▶ given one type
+    ✔ should return the type or false (0.406917ms)
+  ✔ given one type (0.492958ms)
+  ▶ given multiple types
+    ✔ should return the first match or false (0.25575ms)
+  ✔ given multiple types (0.345041ms)
+  ▶ when Content-Type: application/x-www-form-urlencoded
+    ✔ should match "urlencoded" (0.202125ms)
+  ✔ when Content-Type: application/x-www-form-urlencoded (0.287167ms)
+✔ response.is(type) (3.986792ms)
+▶ res.lastModified
+  ✔ should set the header as a UTCString (7.805ms)
+  ✔ should work with date strings (0.200792ms)
+  ✔ should get the header as a Date (0.16925ms)
+  ▶ when lastModified not set
+    ✔ should get undefined (0.131875ms)
+  ✔ when lastModified not set (0.217875ms)
+✔ res.lastModified (9.226208ms)
+▶ res.length
+  ▶ when Content-Length is defined
+    ✔ should return a number (0.768709ms)
+    ▶ but not number
+      ✔ should return 0 (0.165708ms)
+    ✔ but not number (0.26225ms)
+  ✔ when Content-Length is defined (1.540791ms)
+  ▶ when Content-Length is not defined
+    ▶ and a .body is set
+      ✔ should return a number (11.063583ms)
+    ✔ and a .body is set (11.168208ms)
+    ▶ and .body is not
+      ✔ should return undefined (0.193ms)
+    ✔ and .body is not (0.290208ms)
+  ✔ when Content-Length is not defined (11.613459ms)
+  ▶ and a .type is set to json
+    ▶ and a .body is set to null
+      ✔ should return a number (2.184959ms)
+    ✔ and a .body is set to null (2.299375ms)
+  ✔ and a .type is set to json (2.405416ms)
+✔ res.length (15.918417ms)
+▶ res.message
+  ✔ should return the response status message (0.740916ms)
+  ▶ when res.message not present
+    ✔ should look up in statuses (0.154709ms)
+  ✔ when res.message not present (0.243458ms)
+✔ res.message (1.653917ms)
+▶ res.message=
+  ✔ should set response status message (0.187583ms)
+✔ res.message= (0.263042ms)
+▶ ctx.redirect(url)
+  ✔ should redirect to the given url (1.449958ms)
+  ✔ should formatting url before redirect (0.370958ms)
+  ✔ should formatting url before redirect (0.245125ms)
+  ✔ should auto fix not encode url (13.843542ms)
+  ▶ when html is accepted
+    ✔ should respond with html (0.591459ms)
+    ✔ should escape the url (0.204334ms)
+  ✔ when html is accepted (0.939959ms)
+  ▶ when text is accepted
+    ✔ should respond with text (0.178667ms)
+  ✔ when text is accepted (0.272292ms)
+  ▶ when status is 301
+    ✔ should not change the status code (0.178833ms)
+  ✔ when status is 301 (0.266667ms)
+  ▶ when status is 304
+    ✔ should change the status code (0.165542ms)
+  ✔ when status is 304 (0.227084ms)
+  ▶ when content-type was present
+    ✔ should overwrite content-type (10.102458ms)
+  ✔ when content-type was present (10.180583ms)
+✔ ctx.redirect(url) (28.72ms)
+▶ ctx.remove(name)
+  ✔ should remove a field (1.263375ms)
+✔ ctx.remove(name) (1.972083ms)
+▶ ctx.set(name, val)
+  ✔ should set a field value (0.82525ms)
+  ✔ should coerce number to string (0.181ms)
+  ✔ should coerce undefined to string (0.135917ms)
+  ✔ should set a field value of array (0.644292ms)
+✔ ctx.set(name, val) (2.606083ms)
+▶ ctx.set(object)
+  ✔ should set multiple fields (0.168458ms)
+✔ ctx.set(object) (0.266042ms)
+▶ res.socket
+  ✔ should return the request socket object (0.741458ms)
+✔ res.socket (1.43825ms)
+▶ res.status=
+  ▶ when a status code
+    ▶ and valid
+      ✔ should set the status (0.668917ms)
+      ✔ should not throw (0.130833ms)
+    ✔ and valid (1.257333ms)
+    ▶ and invalid
+      ✔ should throw (0.685625ms)
+    ✔ and invalid (0.748792ms)
+    ▶ and custom status
+      ✔ should set the status (0.250791ms)
+      ✔ should not throw (0.156458ms)
+    ✔ and custom status (0.5085ms)
+    ▶ and HTTP/2
+      ✔ should not set the status message (0.357917ms)
+    ✔ and HTTP/2 (0.469916ms)
+  ✔ when a status code (3.266625ms)
+  ▶ when a status string
+    ✔ should throw (0.286708ms)
+  ✔ when a status string (0.367959ms)
+  ▶ when 204
+    ✔ should strip content related header fields (24.268916ms)
+    ✔ should strip content related header fields after status set (2.203416ms)
+  ✔ when 204 (26.609667ms)
+  ▶ when 205
+    ✔ should strip content related header fields (3.368291ms)
+    ✔ should strip content related header fields after status set (1.704375ms)
+  ✔ when 205 (5.177667ms)
+  ▶ when 304
+    ✔ should strip content related header fields (1.423042ms)
+    ✔ should strip content related header fields after status set (1.061416ms)
+  ✔ when 304 (2.570583ms)
+✔ res.status= (38.410291ms)
+▶ ctx.type=
+  ▶ with a mime
+    ✔ should set the Content-Type (0.814ms)
+  ✔ with a mime (1.278833ms)
+  ▶ with an extension
+    ✔ should lookup the mime (0.251ms)
+  ✔ with an extension (0.328541ms)
+  ▶ without a charset
+    ✔ should default the charset (0.154ms)
+  ✔ without a charset (0.234375ms)
+  ▶ with a charset
+    ✔ should not default the charset (0.128875ms)
+  ✔ with a charset (0.195083ms)
+  ▶ with an unknown extension
+    ✔ should not set a content-type (0.194209ms)
+  ✔ with an unknown extension (0.2965ms)
+✔ ctx.type= (2.819917ms)
+▶ ctx.type
+  ▶ with no Content-Type
+    ✔ should return "" (0.14725ms)
+  ✔ with no Content-Type (0.215833ms)
+  ▶ with a Content-Type
+    ✔ should return the mime (0.135584ms)
+  ✔ with a Content-Type (0.1855ms)
+  ▶ when setting to +json content type
+    ✔ should set the content type to json (0.11075ms)
+  ✔ when setting to +json content type (0.160875ms)
+✔ ctx.type (0.70875ms)
+▶ ctx.vary(field)
+  ▶ when Vary is not set
+    ✔ should set it (0.789916ms)
+  ✔ when Vary is not set (1.26325ms)
+  ▶ when Vary is set
+    ✔ should append (0.212167ms)
+  ✔ when Vary is set (0.284625ms)
+  ▶ when Vary already contains the value
+    ✔ should not append (0.157791ms)
+  ✔ when Vary already contains the value (0.230709ms)
+✔ ctx.vary(field) (2.147209ms)
+▶ res.writable
+  ▶ when continuous requests in one persistent connection
+    ✔ should always be writable and respond to all requests (15.947708ms)
+  ✔ when continuous requests in one persistent connection (16.402208ms)
+  ▶ when socket closed before response sent
+    ✔ should not be writable (7.943417ms)
+  ✔ when socket closed before response sent (8.055333ms)
+  ▶ when response finished
+    ✔ should not be writable (7.76925ms)
+  ✔ when response finished (7.891208ms)
+✔ res.writable (32.691958ms)
+ℹ tests 400
+ℹ suites 282
+ℹ pass 398
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 737.548416
+
+✖ failing tests:
+
+test at __tests__/load-with-esm.test.js:5:3
+✖ should default export koa (2.851292ms)
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/dist/koa.mjs' imported from /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/load-with-esm.test.js
+      at finalizeResolution (node:internal/modules/esm/resolve:274:11)
+      at moduleResolve (node:internal/modules/esm/resolve:864:10)
+      at defaultResolve (node:internal/modules/esm/resolve:990:11)
+      at #cachedDefaultResolve (node:internal/modules/esm/loader:735:20)
+      at ModuleLoader.resolve (node:internal/modules/esm/loader:712:38)
+      at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+      at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:663:36)
+      at TracingChannel.tracePromise (node:diagnostics_channel:344:14)
+      at ModuleLoader.import (node:internal/modules/esm/loader:662:21)
+      at defaultImportModuleDynamicallyForScript (node:internal/modules/esm/utils:243:31) {
+    code: 'ERR_MODULE_NOT_FOUND',
+    url: 'file:///private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/dist/koa.mjs'
+  }
+
+test at __tests__/load-with-esm.test.js:11:3
+✖ should match exports own property names (1.69075ms)
+  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/dist/koa.mjs' imported from /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/load-with-esm.test.js
+      at finalizeResolution (node:internal/modules/esm/resolve:274:11)
+      at moduleResolve (node:internal/modules/esm/resolve:864:10)
+      at defaultResolve (node:internal/modules/esm/resolve:990:11)
+      at #cachedDefaultResolve (node:internal/modules/esm/loader:735:20)
+      at ModuleLoader.resolve (node:internal/modules/esm/loader:712:38)
+      at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+      at onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:663:36)
+      at TracingChannel.tracePromise (node:diagnostics_channel:344:14)
+      at ModuleLoader.import (node:internal/modules/esm/loader:662:21)
+      at defaultImportModuleDynamicallyForScript (node:internal/modules/esm/utils:243:31) {
+    code: 'ERR_MODULE_NOT_FOUND',
+    url: 'file:///private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/dist/koa.mjs'
+  }
+[0m
+[0m✱ [0mGlob "**/*.js"[90m in . · 82 matches[0m
+[0m✱ [0mGrep "node-fetch"[90m in . · 0 matches[0m
+[0m→ [0mRead package.json[90m [offset=1, limit=2000][0m
+[0m→ [0mRead lib/request.js[90m [offset=1, limit=4000][0m
+[0m✱ [0mGrep "fetch"[90m in . · 0 matches[0m
+[0m→ [0mRead lib/response.js[90m [offset=1, limit=4000][0m
+[0m✱ [0mGrep "close"[90m in lib · 0 matches[0m
+[0m✱ [0mGrep "close"[90m in . · 9 matches[0m
+[0m✱ [0mGrep "node-fetch"[90m in . · 0 matches[0m
+Plan: 
+1) Patch streaming cleanup to destroy source streams on client abort by listening to request 'close' and cleaning up. 
+2) Update test script to build dist before tests to fix esm-loading tests failing due to missing dist. 
+Proceeding to apply patch with minimal, targeted edits.
+[0m⚙ [0mapply_patch Success. Updated the following files:
+M lib/response.js
+[0m⚙ [0mapply_patch Success. Updated the following files:
+M package.json
+[0m→ [0mRead lib/response.js[90m [offset=1, limit=2600][0m
+[0m→ [0mRead package.json[90m [offset=1, limit=200][0m
+[0m
+[0m$ [0mnpm test
+> koa@3.0.3 test
+> npm run build && node --test
+
+
+> koa@3.0.3 build
+> gen-esm-wrapper . ./dist/koa.mjs
+
+▶ app.compose
+  ✔ should work with default compose  (19.475459ms)
+  ✔ should work with configurable compose (1.953208ms)
+✔ app.compose (22.161334ms)
+▶ app.context
+  ✔ should merge properties (24.372709ms)
+  ✔ should not affect the original prototype (1.90025ms)
+✔ app.context (26.938625ms)
+▶ app.currentContext
+  ✔ should get currentContext return context when asyncLocalStorage enable (20.458667ms)
+  ✔ should get currentContext return undefined when asyncLocalStorage disable (1.894083ms)
+  ✔ should get currentContext return context in error handler when asyncLocalStorage enable (1.327167ms)
+  ✔ should get currentContext return undefined in error handler when asyncLocalStorage disable (1.676459ms)
+  ✔ should support a custom asyncLocalStorage (2.431583ms)
+✔ app.currentContext (29.44525ms)
+▶ app
+  ✔ should handle socket errors (43.093917ms)
+  ✔ should set development env when NODE_ENV missing (0.171209ms)
+  ✔ should set env from the constructor (0.093791ms)
+  ✔ should set proxy flag from the constructor (0.07775ms)
+  ✔ should set signed cookie keys from the constructor (0.080708ms)
+  ✔ should set subdomainOffset from the constructor (0.079292ms)
+  ✔ should set compose from the constructor (0.090541ms)
+  ✔ should have a static property exporting `HttpError` from http-errors library (0.69425ms)
+✔ app (45.148667ms)
+▶ app.inspect()
+  ✔ should work (0.5795ms)
+  ✔ should return a json representation (0.503292ms)
+✔ app.inspect() (1.716083ms)
+▶ app.onerror(err)
+  ✔ should throw an error if a non-error is given (0.656083ms)
+  ✔ should accept errors coming from other scopes (0.808375ms)
+  ✔ should do nothing if status is 404 (0.26375ms)
+  ✔ should do nothing if .silent (0.087667ms)
+  ✔ should log the error to stderr (0.176042ms)
+✔ app.onerror(err) (2.631291ms)
+▶ app.request
+  ✔ should merge properties (13.182583ms)
+  ✔ should not affect the original prototype (5.282916ms)
+✔ app.request (19.154917ms)
+▶ app.respond
+  ▶ when ctx.respond === false
+    ✔ should function (ctx) (20.777625ms)
+    ✔ should ignore set header after header sent (2.278042ms)
+    ✔ should ignore set status after header sent (1.4985ms)
+  ✔ when ctx.respond === false (25.147166ms)
+  ▶ when this.type === null
+    ✔ should not send Content-Type header (1.506375ms)
+  ✔ when this.type === null (1.612083ms)
+  ▶ when HEAD is used
+    ✔ should not respond with the body (1.753416ms)
+    ✔ should keep json headers (19.5835ms)
+    ✔ should keep string headers (18.592209ms)
+    ✔ should keep buffer headers (15.966375ms)
+    ✔ should keep stream header if set manually (6.183709ms)
+    ✔ should respond with a 404 if no body was set (1.931875ms)
+    ✔ should respond with a 200 if body = "" (1.072458ms)
+    ✔ should not overwrite the content-type (7.352042ms)
+  ✔ when HEAD is used (72.986917ms)
+  ▶ when no middleware is present
+    ✔ should 404 (1.640083ms)
+  ✔ when no middleware is present (1.736333ms)
+  ▶ when res has already been written to
+    ✔ should not cause an app error (2.067708ms)
+    ✔ should send the right body (13.628917ms)
+  ✔ when res has already been written to (15.844417ms)
+  ▶ when .body is missing
+    ▶ with status=400
+      ✔ should respond with the associated status message (1.710334ms)
+    ✔ with status=400 (1.785083ms)
+    ▶ with status=204
+      ✔ should respond without a body (1.230666ms)
+    ✔ with status=204 (1.306667ms)
+    ▶ with status=205
+      ✔ should respond without a body (1.656916ms)
+    ✔ with status=205 (1.763792ms)
+    ▶ with status=304
+      ✔ should respond without a body (1.475416ms)
+    ✔ with status=304 (1.555542ms)
+    ▶ with custom status=700
+      ✔ should respond with the associated status message (1.298334ms)
+    ✔ with custom status=700 (1.381917ms)
+    ▶ with custom statusMessage=ok
+      ✔ should respond with the custom status message (12.016375ms)
+    ✔ with custom statusMessage=ok (12.129292ms)
+    ▶ with custom status without message
+      ✔ should respond with the status code number (4.621459ms)
+    ✔ with custom status without message (4.709417ms)
+  ✔ when .body is missing (24.878542ms)
+  ▶ when .body is a null
+    ✔ should respond 204 by default (1.392833ms)
+    ✔ should respond 204 with status=200 (0.993666ms)
+    ✔ should respond 205 with status=205 (0.892417ms)
+    ✔ should respond 304 with status=304 (1.6255ms)
+  ✔ when .body is a null (5.07125ms)
+  ▶ when .body is undefined
+    ✔ should respond 204 by default (1.3665ms)
+    ✔ should respond 204 with status=200 (0.939667ms)
+  ✔ when .body is undefined (2.40125ms)
+  ▶ when .body is a string
+    ✔ should respond (0.889375ms)
+  ✔ when .body is a string (0.943ms)
+  ▶ when .body is a Buffer
+    ✔ should respond (10.198625ms)
+  ✔ when .body is a Buffer (10.279833ms)
+  ▶ when .body is a Blob
+    ✔ should respond (13.370833ms)
+    ✔ should keep Blob headers (1.799417ms)
+  ✔ when .body is a Blob (15.31125ms)
+  ▶ when .body is a ReadableStream
+    ✔ should respond (1.545167ms)
+    ✔ should respond hello (1.373625ms)
+  ✔ when .body is a ReadableStream (3.01975ms)
+  ▶ when .body is a Response
+    ✔ should keep Response headers (2.353791ms)
+    ✔ should default to octet-stream (1.18ms)
+  ✔ when .body is a Response (3.624083ms)
+  ▶ when .body is a Stream
+    ✔ should respond (2.993083ms)
+    ✔ should strip content-length when overwriting (4.458792ms)
+    ✔ should keep content-length if not overwritten (2.691709ms)
+    ✔ should keep content-length if overwritten with the same stream (4.018084ms)
+
+  Error: ENOENT: no such file or directory, open 'does not exist'
+
+    ✔ should handle errors when no content status (10.153417ms)
+  ✔ when .body is a Stream (24.607416ms)
+  ▶ when .body is an Object
+    ✔ should respond with json (11.398833ms)
+    ▶ and headers sent
+      ✔ should respond with json body and headers (2.170875ms)
+    ✔ and headers sent (2.283166ms)
+  ✔ when .body is an Object (13.796125ms)
+  ▶ when an error occurs
+    ✔ should emit "error" on the app (2.297583ms)
+    ▶ with an .expose property
+      ✔ should expose the message (1.187792ms)
+    ✔ with an .expose property (1.267875ms)
+
+  Error: s3 explodes
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/application/respond.test.js:773:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ▶ with a .status property
+      ✔ should respond with .status (5.245458ms)
+    ✔ with a .status property (5.340375ms)
+
+  Error: boom!
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/application/respond.test.js:788:15
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ✔ should respond with 500 (1.523167ms)
+    ✔ should be catchable (1.093542ms)
+  ✔ when an error occurs (11.709791ms)
+  ▶ when status and body property
+    ✔ should 200 (1.60525ms)
+    ✔ should 204 (1.084625ms)
+  ✔ when status and body property (2.796625ms)
+  ▶ with explicit null body
+    ✔ should preserve given status (4.820542ms)
+    ✔ should respond with correct headers (1.457625ms)
+    ✔ should return content-length equal to 0 (1.040583ms)
+    ✔ should not overwrite the content-length (1.016291ms)
+  ✔ with explicit null body (8.497417ms)
+✔ app.respond (245.117625ms)
+▶ app.response
+  ✔ should merge properties (14.578625ms)
+  ✔ should not affect the original prototype (1.9775ms)
+  ✔ should not include status message in body for http2 (1.847917ms)
+  ✔ should set ._explicitNullBody correctly (1.263459ms)
+  ✔ should not set ._explicitNullBody incorrectly (19.948125ms)
+  ✔ should add Content-Length when Transfer-Encoding is not defined (1.81225ms)
+  ✔ should not add Content-Length when Transfer-Encoding is defined (4.830041ms)
+✔ app.response (48.96125ms)
+▶ app.toJSON()
+  ✔ should work (0.814459ms)
+✔ app.toJSON() (1.33375ms)
+▶ app.use(fn)
+  ✔ should compose middleware (23.160916ms)
+  ✔ should compose mixed middleware (4.022458ms)
+  ✔ should catch thrown errors in non-async functions (1.987333ms)
+  ✔ should throw error for non-function (0.403ms)
+✔ app.use(fn) (30.35225ms)
+▶ ctx.assert(value, status)
+  ✔ should throw an error (0.728416ms)
+✔ ctx.assert(value, status) (1.265041ms)
+▶ ctx.cookies
+  ▶ ctx.cookies.set()
+    ✔ should set an unsigned cookie (26.142375ms)
+    ▶ with .signed
+      ▶ when no .keys are set
+        ✔ should error (2.932ms)
+      ✔ when no .keys are set (3.074375ms)
+      ✔ should send a signed cookie (2.317333ms)
+    ✔ with .signed (5.642542ms)
+    ▶ with secure
+      ✔ should get secure from request (1.674ms)
+    ✔ with secure (1.793292ms)
+  ✔ ctx.cookies.set() (34.133167ms)
+  ▶ ctx.cookies=
+    ✔ should override cookie work (1.76ms)
+  ✔ ctx.cookies= (1.890416ms)
+✔ ctx.cookies (36.346167ms)
+▶ ctx.inspect()
+  ✔ should return a json representation (1.363ms)
+  ✔ should not crash when called on the prototype (0.321208ms)
+✔ ctx.inspect() (2.287084ms)
+▶ ctx.onerror(err)
+  ✔ should respond (22.195792ms)
+  ✔ should unset all headers (2.265542ms)
+  ✔ should set headers specified in the error (1.682833ms)
+  ✔ should ignore error after headerSent (1.440334ms)
+
+  Error: Not found
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:102:19
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ✔ should set status specified in the error using statusCode (1.803541ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:121:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ▶ when invalid err.statusCode
+    ▶ not number
+      ✔ should respond 500 (1.549917ms)
+    ✔ not number (1.684833ms)
+  ✔ when invalid err.statusCode (1.817958ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:142:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+  ▶ when invalid err.status
+    ▶ not number
+      ✔ should respond 500 (1.633041ms)
+    ✔ not number (1.768166ms)
+
+  Error: some error
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/__tests__/context/onerror.test.js:160:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ▶ not http status code
+      ✔ should respond 500 (5.20325ms)
+    ✔ not http status code (5.328917ms)
+  ✔ when invalid err.status (7.23875ms)
+  ▶ when error from another scope thrown
+    ✔ should handle it like a normal error (4.653833ms)
+  ✔ when error from another scope thrown (4.757833ms)
+  ▶ when non-error thrown
+    ✔ should respond with non-error thrown message (1.873208ms)
+    ✔ should use res.getHeaderNames() accessor when available (0.321458ms)
+    ✔ should stringify error if it is an object (1.142375ms)
+
+  Error: non-error thrown: "string error"
+      at Object.onerror (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/context.js:118:31)
+      at onerror (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-6MyYHv/lib/application.js:190:34)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+
+  ✔ when non-error thrown (3.443291ms)
+✔ ctx.onerror(err) (47.509917ms)
+▶ ctx.state
+  ✔ should provide a ctx.state namespace (69.66425ms)
+✔ ctx.state (70.513333ms)
+Sun, 05 Apr 2026 06:14:03 GMT http-errors deprecated non-error status code; use only 4xx or 5xx status codes at lib/context.js:96:11
+▶ ctx.throw(msg)
+  ✔ should set .status to 500 (0.832333ms)
+✔ ctx.throw(msg) (1.49625ms)
+▶ ctx.throw(err)
+  ✔ should set .status to 500 (0.190875ms)
+✔ ctx.throw(err) (0.275667ms)
+▶ ctx.throw(status, err)
+  ✔ should throw the error and set .status (0.138666ms)
+✔ ctx.throw(status, err) (0.211375ms)
+▶ ctx.throw(status, msg)
+  ✔ should throw an error (0.168334ms)
+✔ ctx.throw(status, msg) (0.233875ms)
+▶ ctx.throw(status)
+  ✔ should throw an error (0.190958ms)
+  ▶ when not valid status
+    ✔ should not expose (3.632042ms)
+  ✔ when not valid status (3.743833ms)
+✔ ctx.throw(status) (4.064625ms)
+▶ ctx.throw(status, msg, props)
+  ✔ should mixin props (0.221833ms)
+  ▶ when props include status
+    ✔ should be ignored (0.143708ms)
+  ✔ when props include status (0.185333ms)
+✔ ctx.throw(status, msg, props) (0.501792ms)
+▶ ctx.throw(msg, props)
+  ✔ should mixin props (0.158709ms)
+✔ ctx.throw(msg, props) (0.199917ms)
+▶ ctx.throw(status, props)
+  ✔ should mixin props (0.17725ms)
+✔ ctx.throw(status, props) (0.223292ms)
+▶ ctx.throw(err, props)
+  ✔ should mixin props (0.104417ms)
+✔ ctx.throw(err, props) (0.136958ms)
+▶ ctx.toJSON()
+  ✔ should return a json representation (1.578625ms)
+✔ ctx.toJSON() (2.190958ms)
+▶ search-params
+  ▶ stringify
+    ✔ Should stringify a simple object (0.948625ms)
+    ✔ Should stringify an object with an array (0.103084ms)
+    ✔ Should stringify an object with an array with a single value (0.629417ms)
+    ✔ Stringify an object with an array with a single empty value (0.784875ms)
+    ✔ Should not stringify an object with a nested object (0.320542ms)
+  ✔ stringify (4.961625ms)
+  ▶ parse
+    ✔ Should parse a simple query string (0.520625ms)
+    ✔ Should parse a query string with same key and multiple values (0.121584ms)
+    ✔ Should parse a query string with an array with a single empty value (0.149125ms)
+  ✔ parse (0.959792ms)
+✔ search-params (6.31175ms)
+▶ Load with esm
+  ✔ should default export koa (45.519667ms)
+  ✔ should match exports own property names (0.27225ms)
+  ✔ CommonJS exports default property (0.114916ms)
+  ✔ CommonJS exports default property referencing self (0.09475ms)
+✔ Load with esm (46.827708ms)
+▶ ctx.accept
+  ✔ should return an Accept instance (0.820791ms)
+✔ ctx.accept (1.54775ms)
+▶ ctx.accept=
+  ✔ should replace the accept object (1.281417ms)
+✔ ctx.accept= (1.377417ms)
+▶ ctx.accepts(types)
+  ▶ with no arguments
+    ▶ when Accept is populated
+      ✔ should return all accepted types (1.867666ms)
+    ✔ when Accept is populated (2.498625ms)
+  ✔ with no arguments (2.663583ms)
+  ▶ with no valid types
+    ▶ when Accept is populated
+      ✔ should return false (0.350583ms)
+    ✔ when Accept is populated (0.447667ms)
+    ▶ when Accept is not populated
+      ✔ should return the first type (0.1715ms)
+    ✔ when Accept is not populated (0.254083ms)
+  ✔ with no valid types (0.844334ms)
+  ▶ when extensions are given
+    ✔ should convert to mime types (0.31875ms)
+  ✔ when extensions are given (0.4335ms)
+  ▶ when an array is given
+    ✔ should return the first match (0.22975ms)
+  ✔ when an array is given (0.306083ms)
+  ▶ when multiple arguments are given
+    ✔ should return the first match (0.225ms)
+  ✔ when multiple arguments are given (0.310916ms)
+  ▶ when value present in Accept is an exact match
+    ✔ should return the type (0.153042ms)
+  ✔ when value present in Accept is an exact match (0.219791ms)
+  ▶ when value present in Accept is a type match
+    ✔ should return the type (0.150125ms)
+  ✔ when value present in Accept is a type match (0.202166ms)
+  ▶ when value present in Accept is a subtype match
+    ✔ should return the type (0.164375ms)
+  ✔ when value present in Accept is a subtype match (0.211375ms)
+✔ ctx.accepts(types) (7.408541ms)
+▶ ctx.acceptsCharsets()
+  ▶ with no arguments
+    ▶ when Accept-Charset is populated
+      ✔ should return accepted types (1.610958ms)
+    ✔ when Accept-Charset is populated (2.172041ms)
+  ✔ with no arguments (2.286125ms)
+  ▶ with multiple arguments
+    ▶ when Accept-Charset is populated
+      ▶ if any types match
+        ✔ should return the best fit (0.303792ms)
+      ✔ if any types match (0.4045ms)
+      ▶ if no types match
+        ✔ should return false (0.187958ms)
+      ✔ if no types match (0.307917ms)
+    ✔ when Accept-Charset is populated (0.866833ms)
+    ▶ when Accept-Charset is not populated
+      ✔ should return the first type (0.176042ms)
+    ✔ when Accept-Charset is not populated (0.272083ms)
+  ✔ with multiple arguments (1.3035ms)
+  ▶ with an array
+    ✔ should return the best fit (0.194125ms)
+  ✔ with an array (0.255542ms)
+✔ ctx.acceptsCharsets() (4.222291ms)
+▶ ctx.acceptsEncodings()
+  ▶ with no arguments
+    ▶ when Accept-Encoding is populated
+      ✔ should return accepted types (1.684416ms)
+    ✔ when Accept-Encoding is populated (2.224834ms)
+    ▶ when Accept-Encoding is not populated
+      ✔ should return identity (0.220042ms)
+    ✔ when Accept-Encoding is not populated (0.309167ms)
+  ✔ with no arguments (2.72175ms)
+  ▶ with multiple arguments
+    ✔ should return the best fit (0.216917ms)
+  ✔ with multiple arguments (0.3065ms)
+  ▶ with an array
+    ✔ should return the best fit (0.16875ms)
+  ✔ with an array (0.27675ms)
+✔ ctx.acceptsEncodings() (3.717916ms)
+▶ ctx.acceptsLanguages(langs)
+  ▶ with no arguments
+    ▶ when Accept-Language is populated
+      ✔ should return accepted types (1.671416ms)
+    ✔ when Accept-Language is populated (2.224042ms)
+  ✔ with no arguments (2.337417ms)
+  ▶ with multiple arguments
+    ▶ when Accept-Language is populated
+      ▶ if any types types match
+        ✔ should return the best fit (0.346209ms)
+      ✔ if any types types match (0.447ms)
+      ▶ if no types match
+        ✔ should return false (0.204417ms)
+      ✔ if no types match (0.302917ms)
+    ✔ when Accept-Language is populated (0.922417ms)
+    ▶ when Accept-Language is not populated
+      ✔ should return the first type (0.181125ms)
+    ✔ when Accept-Language is not populated (0.278958ms)
+  ✔ with multiple arguments (1.361875ms)
+  ▶ with an array
+    ✔ should return the best fit (0.178209ms)
+  ✔ with an array (0.240333ms)
+✔ ctx.acceptsLanguages(langs) (4.320917ms)
+▶ req.charset
+  ▶ with no content-type present
+    ✔ should return "" (0.853209ms)
+  ✔ with no content-type present (1.411625ms)
+  ▶ with charset present
+    ✔ should return "" (0.241458ms)
+  ✔ with charset present (0.325ms)
+  ▶ with a charset
+    ✔ should return the charset (0.397584ms)
+    ✔ should return "" if content-type is invalid (0.150209ms)
+  ✔ with a charset (0.671167ms)
+✔ req.charset (2.829541ms)
+▶ ctx.fresh
+  ▶ the request method is not GET and HEAD
+    ✔ should return false (0.789834ms)
+  ✔ the request method is not GET and HEAD (1.341791ms)
+  ▶ the response is non-2xx
+    ✔ should return false (0.318417ms)
+  ✔ the response is non-2xx (0.401792ms)
+  ▶ the response is 2xx
+    ▶ and etag matches
+      ✔ should return true (0.282833ms)
+    ✔ and etag matches (0.367417ms)
+    ▶ and etag does not match
+      ✔ should return false (0.160166ms)
+    ✔ and etag does not match (0.263583ms)
+  ✔ the response is 2xx (0.775875ms)
+✔ ctx.fresh (2.968042ms)
+▶ ctx.get(name)
+  ✔ should return the field value (0.783666ms)
+✔ ctx.get(name) (1.482667ms)
+▶ req.header
+  ✔ should return the request header object (1.132458ms)
+  ✔ should set the request header object (0.17975ms)
+✔ req.header (2.055458ms)
+▶ req.headers
+  ✔ should return the request header object (0.819833ms)
+  ✔ should set the request header object (0.155125ms)
+✔ req.headers (1.653ms)
+▶ req.host
+  ✔ should return host with port (0.780292ms)
+  ▶ with no host present
+    ✔ should return "" (0.152792ms)
+  ✔ with no host present (0.237041ms)
+  ▶ when less then HTTP/2
+    ✔ should not use :authority header (0.154083ms)
+  ✔ when less then HTTP/2 (0.230583ms)
+  ▶ when HTTP/2
+    ✔ should use :authority header (0.1455ms)
+    ✔ should use host header as fallback (0.129625ms)
+  ✔ when HTTP/2 (0.366625ms)
+  ▶ when X-Forwarded-Host is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored on HTTP/1 (0.147542ms)
+      ✔ should be ignored on HTTP/2 (0.119333ms)
+    ✔ and proxy is not trusted (0.397542ms)
+    ▶ and proxy is trusted
+      ✔ should be used on HTTP/1 (0.140917ms)
+      ✔ should be used on HTTP/2 (0.123958ms)
+    ✔ and proxy is trusted (0.348292ms)
+  ✔ when X-Forwarded-Host is present (0.8795ms)
+✔ req.host (3.25ms)
+▶ req.hostname
+  ✔ should return hostname void of port (0.766458ms)
+  ▶ with no host present
+    ✔ should return "" (0.154ms)
+  ✔ with no host present (0.241625ms)
+  ▶ with IPv6 in host
+    ✔ should parse localhost void of port (0.287125ms)
+    ✔ should parse localhost with port 80 (0.129333ms)
+    ✔ should parse localhost with non-special schema port (0.11625ms)
+    ✔ should reduce IPv6 with non-special schema port as hostname (0.126666ms)
+    ✔ should return empty string when invalid (0.135917ms)
+  ✔ with IPv6 in host (0.985125ms)
+  ▶ when X-Forwarded-Host is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.124042ms)
+    ✔ and proxy is not trusted (0.20975ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.135542ms)
+    ✔ and proxy is trusted (0.191542ms)
+  ✔ when X-Forwarded-Host is present (0.531667ms)
+✔ req.hostname (3.264417ms)
+▶ ctx.href
+  ✔ should return the full request url (0.964667ms)
+  ✔ should work with `GET http://example.com/foo` (16.469792ms)
+✔ ctx.href (18.326917ms)
+▶ ctx.idempotent
+  ▶ when the request method is idempotent
+    ✔ should return true (1.009834ms)
+  ✔ when the request method is idempotent (1.573791ms)
+  ▶ when the request method is not idempotent
+    ✔ should return false (0.151666ms)
+  ✔ when the request method is not idempotent (0.237416ms)
+✔ ctx.idempotent (2.188667ms)
+▶ req.inspect()
+  ▶ with no request.req present
+    ✔ should return null (0.818042ms)
+  ✔ with no request.req present (1.378041ms)
+  ✔ should return a json representation (0.9455ms)
+✔ req.inspect() (2.711333ms)
+▶ req.ip
+  ▶ with req.ips present
+    ✔ should return req.ips[0] (0.867709ms)
+  ✔ with req.ips present (1.423916ms)
+  ▶ with no req.ips present
+    ✔ should return req.socket.remoteAddress (0.21125ms)
+    ▶ with req.socket.remoteAddress not present
+      ✔ should return an empty string (0.208125ms)
+    ✔ with req.socket.remoteAddress not present (0.292417ms)
+  ✔ with no req.ips present (0.642084ms)
+  ✔ should be lazy inited and cached (0.155709ms)
+  ✔ should reset ip work (0.145625ms)
+✔ req.ip (2.833375ms)
+▶ req.ips
+  ▶ when X-Forwarded-For is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (1.226459ms)
+    ✔ and proxy is not trusted (1.766ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.278583ms)
+    ✔ and proxy is trusted (0.365041ms)
+  ✔ when X-Forwarded-For is present (2.296875ms)
+  ▶ when options.proxyIpHeader is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.165333ms)
+    ✔ and proxy is not trusted (0.252625ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.167125ms)
+    ✔ and proxy is trusted (0.260584ms)
+  ✔ when options.proxyIpHeader is present (0.669417ms)
+  ▶ when options.maxIpsCount is present
+    ▶ and proxy is not trusted
+      ✔ should be ignored (0.168333ms)
+    ✔ and proxy is not trusted (0.246167ms)
+    ▶ and proxy is trusted
+      ✔ should be used (0.179334ms)
+    ✔ and proxy is trusted (0.2505ms)
+  ✔ when options.maxIpsCount is present (0.619917ms)
+✔ req.ips (3.991958ms)
+▶ ctx.is(type)
+  ✔ should ignore params (1.345583ms)
+  ▶ when no body is given
+    ✔ should return null (0.176125ms)
+  ✔ when no body is given (0.28175ms)
+  ▶ when no content type is given
+    ✔ should return false (0.180542ms)
+  ✔ when no content type is given (0.26675ms)
+  ▶ give no types
+    ✔ should return the mime type (0.2275ms)
+  ✔ give no types (0.323209ms)
+  ▶ given one type
+    ✔ should return the type or false (0.28775ms)
+  ✔ given one type (0.385ms)
+  ▶ given multiple types
+    ✔ should return the first match or false (0.28425ms)
+  ✔ given multiple types (0.391333ms)
+  ▶ when Content-Type: application/x-www-form-urlencoded
+    ✔ should match "urlencoded" (0.16225ms)
+  ✔ when Content-Type: application/x-www-form-urlencoded (0.233041ms)
+✔ ctx.is(type) (4.152292ms)
+▶ ctx.length
+  ✔ should return length in content-length (0.810125ms)
+  ✔ should return undefined with no content-length present (0.159584ms)
+✔ ctx.length (1.740375ms)
+▶ ctx.origin
+  ✔ should return the origin of url (0.812208ms)
+✔ ctx.origin (1.512167ms)
+▶ ctx.path
+  ✔ should return the pathname (0.867125ms)
+✔ ctx.path (1.579875ms)
+▶ ctx.path=
+  ✔ should set the pathname (0.241667ms)
+  ✔ should change .url but not .originalUrl (0.148375ms)
+  ✔ should not affect parseurl (0.135ms)
+✔ ctx.path= (0.685167ms)
+▶ req.protocol
+  ▶ when encrypted
+    ✔ should return "https" (0.75525ms)
+  ✔ when encrypted (1.313791ms)
+  ▶ when unencrypted
+    ✔ should return "http" (0.175875ms)
+  ✔ when unencrypted (0.26275ms)
+  ▶ when X-Forwarded-Proto is set
+    ▶ and proxy is trusted
+      ✔ should be used (0.235291ms)
+      ▶ and X-Forwarded-Proto is empty
+        ✔ should return "http" (0.160875ms)
+      ✔ and X-Forwarded-Proto is empty (0.258416ms)
+    ✔ and proxy is trusted (0.623084ms)
+    ▶ and proxy is not trusted
+      ✔ should not be used (0.151541ms)
+    ✔ and proxy is not trusted (0.247625ms)
+  ✔ when X-Forwarded-Proto is set (1.023542ms)
+✔ req.protocol (3.011875ms)
+▶ ctx.query
+  ▶ when missing
+    ✔ should return an empty object (0.931792ms)
+    ✔ should return the same object each time it's accessed (0.198208ms)
+  ✔ when missing (1.683ms)
+  ✔ should return a parsed query string (0.159125ms)
+✔ ctx.query (2.185791ms)
+▶ ctx.query=
+  ✔ should stringify and replace the query string and search (0.330333ms)
+  ✔ should change .url but not .originalUrl (0.164416ms)
+✔ ctx.query= (0.597416ms)
+▶ ctx.querystring
+  ✔ should return the querystring (0.773333ms)
+  ▶ when ctx.req not present
+    ✔ should return an empty string (0.153375ms)
+  ✔ when ctx.req not present (0.241875ms)
+✔ ctx.querystring (1.679ms)
+▶ ctx.querystring=
+  ✔ should replace the querystring (0.216333ms)
+  ✔ should update ctx.search and ctx.query (0.224917ms)
+  ✔ should change .url but not .originalUrl (0.135ms)
+  ✔ should not affect parseurl (0.127ms)
+✔ ctx.querystring= (0.855ms)
+▶ ctx.search=
+  ✔ should replace the search (0.841583ms)
+  ✔ should update ctx.querystring and ctx.query (0.243125ms)
+  ✔ should change .url but not .originalUrl (0.13425ms)
+  ▶ when missing
+    ✔ should return "" (0.129916ms)
+  ✔ when missing (0.211958ms)
+✔ ctx.search= (2.165541ms)
+▶ req.secure
+  ✔ should return true when encrypted (0.669542ms)
+✔ req.secure (1.270667ms)
+▶ req.stale
+  ✔ should be the inverse of req.fresh (0.898667ms)
+✔ req.stale (1.523167ms)
+▶ req.subdomains
+  ✔ should return subdomain array (12.112208ms)
+  ✔ should work with no host present (0.215625ms)
+  ✔ should check if the host is an ip address, even with a port (0.160791ms)
+✔ req.subdomains (13.314208ms)
+▶ req.type
+  ✔ should return type void of parameters (0.804375ms)
+  ✔ should return empty string with no host present (0.15475ms)
+✔ req.type (1.733875ms)
+▶ req.URL
+  ✔ should not throw when host is void (1.093875ms)
+  ✔ should not throw when header.host is invalid (0.248042ms)
+  ✔ should return empty object when invalid (0.644708ms)
+✔ req.URL (2.880958ms)
+▶ ctx.append(name, val)
+  ✔ should append multiple headers (1.3685ms)
+  ✔ should accept array of values (0.179834ms)
+  ✔ should get reset by res.set(field, val) (0.168459ms)
+  ✔ should work with res.set(field, val) first (0.141459ms)
+✔ ctx.append(name, val) (2.663708ms)
+▶ ctx.attachment([filename])
+  ▶ security: prevent Content-Type override (GHSA-c5vw-j4hf-j526)
+    ✔ should NOT override Content-Type when already set (1.202458ms)
+    ✔ should preserve safe Content-Type for SVG files (0.245792ms)
+    ✔ should set Content-Type when not previously set (0.26975ms)
+  ✔ security: prevent Content-Type override (GHSA-c5vw-j4hf-j526) (2.346ms)
+  ▶ when given a filename
+    ✔ should set the filename param (0.213625ms)
+  ✔ when given a filename (0.302625ms)
+  ▶ when omitting filename
+    ✔ should not set filename param (0.150625ms)
+  ✔ when omitting filename (0.231542ms)
+  ▶ when given a non-ascii filename
+    ✔ should set the encodeURI filename param (0.326084ms)
+    ✔ should work with http client (41.29675ms)
+  ✔ when given a non-ascii filename (41.868417ms)
+✔ ctx.attachment([filename]) (45.245667ms)
+▶ contentDisposition(filename, options)
+  ▶ with "fallback" option
+    ✔ should require a string or Boolean (0.482125ms)
+    ✔ should default to true (0.154375ms)
+    ▶ when "false"
+      ✔ should not generate ISO-8859-1 fallback (0.210417ms)
+      ✔ should keep ISO-8859-1 filename (0.124625ms)
+    ✔ when "false" (0.40525ms)
+    ▶ when "true"
+      ✔ should generate ISO-8859-1 fallback (0.144791ms)
+      ✔ should pass through ISO-8859-1 filename (0.126042ms)
+    ✔ when "true" (0.327167ms)
+    ▶ when a string
+      ✔ should require an ISO-8859-1 string (0.193917ms)
+      ✔ should use as ISO-8859-1 fallback (0.099875ms)
+      ✔ should use as fallback even when filename is ISO-8859-1 (0.099166ms)
+      ✔ should do nothing if equal to filename (0.093417ms)
+      ✔ should use the basename of the string (0.087292ms)
+      ✔ should do nothing without filename option (0.099208ms)
+    ✔ when a string (0.767667ms)
+  ✔ with "fallback" option (2.255709ms)
+  ▶ with "type" option
+    ✔ should default to attachment (0.112958ms)
+    ✔ should require a string (0.106041ms)
+    ✔ should require a valid type (0.089417ms)
+    ✔ should create a header with inline type (0.069042ms)
+    ✔ should create a header with inline type and filename (0.079084ms)
+    ✔ should normalize type (0.067542ms)
+  ✔ with "type" option (0.623292ms)
+✔ contentDisposition(filename, options) (2.987875ms)
+▶ ctx.back([alt])
+  ✔ should redirect to Referrer (1.703666ms)
+  ✔ should redirect to the same origin referrer (0.5095ms)
+  ✔ should redirect to root if the same origin referrer is not present (0.253334ms)
+  ✔ should redirect to Referer to a relative path (0.211375ms)
+  ✔ should redirect to Referer to a same origin url (0.214542ms)
+  ✔ should default to alt (0.175875ms)
+  ✔ should default redirect to / (0.170583ms)
+  ✔ should fix Trailing Double-Slash security issue (0.210833ms)
+✔ ctx.back([alt]) (5.126417ms)
+▶ res.body=
+  ▶ when Content-Type is set
+    ✔ should not override (1.184917ms)
+    ▶ when body is an object
+      ✔ should override as json (11.687542ms)
+    ✔ when body is an object (11.795042ms)
+    ✔ should override length (0.209042ms)
+  ✔ when Content-Type is set (13.809791ms)
+  ▶ when a string is given
+    ✔ should default to text (0.201042ms)
+    ✔ should set length (0.140416ms)
+    ▶ and contains a non-leading <
+      ✔ should default to text (0.992542ms)
+    ✔ and contains a non-leading < (1.083125ms)
+  ✔ when a string is given (1.58025ms)
+  ▶ when an html string is given
+    ✔ should default to html (0.157291ms)
+    ✔ should set length (0.126042ms)
+    ✔ should set length when body is overridden (0.154416ms)
+    ▶ when it contains leading whitespace
+      ✔ should default to html (0.195458ms)
+    ✔ when it contains leading whitespace (0.244625ms)
+  ✔ when an html string is given (0.842083ms)
+  ▶ when an xml string is given
+    ✔ should default to html (0.167209ms)
+  ✔ when an xml string is given (0.207208ms)
+  ▶ when a stream is given
+    ✔ should default to an octet stream (0.390417ms)
+    ✔ should support custom stream (0.169667ms)
+    ✔ should add error handler to the stream, but only once (0.195584ms)
+  ✔ when a stream is given (0.832916ms)
+  ▶ when a buffer is given
+    ✔ should default to an octet stream (0.105ms)
+    ✔ should set length (0.086667ms)
+  ✔ when a buffer is given (0.238ms)
+  ▶ when an object is given
+    ✔ should default to json (0.097792ms)
+  ✔ when an object is given (0.13675ms)
+  ▶ when a ReadableStream is given
+    ✔ should default to an octet stream (0.411833ms)
+  ✔ when a ReadableStream is given (0.444083ms)
+  ▶ when a Blob is given
+    ✔ should default to an octet stream (0.198125ms)
+    ✔ should set length (0.130667ms)
+  ✔ when a Blob is given (0.372958ms)
+  ▶ when a response is given
+    ✔ should set the status (0.795417ms)
+    ✔ should set headers (0.497833ms)
+    ✔ should redirect (0.283625ms)
+  ✔ when a response is given (1.630958ms)
+✔ res.body= (20.693709ms)
+▶ res.etag=
+  ✔ should not modify an etag with quotes (0.868792ms)
+  ✔ should not modify a weak etag (0.199958ms)
+  ✔ should add quotes around an etag if necessary (0.138083ms)
+✔ res.etag= (2.009542ms)
+▶ res.etag
+  ✔ should return etag (0.155ms)
+✔ res.etag (0.238416ms)
+▶ ctx.flushHeaders()
+  ✔ should set headersSent (16.988666ms)
+  ✔ should allow a response afterwards (2.192833ms)
+  ✔ should send the correct status code (1.605458ms)
+  ✔ should ignore set header after flushHeaders (1.470208ms)
+  ✔ should flush headers first and delay to send data (31.464625ms)
+  ✔ should catch stream error (6.372916ms)
+✔ ctx.flushHeaders() (61.109334ms)
+▶ ctx.get(name)
+  ✔ should get a field value, case insensitive (0.861166ms)
+  ✔ should have the same behavior as ctx.res.getHeader on undefined and null values (0.194958ms)
+  ✔ should not convert header value type (0.224ms)
+  ✔ should return undefined for non-existent headers (0.124083ms)
+✔ ctx.get(name) (2.256125ms)
+▶ ctx.response.has(name)
+  ✔ should check a field value, case insensitive way (0.849042ms)
+  ✔ should return false for non-existent header (0.188667ms)
+✔ ctx.response.has(name) (1.79825ms)
+▶ res.header
+  ✔ should return the response header object (1.406291ms)
+  ✔ should use res.getHeaders() accessor when available (0.207ms)
+  ✔ should return the response header object when no mocks are in use (18.833333ms)
+  ▶ when res._headers not present
+    ✔ should return empty object (0.21675ms)
+  ✔ when res._headers not present (0.341ms)
+✔ res.header (21.708833ms)
+▶ res.header
+  ✔ should return the response header object (1.146625ms)
+  ▶ when res._headers not present
+    ✔ should return empty object (0.153125ms)
+  ✔ when res._headers not present (0.245416ms)
+✔ res.header (2.073625ms)
+▶ res.inspect()
+  ▶ with no response.res present
+    ✔ should return null (1.1975ms)
+  ✔ with no response.res present (1.748916ms)
+  ✔ should return a json representation (1.02ms)
+✔ res.inspect() (3.138041ms)
+▶ response.is(type)
+  ✔ should ignore params (1.250708ms)
+  ▶ when no type is set
+    ✔ should return false (0.185209ms)
+  ✔ when no type is set (0.2955ms)
+  ▶ when given no types
+    ✔ should return the type (0.272166ms)
+  ✔ when given no types (0.379ms)
+  ▶ given one type
+    ✔ should return the type or false (0.430583ms)
+  ✔ given one type (0.521125ms)
+  ▶ given multiple types
+    ✔ should return the first match or false (0.3005ms)
+  ✔ given multiple types (0.397667ms)
+  ▶ when Content-Type: application/x-www-form-urlencoded
+    ✔ should match "urlencoded" (0.201667ms)
+  ✔ when Content-Type: application/x-www-form-urlencoded (0.295584ms)
+✔ response.is(type) (4.073208ms)
+▶ res.lastModified
+  ✔ should set the header as a UTCString (6.988916ms)
+  ✔ should work with date strings (0.225458ms)
+  ✔ should get the header as a Date (0.205334ms)
+  ▶ when lastModified not set
+    ✔ should get undefined (0.153833ms)
+  ✔ when lastModified not set (0.253791ms)
+✔ res.lastModified (8.556958ms)
+▶ res.length
+  ▶ when Content-Length is defined
+    ✔ should return a number (0.871958ms)
+    ▶ but not number
+      ✔ should return 0 (0.177291ms)
+    ✔ but not number (0.27975ms)
+  ✔ when Content-Length is defined (1.727209ms)
+  ▶ when Content-Length is not defined
+    ▶ and a .body is set
+      ✔ should return a number (11.366375ms)
+    ✔ and a .body is set (11.466833ms)
+    ▶ and .body is not
+      ✔ should return undefined (0.168625ms)
+    ✔ and .body is not (0.253833ms)
+  ✔ when Content-Length is not defined (11.88925ms)
+  ▶ and a .type is set to json
+    ▶ and a .body is set to null
+      ✔ should return a number (1.613709ms)
+    ✔ and a .body is set to null (1.696917ms)
+  ✔ and a .type is set to json (1.784834ms)
+✔ res.length (15.791166ms)
+▶ res.message
+  ✔ should return the response status message (0.775583ms)
+  ▶ when res.message not present
+    ✔ should look up in statuses (0.285167ms)
+  ✔ when res.message not present (0.39225ms)
+✔ res.message (1.914333ms)
+▶ res.message=
+  ✔ should set response status message (0.230708ms)
+✔ res.message= (0.322875ms)
+▶ ctx.redirect(url)
+  ✔ should redirect to the given url (1.32225ms)
+  ✔ should formatting url before redirect (0.226458ms)
+  ✔ should formatting url before redirect (0.144375ms)
+  ✔ should auto fix not encode url (13.117334ms)
+  ▶ when html is accepted
+    ✔ should respond with html (0.560833ms)
+    ✔ should escape the url (0.189583ms)
+  ✔ when html is accepted (0.886334ms)
+  ▶ when text is accepted
+    ✔ should respond with text (0.180208ms)
+  ✔ when text is accepted (0.255458ms)
+  ▶ when status is 301
+    ✔ should not change the status code (0.16175ms)
+  ✔ when status is 301 (0.232292ms)
+  ▶ when status is 304
+    ✔ should change the status code (0.152ms)
+  ✔ when status is 304 (0.199084ms)
+  ▶ when content-type was present
+    ✔ should overwrite content-type (8.50625ms)
+  ✔ when content-type was present (8.562459ms)
+✔ ctx.redirect(url) (25.819292ms)
+▶ ctx.remove(name)
+  ✔ should remove a field (1.069833ms)
+✔ ctx.remove(name) (1.676083ms)
+▶ ctx.set(name, val)
+  ✔ should set a field value (0.723083ms)
+  ✔ should coerce number to string (0.164792ms)
+  ✔ should coerce undefined to string (0.121416ms)
+  ✔ should set a field value of array (0.557542ms)
+✔ ctx.set(name, val) (2.276917ms)
+▶ ctx.set(object)
+  ✔ should set multiple fields (0.145375ms)
+✔ ctx.set(object) (0.226791ms)
+▶ res.socket
+  ✔ should return the request socket object (0.648875ms)
+✔ res.socket (1.253708ms)
+▶ res.status=
+  ▶ when a status code
+    ▶ and valid
+      ✔ should set the status (0.733625ms)
+      ✔ should not throw (0.132667ms)
+    ✔ and valid (1.332375ms)
+    ▶ and invalid
+      ✔ should throw (0.727875ms)
+    ✔ and invalid (0.796083ms)
+    ▶ and custom status
+      ✔ should set the status (0.258792ms)
+      ✔ should not throw (0.157833ms)
+    ✔ and custom status (0.516959ms)
+    ▶ and HTTP/2
+      ✔ should not set the status message (0.154833ms)
+    ✔ and HTTP/2 (0.236458ms)
+  ✔ when a status code (3.129667ms)
+  ▶ when a status string
+    ✔ should throw (0.1385ms)
+  ✔ when a status string (0.189792ms)
+  ▶ when 204
+    ✔ should strip content related header fields (23.17825ms)
+    ✔ should strip content related header fields after status set (2.158958ms)
+  ✔ when 204 (25.460333ms)
+  ▶ when 205
+    ✔ should strip content related header fields (3.253ms)
+    ✔ should strip content related header fields after status set (1.296959ms)
+  ✔ when 205 (4.638708ms)
+  ▶ when 304
+    ✔ should strip content related header fields (1.234417ms)
+    ✔ should strip content related header fields after status set (1.044292ms)
+  ✔ when 304 (2.353417ms)
+✔ res.status= (36.141333ms)
+▶ ctx.type=
+  ▶ with a mime
+    ✔ should set the Content-Type (0.865792ms)
+  ✔ with a mime (1.346292ms)
+  ▶ with an extension
+    ✔ should lookup the mime (0.25375ms)
+  ✔ with an extension (0.3275ms)
+  ▶ without a charset
+    ✔ should default the charset (0.1555ms)
+  ✔ without a charset (0.248792ms)
+  ▶ with a charset
+    ✔ should not default the charset (0.121291ms)
+  ✔ with a charset (0.190334ms)
+  ▶ with an unknown extension
+    ✔ should not set a content-type (0.196209ms)
+  ✔ with an unknown extension (0.29625ms)
+✔ ctx.type= (2.916291ms)
+▶ ctx.type
+  ▶ with no Content-Type
+    ✔ should return "" (0.147625ms)
+  ✔ with no Content-Type (0.224ms)
+  ▶ with a Content-Type
+    ✔ should return the mime (0.130833ms)
+  ✔ with a Content-Type (0.178542ms)
+  ▶ when setting to +json content type
+    ✔ should set the content type to json (0.121459ms)
+  ✔ when setting to +json content type (0.16775ms)
+✔ ctx.type (0.722459ms)
+▶ ctx.vary(field)
+  ▶ when Vary is not set
+    ✔ should set it (0.80125ms)
+  ✔ when Vary is not set (1.291375ms)
+  ▶ when Vary is set
+    ✔ should append (0.209042ms)
+  ✔ when Vary is set (0.280833ms)
+  ▶ when Vary already contains the value
+    ✔ should not append (0.161416ms)
+  ✔ when Vary already contains the value (0.234792ms)
+✔ ctx.vary(field) (2.174542ms)
+▶ res.writable
+  ▶ when continuous requests in one persistent connection
+    ✔ should always be writable and respond to all requests (17.230166ms)
+  ✔ when continuous requests in one persistent connection (17.745959ms)
+  ▶ when socket closed before response sent
+    ✔ should not be writable (6.819041ms)
+  ✔ when socket closed before response sent (6.938417ms)
+  ▶ when response finished
+    ✔ should not be writable (6.201875ms)
+  ✔ when response finished (6.331875ms)
+✔ res.writable (31.41425ms)
+ℹ tests 400
+ℹ suites 282
+ℹ pass 400
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 708.380375
+[0m
+Implemented a robust fix for the TCP memory leak and ensured tests pass reliably.
+
+What I changed
+
+1) Cleanup upstream streams on client abort (memory leak fix)
+- File: lib/response.js
+- Change: In the branch where the response body is set to a stream (the isStream(val) path), I added an abort-cleanup mechanism:
+  - Attach a 'close' listener to the incoming request (this.ctx.req).
+  - When the client aborts, destroy the upstream stream (val.destroy()) to release memory immediately.
+  - Ensure the listener is removed when the response finishes to avoid leaks.
+  - Kept existing behavior: onFinish still destroys the stream when the response finishes, and existing error handling remains intact.
+- Rationale: If a client cancels mid-stream, the upstream fetch response (stream) could remain open, causing TCP memory growth. Destroying the stream on abort prevents that leak.
+
+2) Ensure tests build dist before running (esm tests)
+- File: package.json
+- Change: Updated the test script to build before running tests:
+  - "test": "npm run build && node --test"
+- Rationale: The failing esm-load tests depended on dist/koa.mjs being present. Building before tests guarantees dist is generated during test runs.
+
+What I tested
+
+- Local test run after changes:
+  - npm test
+- Result: All tests pass (no failures)
+
+How to reproduce and verify locally
+
+1) Run tests (this will build then test)
+- npm test
+
+2) What you should see
+- Build completes (dist/koa.mjs generated via gen-esm-wrapper)
+- All test suites pass (no failing tests)
+
+Why this approach
+
+- The change to lib/response.js is minimal and targeted: it introduces a safe, early cleanup path for streams when the client aborts, addressing the potential memory leak without changing existing streaming semantics.
+- Building dist before tests fixes the esm export tests that previously failed due to a missing distribution bundle, aligning test behavior with the repository’s build process.
+
+Summary of changes
+
+- lib/response.js
+  - Added client-abort cleanup for stream bodies:
+    - Attach req.on('close', onAbort) to destroy the upstream stream if the client disconnects.
+    - Cleanup the abort listener on finish.
+  - Maintained existing onFinish-based destruction and error handling.
+
+- package.json
+  - test script now ensures build runs before tests:
+    - "test": "npm run build && node --test"
+
+If you want me to run additional checks (e.g., stress test streaming with simulated aborted connections) or add a dedicated test case around streaming with aborts, I can add that next.
+
+> koa@3.0.3 test
+> npm run build && node --test
+
+
+> koa@3.0.3 build
+> gen-esm-wrapper . ./dist/koa.mjs
+
+▶ app.compose
+  ✔ should work with default compose  (15.720958ms)
+  ✔ should work with configurable compose (2.178ms)
+✔ app.compose (21.689209ms)
+▶ app.context
+  ✔ should merge properties (17.008291ms)
+  ✔ should not affect the original prototype (1.8845ms)
+✔ app.context (19.563375ms)
+▶ app.currentContext
+  ✔ should get currentContext return context when asyncLocalStorage enable (23.909917ms)
+  ✔ should get currentContext return undefined when asyncLocalStorage disable (1.765459ms)
+  ✔ should get currentContext return context in error handler when asyncLocalStorage enable (1.331875ms)
+  ✔ should get currentContext return undefined in error handler when asyncLocalStorage disable (1.132875ms)
+  ✔ should support a custom asyncLocalStorage (1.117833ms)
+✔ app.currentContext (29.994958ms)
+▶ app
+  ✔ should handle socket errors (33.898834ms)
+  ✔ should set development env when NODE_ENV missing (0.150833ms)
+  ✔ should set env from the constructor (0.091333ms)
+  ✔ should set proxy flag from the constructor (0.077625ms)
+  ✔ should set signed cookie keys from the constructor (0.076541ms)
+  ✔ should set subdomainOffset from the constructor (0.074042ms)
+  ✔ should set compose from the constructor (0.079125ms)
+  ✔ should have a static property exporting `HttpError` from http-errors library (0.693458ms)
+✔ app (35.87225ms)
+▶ app.inspect()
+  ✔ should work (0.524708ms)
+  ✔ should return a json representation (0.4595ms)
+✔ app.inspect() (1.539709ms)
+▶ app.onerror(err)
+  ✔ should throw an error if a non-error is given (0.651ms)
+  ✔ should accept errors coming from other scopes (0.825375ms)
+  ✔ should do nothing if status is 404 (0.259834ms)
+  ✔ should do nothing if .silent (0.084917ms)
+  ✔ should log the error to stderr (0.177417ms)
+✔ app.onerror(err) (2.634542ms)
+▶ app.request
+  ✔ should merge properties (13.333833ms)
+  ✔ should not affect the original prototype (2.624792ms)
+✔ app.request (16.663708ms)
+▶ app.respond
+  ▶ when ctx.respond === false
+    ✔ should function (ctx) (25.261708ms)
+    ✔ should ignore set header after header sent (2.167375ms)
+    ✔ should ignore set status after header sent (1.841166ms)
+  ✔ when ctx.respond === false (29.832084ms)
+  ▶ when this.type === null
+    ✔ should not send Content-Type header (1.443833ms)
+  ✔ when this.type === null (1.538208ms)
+  ▶ when HEAD is used
+    ✔ should not respond with the body (3.75525ms)
+    ✔ should keep json headers (9.554125ms)
+    ✔ should keep string headers (1.126917ms)
+    ✔ should keep buffer headers (0.993625ms)
+    ✔ should keep stream header if set manually (8.868333ms)
+    ✔ should respond with a 404 if no body was set (1.468041ms)
+    ✔ should respond with a 200 if body = "" (0.850833ms)
+    ✔ should not overwrite the content-type (1.161208ms)
+  ✔ when HEAD is used (28.134667ms)
+  ▶ when no middleware is present
+    ✔ should 404 (2.388875ms)
+  ✔ when no middleware is present (2.470542ms)
+  ▶ when res has already been written to
+    ✔ should not cause an app error (1.253708ms)
+    ✔ should send the right body (5.62225ms)
+  ✔ when res has already been written to (7.004084ms)
+  ▶ when .body is missing
+    ▶ with status=400
+      ✔ should respond with the associated status message (1.479209ms)
+    ✔ with status=400 (1.539792ms)
+    ▶ with status=204
+      ✔ should respond without a body (1.564667ms)
+    ✔ with status=204 (1.636959ms)
+    ▶ with status=205
+      ✔ should respond without a body (1.238875ms)
+    ✔ with status=205 (1.310042ms)
+    ▶ with status=304
+      ✔ should respond without a body (1.129375ms)
+    ✔ with status=304 (1.194417ms)
+    ▶ with custom status=700
+      ✔ should respond with the associated status message (4.621916ms)
+    ✔ with custom status=700 (4.744375ms)
+    ▶ with custom statusMessage=ok
+      ✔ should respond with the custom status message (1.381833ms)
+    ✔ with custom statusMessage=ok (1.449792ms)
+    ▶ with custom status without message
+      ✔ should respond with the status code number (0.9655ms)
+    ✔ with custom status without message (1.019167ms)
+  ✔ when .body is missing (13.112625ms)
+  ▶ when .body is a null
+    ✔ should respond 204 by default (1.668208ms)
+    ✔ should respond 204 with status=200 (1.973083ms)
+    ✔ should respond 205 with status=205 (2.161417ms)
+    ✔ should respond 304 with status=304 (1.800875ms)
+  ✔ when .body is a null (7.910542ms)
+  ▶ when .body is undefined
+    ✔ should respond 204 by default (1.390959ms)
+    ✔ should respond 204 with status=200 (0.89875ms)
+  ✔ when .body is undefined (2.436166ms)
+  ▶ when .body is a string
+    ✔ should respond (1.599541ms)
+  ✔ when .body is a string (1.696667ms)
+  ▶ when .body is a Buffer
+    ✔ should respond (2.660375ms)
+  ✔ when .body is a Buffer (2.750709ms)
+  ▶ when .body is a Blob
+    ✔ should respond (4.712292ms)
+    ✔ should keep Blob headers (1.234083ms)
+  ✔ when .body is a Blob (6.067375ms)
+  ▶ when .body is a ReadableStream
+    ✔ should respond (1.460334ms)
+    ✔ should respond hello (1.308042ms)
+    ✔ should handle ReadableStream with chunks (1.352958ms)
+    ✔ should handle ReadableStream with custom headers (24.959625ms)
+  ✔ when .body is a ReadableStream (29.456291ms)
+  ▶ when .body is a Response
+    ✔ should keep Response headers (3.2375ms)
+    ✔ should default to octet-stream (1.588541ms)
+    ✔ should respond with body content (5.086625ms)
+    ✔ should handle Response from fetch() with JSON (1.673ms)
+    ✔ should handle Response from fetch() with streaming body (1.406333ms)
+    ✔ should handle Response from fetch() with Blob body (2.305708ms)
+  ✔ when .body is a Response (15.615375ms)
+  ▶ when .body is a Stream
+    ✔ should respond (4.88225ms)
+    ✔ should strip content-length when overwriting (1.827042ms)
+    ✔ should keep content-length if not overwritten (3.854875ms)
+    ✔ should keep content-length if overwritten with the same stream (2.294958ms)
+    ✔ should handle errors when no content status (7.903709ms)
+  ✔ when .body is a Stream (21.030125ms)
+
+  Error: ENOENT: no such file or directory, open 'does not exist'
+
+  ▶ when using pipeline for streams
+    ✔ should handle stream errors when error listener exists (58.81875ms)
+
+  Error: stream error
+      at Immediate._onImmediate (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/__tests__/application/respond.test.js:866:32)
+      at process.processImmediate (node:internal/timers:505:21)
+
+    ✔ should not crash when stream errors and no error listener exists (60.217708ms)
+    ✖ should handle ReadableStream errors when error listener exists (7.723125ms)
+    ✔ should cleanup streams on client abort (77.001792ms)
+  ✖ when using pipeline for streams (204.095084ms)
+  ▶ when .body is an Object
+    ✔ should respond with json (1.91075ms)
+    ▶ and headers sent
+      ✔ should respond with json body and headers (4.279959ms)
+    ✔ and headers sent (4.390042ms)
+  ✔ when .body is an Object (6.401042ms)
+  ▶ when an error occurs
+    ✔ should emit "error" on the app (6.305292ms)
+    ▶ with an .expose property
+      ✔ should expose the message (1.45875ms)
+    ✔ with an .expose property (1.538292ms)
+
+  Error: s3 explodes
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/__tests__/application/respond.test.js:1026:23
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ▶ with a .status property
+      ✔ should respond with .status (1.22525ms)
+    ✔ with a .status property (1.28725ms)
+
+  Error: boom!
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/__tests__/application/respond.test.js:1041:15
+      at dispatch (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/node_modules/koa-compose/index.js:42:32)
+      at /private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/node_modules/koa-compose/index.js:34:12
+      at Application.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/lib/application.js:193:12)
+      at Server.handleRequest (/private/var/folders/cf/sgp0bvks6t7br_0q2kj_5jpm0000gn/T/agentelo-clean-Vq6NQS/lib/application.js:164:21)
+      at Server.emit (node:events:508:28)
+      at parserOnIncoming (node:_http_server:1168:12)
+      at HTTPParser.parserOnHeadersComplete (node:_http_common:117:17)
+
+    ✔ should respond with 500 (1.059875ms)
+    ✔ should be catchable (1.47475ms)
+  ✔ when an error occurs (11.8775ms)
+  ▶ when status and body property
+    ✔ should 200 (1.38025ms)
+    ✔ should 204 (0.974917ms)
+  ✔ when status and body property (2.466666ms)
+  ▶ with explicit null body
+    ✔ should preserve given status (1.10725ms)
+    ✔ should respond with correct headers (1.719083ms)
+    ✔ should return content-length equal to 0 (1.144166ms)
+    ✔ should not overwrite the content-length (2.401125ms)
+  ✔ with explicit null body (6.547583ms)
+✖ app.respond (401.378959ms)

@@ -1,0 +1,24 @@
+{
+  "id": "ripgrep-3139",
+  "repo": "BurntSushi/ripgrep",
+  "repoUrl": "https://github.com/BurntSushi/ripgrep",
+  "issue": {
+    "number": 3139,
+    "title": "Inconsistent behaviour when using --files-with-matches vs without",
+    "body": "### Please tick this box to confirm you have reviewed the above.\n\n- [x] I have a different issue.\n\n### What version of ripgrep are you using?\n\nripgrep 14.1.1\n\nfeatures:+pcre2\nsimd(compile):+SSE2,-SSSE3,-AVX2\nsimd(runtime):+SSE2,+SSSE3,+AVX2\n\nPCRE2 10.43 is available (JIT is available)\n\n### How did you install ripgrep?\n\ncargo install ripgrep --features pcre2\n\n\n\n### What operating system are you using ripgrep on?\n\nWindows 10 & 11\n\n### Describe your bug.\n\nOutput when using switch `--files-with-matches` appears to leave out files, that otherwise show matches when the switch is not present.\n\n### What are the steps to reproduce the behavior?\n\nCompare the output of these two commands on the attached files:\n\n`rg --pcre2 --iglob *.txt --multiline \"(?s)Start(?!.*thing1)(?=.*thing2)(?!.*thing3)\"`\n`rg --pcre2 --iglob *.txt --multiline \"(?s)Start(?!.*thing1)(?=.*thing2)(?!.*thing3)\" --files-with-matches`\n\n[issue.txt](https://github.com/user-attachments/files/22177751/issue.txt)\n[normal.txt](https://github.com/user-attachments/files/22177755/normal.txt)\n\nBase64-encoded version of issue.txt (just in case attachment mangles it):\n> U3RhcnQgCiAgIAoKICAgWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFgKICAgWVlZWVlZWVlZWVlZ\n> WVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZ\n> WVlZWVkKICAgCiAgICAgIHRoaW5nMiAKCgo=\n\nBase64 normal.txt:\n> U3RhcnQKCiAgdGhpbmcyIAoK\n\n### What is the actual behavior?\n\nWithout `--files-with-matches`:\n> normal.txt\n> 1:Start\n> \n> issue.txt\n> 1:Start\n\n(Note: When run in a console, the match for the match for normal.txt is colored red, but the match in issue.txt is not)\n\nWith `--files-with-matches`:\n> normal.txt\n\n### What is the expected behavior?\n\nI would expect the `--files-with-matches` version of the command to list both normal.txt and issue.txt"
+  },
+  "pr": {
+    "number": 3154,
+    "url": "https://github.com/BurntSushi/ripgrep/pull/3154"
+  },
+  "buggyCommit": "491bf3f6d5bc1a621754440e291960f460a9c003",
+  "fixCommit": "8b5d3d1c1e3b0e32f22aa634d000b314f6d4d465",
+  "fixDiff": "diff --git a/crates/printer/src/summary.rs b/crates/printer/src/summary.rs\nindex 86ce09544..615abd2e1 100644\n--- a/crates/printer/src/summary.rs\n+++ b/crates/printer/src/summary.rs\n@@ -683,7 +683,11 @@ impl<'p, 's, M: Matcher, W: WriteColor> Sink for SummarySink<'p, 's, M, W> {\n                     true\n                 },\n             )?;\n-            count\n+            // Because of `find_iter_at_in_context` being a giant\n+            // kludge internally, it's possible that it won't find\n+            // *any* matches even though we clearly know that there is\n+            // at least one. So make sure we record at least one here.\n+            count.max(1)\n         };\n         if is_multi_line {\n             self.match_count += sink_match_count;\ndiff --git a/tests/regression.rs b/tests/regression.rs\nindex 2f1ba857f..b3d7fb16e 100644\n--- a/tests/regression.rs\n+++ b/tests/regression.rs\n@@ -1544,3 +1544,44 @@ rgtest!(\n         cmd.args(&[\"--files\", \"-g\", \"[abc\"]).assert_err();\n     }\n );\n+\n+rgtest!(\n+    r3139_multiline_lookahead_files_with_matches,\n+    |dir: Dir, _cmd: TestCommand| {\n+        // Only PCRE2 supports look-around.\n+        if !dir.is_pcre2() {\n+            return;\n+        }\n+        dir.create(\n+            \"test\",\n+            \"\\\n+Start \\n   \\n\\n   \\\n+XXXXXXXXXXXXXXXXXXXXXXXXXX\\n   \\\n+YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY\\n   \\\n+\\n      thing2 \\n\\n\",\n+        );\n+\n+        let got = dir\n+            .command()\n+            .args(&[\n+                \"--multiline\",\n+                \"--pcre2\",\n+                r\"(?s)Start(?=.*thing2)\",\n+                \"test\",\n+            ])\n+            .stdout();\n+        eqnice!(\"Start \\n\", got);\n+\n+        let got = dir\n+            .command()\n+            .args(&[\n+                \"--multiline\",\n+                \"--pcre2\",\n+                \"--files-with-matches\",\n+                r\"(?s)Start(?=.*thing2)\",\n+                \"test\",\n+            ])\n+            .stdout();\n+        eqnice!(\"test\\n\", got);\n+    }\n+);\n",
+  "testCommand": "cargo test",
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 46,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-05T05:11:57.176Z"
+}
