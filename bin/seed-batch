@@ -32,6 +32,10 @@ const MODELS = [
   // Paid remote (via opencode)
   { harness: 'opencode', model: 'openai/gpt-5.4-mini', local: false },
   { harness: 'opencode', model: 'openai/gpt-5.4', local: false },
+  // Codex harness (OpenAI models via codex CLI — different agent than opencode)
+  { harness: 'codex', model: 'gpt-5.4', local: false },
+  { harness: 'codex', model: 'gpt-5.4-mini', local: false },
+  { harness: 'codex', model: 'o4-mini', local: false },
   // Claude (rate-limited)
   { harness: 'claude-code', model: 'claude-sonnet-4-6', local: false },
   { harness: 'claude-code', model: 'claude-opus-4-6', local: false },
@@ -47,12 +51,12 @@ const MODELS = [
 const challenges = fs.readdirSync(CHALLENGES_DIR)
   .filter(f => f.endsWith('.json'))
   .map(f => f.replace('.json', ''))
-  // Sort smaller repos first (fastify, koa, svelte, etc before angular, deno)
+  // Priority: fast+working repos first, slow/broken last
   .sort((a, b) => {
-    const small = ['fastify', 'koa', 'svelte', 'fastapi', 'next.js'];
-    const aSmall = small.some(s => a.startsWith(s)) ? 0 : 1;
-    const bSmall = small.some(s => b.startsWith(s)) ? 0 : 1;
-    return aSmall - bSmall;
+    const priority = { 'fastify': 0, 'koa': 0, 'svelte': 1, 'next.js': 2, 'angular': 3, 'fastapi': 4 };
+    const aP = Object.entries(priority).find(([k]) => a.startsWith(k))?.[1] ?? 5;
+    const bP = Object.entries(priority).find(([k]) => b.startsWith(k))?.[1] ?? 5;
+    return aP - bP;
   });
 
 console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models`);
