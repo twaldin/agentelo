@@ -14,11 +14,16 @@
   "buggyCommit": "660c4c12b1e1c50d067dfd800465bea21d29651f",
   "fixCommit": "a75866f34d5b64e0c40b2888a5f89a69ec1151f9",
   "fixDiff": "diff --git a/.changeset/fix-each-bind-store-logical.md b/.changeset/fix-each-bind-store-logical.md\nnew file mode 100644\nindex 000000000000..13270151248c\n--- /dev/null\n+++ b/.changeset/fix-each-bind-store-logical.md\n@@ -0,0 +1,5 @@\n+---\n+'svelte': patch\n+---\n+\n+fix: detect store in each block expression regardless of AST shape\ndiff --git a/packages/svelte/src/compiler/phases/3-transform/client/visitors/EachBlock.js b/packages/svelte/src/compiler/phases/3-transform/client/visitors/EachBlock.js\nindex b2724fa90f32..a1371b516a34 100644\n--- a/packages/svelte/src/compiler/phases/3-transform/client/visitors/EachBlock.js\n+++ b/packages/svelte/src/compiler/phases/3-transform/client/visitors/EachBlock.js\n@@ -101,15 +101,11 @@ export function EachBlock(node, context) {\n \t}\n \n \t// If the array is a store expression, we need to invalidate it when the array is changed.\n-\t// This doesn't catch all cases, but all the ones that Svelte 4 catches, too.\n \tlet store_to_invalidate = '';\n-\tif (node.expression.type === 'Identifier' || node.expression.type === 'MemberExpression') {\n-\t\tconst id = object(node.expression);\n-\t\tif (id) {\n-\t\t\tconst binding = context.state.scope.get(id.name);\n-\t\t\tif (binding?.kind === 'store_sub') {\n-\t\t\t\tstore_to_invalidate = id.name;\n-\t\t\t}\n+\tfor (const binding of node.metadata.expression.dependencies) {\n+\t\tif (binding.kind === 'store_sub') {\n+\t\t\tstore_to_invalidate = binding.node.name;\n+\t\t\tbreak;\n \t\t}\n \t}\n \ndiff --git a/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/_config.js b/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/_config.js\nnew file mode 100644\nindex 000000000000..1134b20d0c5b\n--- /dev/null\n+++ b/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/_config.js\n@@ -0,0 +1,22 @@\n+import { flushSync } from 'svelte';\n+import { ok, test } from '../../test';\n+\n+export default test({\n+\ttest({ assert, target, window }) {\n+\t\tconst input = target.querySelector('input');\n+\t\tok(input);\n+\n+\t\tconst event = new window.Event('input');\n+\t\tinput.value = 'changed';\n+\t\tinput.dispatchEvent(event);\n+\t\tflushSync();\n+\n+\t\tassert.htmlEqual(\n+\t\t\ttarget.innerHTML,\n+\t\t\t`\n+\t\t\t<input>\n+\t\t\t<p>changed</p>\n+\t\t`\n+\t\t);\n+\t}\n+});\ndiff --git a/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/main.svelte b/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/main.svelte\nnew file mode 100644\nindex 000000000000..77731ea5a4b6\n--- /dev/null\n+++ b/packages/svelte/tests/runtime-legacy/samples/store-each-binding-logical/main.svelte\n@@ -0,0 +1,13 @@\n+<script>\n+\timport { writable } from 'svelte/store';\n+\n+\tconst items = writable([\n+\t\t{ id: 0, text: 'initial' }\n+\t]);\n+</script>\n+\n+{#each $items ?? [] as item}\n+\t<input bind:value={item.text}>\n+{/each}\n+\n+<p>{$items[0].text}</p>\n",
-  "testCommand": "npm test",
+  "testCommand": "pnpm test",
   "difficulty": {
     "filesChanged": 4,
     "linesAdded": 44,
     "linesRemoved": 8
   },
-  "minedAt": "2026-04-05T05:09:04.652Z"
+  "minedAt": "2026-04-05T05:09:04.652Z",
+  "baseline_passing": 7084,
+  "baseline_total": 7231,
+  "fix_passing": 7086,
+  "fix_total": 7233,
+  "broken_by_bug": 2
 }
