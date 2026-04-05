@@ -83,12 +83,15 @@ function insertSubmission(sub) {
   // Migrations for existing DBs
   try { getDb().exec('ALTER TABLE submissions ADD COLUMN agent_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
   try { getDb().exec('ALTER TABLE submissions ADD COLUMN test_time_seconds REAL NOT NULL DEFAULT 0'); } catch (_) {}
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_total INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_ok INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  try { getDb().exec('ALTER TABLE submissions ADD COLUMN tests_failed INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
   getDb().prepare(`
     INSERT OR IGNORE INTO submissions
-      (run_id, challenge_id, agent_hash, harness, model, tests_passed, time_seconds, agent_time_seconds, test_time_seconds, diff_lines, tampered, transcript_path, created_at)
+      (run_id, challenge_id, agent_hash, harness, model, tests_passed, time_seconds, agent_time_seconds, test_time_seconds, diff_lines, tests_total, tests_ok, tests_failed, tampered, transcript_path, created_at)
     VALUES
-      (@run_id, @challenge_id, @agent_hash, @harness, @model, @tests_passed, @time_seconds, @agent_time_seconds, @test_time_seconds, @diff_lines, @tampered, @transcript_path, @created_at)
+      (@run_id, @challenge_id, @agent_hash, @harness, @model, @tests_passed, @time_seconds, @agent_time_seconds, @test_time_seconds, @diff_lines, @tests_total, @tests_ok, @tests_failed, @tampered, @transcript_path, @created_at)
   `).run({
     run_id: sub.run_id,
     challenge_id: sub.challenge_id,
@@ -100,6 +103,9 @@ function insertSubmission(sub) {
     agent_time_seconds: sub.agent_time_seconds || 0,
     test_time_seconds: sub.test_time_seconds || sub.time_seconds || 0,
     diff_lines: sub.diff_lines || 0,
+    tests_total: sub.tests_total || 0,
+    tests_ok: sub.tests_ok || 0,
+    tests_failed: sub.tests_failed || 0,
     tampered: sub.tampered ? 1 : 0,
     transcript_path: sub.transcript_path || null,
     created_at: sub.created_at || new Date().toISOString(),

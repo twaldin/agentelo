@@ -72,19 +72,80 @@ async function score(diff, repoDir, challenge, logFile) {
 
   const start = Date.now();
   let exitCode;
+  let testOutput = '';
   try {
-    exitCode = await runCommand(cmd, args, repoDir, resolvedLog, TIMEOUT_MS);
+    const result = await runCommandWithOutput(cmd, args, repoDir, resolvedLog, TIMEOUT_MS);
+    exitCode = result.exitCode;
+    testOutput = result.output;
   } catch (err) {
     exitCode = err.exitCode != null ? err.exitCode : 1;
+    testOutput = err.output || '';
   }
   const timeSeconds = (Date.now() - start) / 1000;
+
+  // Parse test counts from output
+  const testCounts = parseTestCounts(testOutput);
 
   return {
     tests_passed: exitCode === 0,
     time_seconds: timeSeconds,
     exit_code: exitCode,
     diff_lines: diffLines,
+    tests_total: testCounts.total,
+    tests_ok: testCounts.passed,
+    tests_failed: testCounts.failed,
   };
+}
+
+/**
+ * Parse test pass/fail counts from test runner output.
+ * Handles: node --test, borp, jest, pytest, vitest, mocha, tap.
+ */
+function parseTestCounts(output) {
+  if (!output) return { total: 0, passed: 0, failed: 0 };
+
+  // node --test / borp: "ℹ tests 2076" + "ℹ pass 2070" + "ℹ fail 2"
+  const nodeTests = output.match(/tests\s+(\d+)/);
+  const nodePass  = output.match(/pass\s+(\d+)/);
+  const nodeFail  = output.match(/fail\s+(\d+)/);
+  if (nodeTests && nodePass) {
+    return {
+      total:  parseInt(nodeTests[1]),
+      passed: parseInt(nodePass[1]),
+      failed: nodeFail ? parseInt(nodeFail[1]) : 0,
+    };
+  }
+
+  // pytest: "2 passed, 1 failed" or "2 passed" or "1 failed"
+  const pytestMatch = output.match(/(\d+)\s+passed(?:,\s+(\d+)\s+failed)?/);
+  if (pytestMatch) {
+    const passed = parseInt(pytestMatch[1]);
+    const failed = pytestMatch[2] ? parseInt(pytestMatch[2]) : 0;
+    return { total: passed + failed, passed, failed };
+  }
+  const pytestFail = output.match(/(\d+)\s+failed(?:,\s+(\d+)\s+passed)?/);
+  if (pytestFail) {
+    const failed = parseInt(pytestFail[1]);
+    const passed = pytestFail[2] ? parseInt(pytestFail[2]) : 0;
+    return { total: passed + failed, passed, failed };
+  }
+
+  // jest/vitest: "Tests:  2 passed, 1 failed, 3 total"
+  const jestMatch = output.match(/Tests:\s+(\d+)\s+passed,\s+(\d+)\s+failed,\s+(\d+)\s+total/);
+  if (jestMatch) {
+    return { total: parseInt(jestMatch[3]), passed: parseInt(jestMatch[1]), failed: parseInt(jestMatch[2]) };
+  }
+
+  // TAP: "# pass  5" + "# fail  2"
+  const tapPass = output.match(/#\s*pass\s+(\d+)/);
+  const tapFail = output.match(/#\s*fail\s+(\d+)/);
+  if (tapPass) {
+    const passed = parseInt(tapPass[1]);
+    const failed = tapFail ? parseInt(tapFail[1]) : 0;
+    return { total: passed + failed, passed, failed };
+  }
+
+  return { total: 0, passed: 0, failed: 0 };
 }
 
 /**
@@ -137,6 +198,65 @@ function copyTestFiles(srcBase, srcDir, dstBase) {
       } catch (_) {}
     }
   }
+}
+
+/**
+ * Run a command, capture output, optionally pipe to log file.
+ * @returns {Promise<{exitCode: number, output: string}>}
+ */
+function runCommandWithOutput(cmd, args, cwd, logFile, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let outStream = null;
+    if (logFile && logFile !== '/dev/null') {
+      try { outStream = fs.createWriteStream(logFile, { flags: 'a' }); } catch (_) {}
+    }
+
+    const child = spawn(cmd, args, {
+      cwd,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let output = '';
+    child.stdout.on('data', d => {
+      output += d;
+      if (outStream) outStream.write(d);
+    });
+    child.stderr.on('data', d => {
+      output += d;
+      if (outStream) outStream.write(d);
+    });
+
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      if (outStream) outStream.end();
+      err.exitCode = 1;
+      err.output = output;
+      reject(err);
+    });
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (outStream) outStream.end();
+      const exitCode = code != null ? code : 1;
+      if (timedOut) {
+        const err = new Error(`Command timed out after ${timeoutMs}ms`);
+        err.exitCode = 124;
+        err.output = output;
+        return reject(err);
+      }
+      if (exitCode !== 0) {
+        const err = new Error(`Command exited with code ${exitCode}`);
+        err.exitCode = exitCode;
+        err.output = output;
+        return reject(err);
+      }
+      resolve({ exitCode, output });
+    });
+  });
 }
 
 /**

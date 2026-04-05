@@ -162,7 +162,11 @@ function processSubmission(sub) {
     tests_passed:       sub.tests_passed ? 1 : 0,
     time_seconds:       sub.time_seconds || 0,
     agent_time_seconds: sub.agent_time_seconds || 0,
+    test_time_seconds:  sub.test_time_seconds || 0,
     diff_lines:         sub.diff_lines || 0,
+    tests_total:        sub.tests_total || 0,
+    tests_ok:           sub.tests_ok || 0,
+    tests_failed:       sub.tests_failed || 0,
     tampered:           sub.tampered ? 1 : 0,
     transcript_path:    sub.log_file || null,
     created_at:         sub.finished_at || new Date().toISOString(),
@@ -219,11 +223,17 @@ function processSubmission(sub) {
     } else if (myPassed < oppPassed) {
       myScore = 0;
     } else if (myPassed === 1) {
+      // Both passed all tests — faster wins
       if (sub.time_seconds < oSub.time_seconds)       myScore = 1;
       else if (sub.time_seconds > oSub.time_seconds)  myScore = 0;
       else                                             myScore = 0.5;
     } else {
-      myScore = 0.5; // both failed
+      // Both failed — compare test pass counts for partial credit
+      const myOk  = sub.tests_ok || 0;
+      const oppOk = oSub.tests_ok || 0;
+      if (myOk > oppOk)       myScore = 1;   // more tests passing = win
+      else if (myOk < oppOk)  myScore = 0;
+      else                    myScore = 0.5;  // same number of tests = draw
     }
 
     games.push({ opponentRating: oppRating.rating, opponentRd: oppRating.rd, score: myScore });
@@ -328,6 +338,9 @@ async function handleRequest(req, res) {
         time: fmtTime(s.agent_time_seconds || s.time_seconds),
         test_time: fmtTime(s.test_time_seconds || 0),
         diff_lines: s.diff_lines,
+        tests_ok: s.tests_ok || 0,
+        tests_total: s.tests_total || 0,
+        tests_failed: s.tests_failed || 0,
         agent_name: agent ? `${agent.harness}-${agent.model.replace(/-/g, '')}` : s.model,
         created_at: s.created_at,
       };
