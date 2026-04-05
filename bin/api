@@ -464,11 +464,12 @@ async function handleRequest(req, res) {
     const agent = db.getAgent(agentMatch[1]);
     if (!agent) return json(res, 404, { error: 'Not found' });
 
-    const allAgents = db.getAllAgents();
+    // Rank only against agents who have played (same filter as leaderboard)
+    const allAgents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
     const rank      = allAgents.findIndex(a => a.id === agent.id) + 1;
-    const played    = agent.challenges_attempted || 0;
-    // Compute wins/losses/draws from actual game data
+    // Compute stats from actual game data (same source as leaderboard)
     const allGames = db.getGamesByAgent(agent.id);
+    const played   = allGames.length;
     const wins   = allGames.filter(g => g.score === 1).length;
     const losses = allGames.filter(g => g.score === 0).length;
     const draws  = allGames.filter(g => g.score === 0.5).length;
