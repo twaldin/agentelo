@@ -1,0 +1,342 @@
+#!/usr/bin/env node
+'use strict';
+
+const http = require('http');
+const fs   = require('fs');
+const path = require('path');
+const db   = require('../core/db');
+const { updateRating, defaultRating } = require('../core/glicko2');
+
+const PORT       = process.env.PORT || 4000;
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function json(res, status, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(data)); }
+      catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function diffLabel(row) {
+  const lines = row.difficulty_lines || 0;
+  if (lines <= 20)  return 'easy';
+  if (lines <= 80)  return 'medium';
+  if (lines <= 200) return 'hard';
+  return 'expert';
+}
+
+function modelFamily(model) {
+  if (!model) return 'other';
+  const m = model.toLowerCase();
+  if (m.includes('claude'))  return 'claude';
+  if (m.includes('gpt') || m.includes('o1') || m.includes('o3')) return 'gpt';
+  return 'local';
+}
+
+function fmtTime(secs) {
+  if (!secs) return '—';
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function detectLang(repo) {
+  if (!repo) return 'unknown';
+  const r = repo.toLowerCase();
+  if (r.includes('django') || r.includes('flask') || r.includes('fastapi') || r.includes('python')) return 'python';
+  if (r.includes('angular') || r.includes('react') || r.includes('next') || r.includes('vue') || r.includes('svelte')) return 'typescript';
+  if (r.includes('golang') || r.includes('/go') || r.includes('tokio') || r.includes('rust')) return 'rust';
+  return 'javascript';
+}
+
+function buildChallengeEntry(row, stats) {
+  const s = stats || { total: 0, wins: 0, avg_time: 0 };
+  return {
+    id:           row.id,
+    repo:         row.repo.replace('https://github.com/', ''),
+    title:        row.title || row.id,
+    diff:         diffLabel(row),
+    lang:         detectLang(row.repo),
+    sr:           s.total > 0 ? s.wins / s.total : 0,
+    att:          s.total || 0,
+    avgt:         fmtTime(s.avg_time),
+    test_command: row.test_command,
+    created_at:   row.created_at,
+  };
+}
+
+function buildAgentEntry(r, rank) {
+  const hist = (r.rating_history || []).slice(-10);
+  const d7 = hist.length >= 2
+    ? Math.round(r.rating - hist[Math.max(0, hist.length - 8)].r)
+    : 0;
+
+  const subs = db.getSubmissionsByAgent(r.agent_hash).slice(0, 3);
+  const recent = subs.map(s => {
+    const ch = db.getChallenge(s.challenge_id);
+    return {
+      n:  ch ? ch.repo.replace('https://github.com/', '').split('/')[1] + '/' + s.challenge_id : s.challenge_id,
+      st: s.tests_passed ? 'pass' : 'fail',
+      sc: s.tests_passed ? '✓' : '✗',
+      t:  fmtTime(s.time_seconds),
+    };
+  });
+
+  const cfgl = [
+    { k: 'harness', v: r.harness },
+    { k: 'model',   v: r.model },
+  ];
+  if ((r.config_files || []).length > 0) {
+    cfgl.push({ k: 'config', v: `${r.config_files.length} file(s)` });
+  } else {
+    cfgl.push({ k: 'config', v: 'baseline (no config)' });
+  }
+
+  return {
+    id:      r.agent_hash,
+    rank,
+    name:    `${r.harness}-${r.model.replace('claude-', '').replace(/-/g, '')}`,
+    harness: r.harness,
+    model:   r.model,
+    mf:      modelFamily(r.model),
+    cfg:     (r.config_files || []).length > 0 ? `${r.config_files.length} config file(s)` : 'baseline',
+    elo:     Math.round(r.rating),
+    d7,
+    wr:      r.challenges_attempted > 0 ? r.wins / r.challenges_attempted : 0,
+    played:  r.challenges_attempted,
+    rd:      Math.round(r.rd),
+    hash:    r.agent_hash.slice(0, 4) + '…' + r.agent_hash.slice(-4),
+    hist:    hist.map(h => Math.round(h.r)),
+    cfgl,
+    recent,
+  };
+}
+
+// ── processSubmission ─────────────────────────────────────────────────────────
+
+function processSubmission(sub) {
+  if (!db.getChallenge(sub.challenge_id)) {
+    db.upsertChallenge({
+      id:         sub.challenge_id,
+      repo:       sub.repo || '',
+      title:      sub.challenge_id,
+      difficulty: { filesChanged: 0, linesAdded: 0 },
+    });
+  }
+
+  db.insertSubmission({
+    run_id:          sub.run_id,
+    challenge_id:    sub.challenge_id,
+    agent_hash:      sub.agent_hash,
+    harness:         sub.harness,
+    model:           sub.model,
+    tests_passed:    sub.tests_passed ? 1 : 0,
+    time_seconds:    sub.time_seconds || 0,
+    diff_lines:      sub.diff_lines || 0,
+    tampered:        sub.tampered ? 1 : 0,
+    transcript_path: sub.log_file || null,
+    created_at:      sub.finished_at || new Date().toISOString(),
+  });
+
+  let myRating = db.getRating(sub.agent_hash);
+  if (!myRating) {
+    myRating = {
+      agent_hash:           sub.agent_hash,
+      harness:              sub.harness,
+      model:                sub.model,
+      ...defaultRating(),
+      challenges_attempted: 0,
+      wins:                 0,
+      rating_history:       [],
+      config_files:         sub.config_files || [],
+    };
+  }
+
+  const others = db.getSubmissionsByChallenge(sub.challenge_id)
+    .filter(s => s.run_id !== sub.run_id && s.agent_hash !== sub.agent_hash);
+
+  if (others.length === 0) {
+    myRating.challenges_attempted += 1;
+    myRating.rating_history.push({ r: myRating.rating, ts: new Date().toISOString() });
+    db.upsertRating(myRating);
+    return;
+  }
+
+  const games = [];
+  const opponentUpdates = [];
+
+  for (const oSub of others) {
+    let oppRating = db.getRating(oSub.agent_hash);
+    if (!oppRating) {
+      oppRating = {
+        agent_hash:           oSub.agent_hash,
+        harness:              oSub.harness,
+        model:                oSub.model,
+        ...defaultRating(),
+        challenges_attempted: 1,
+        wins:                 oSub.tests_passed ? 1 : 0,
+        rating_history:       [],
+        config_files:         [],
+      };
+    }
+
+    let myScore;
+    const myPassed  = sub.tests_passed ? 1 : 0;
+    const oppPassed = oSub.tests_passed ? 1 : 0;
+
+    if (myPassed > oppPassed) {
+      myScore = 1;
+    } else if (myPassed < oppPassed) {
+      myScore = 0;
+    } else if (myPassed === 1) {
+      if (sub.time_seconds < oSub.time_seconds)       myScore = 1;
+      else if (sub.time_seconds > oSub.time_seconds)  myScore = 0;
+      else                                             myScore = 0.5;
+    } else {
+      myScore = 0.5; // both failed
+    }
+
+    games.push({ opponentRating: oppRating.rating, opponentRd: oppRating.rd, score: myScore });
+    opponentUpdates.push({ oppRating, myScore });
+  }
+
+  const myNew  = updateRating({ rating: myRating.rating, rd: myRating.rd, volatility: myRating.volatility }, games);
+  const myWins = games.filter(g => g.score === 1).length;
+  myRating.rating     = myNew.rating;
+  myRating.rd         = myNew.rd;
+  myRating.volatility = myNew.volatility;
+  myRating.challenges_attempted += 1;
+  myRating.wins       += myWins;
+  myRating.rating_history.push({ r: myNew.rating, ts: new Date().toISOString() });
+  if (myRating.rating_history.length > 50) myRating.rating_history = myRating.rating_history.slice(-50);
+  db.upsertRating(myRating);
+
+  for (const { oppRating, myScore } of opponentUpdates) {
+    const oppScore = myScore === 1 ? 0 : myScore === 0 ? 1 : 0.5;
+    const oppNew = updateRating(
+      { rating: oppRating.rating, rd: oppRating.rd, volatility: oppRating.volatility },
+      [{ opponentRating: myRating.rating, opponentRd: myRating.rd, score: oppScore }]
+    );
+    oppRating.rating     = oppNew.rating;
+    oppRating.rd         = oppNew.rd;
+    oppRating.volatility = oppNew.volatility;
+    if (oppScore === 1) oppRating.wins += 1;
+    oppRating.rating_history.push({ r: oppNew.rating, ts: new Date().toISOString() });
+    if (oppRating.rating_history.length > 50) oppRating.rating_history = oppRating.rating_history.slice(-50);
+    db.upsertRating(oppRating);
+  }
+}
+
+// ── router ────────────────────────────────────────────────────────────────────
+
+async function handleRequest(req, res) {
+  const url      = new URL(req.url, `http://localhost:${PORT}`);
+  const pathname = url.pathname;
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin':  '*',
+      'Access-Control-Allow-Methods': 'GET,POST',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    return res.end();
+  }
+
+  // Frontend
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+    const htmlPath = path.join(PUBLIC_DIR, 'index.html');
+    if (fs.existsSync(htmlPath)) {
+      const html = fs.readFileSync(htmlPath);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    }
+    return json(res, 404, { error: 'Frontend not found' });
+  }
+
+  // GET /api/challenges/recommended  (must come before /:id)
+  if (req.method === 'GET' && pathname === '/api/challenges/recommended') {
+    const challenges = db.getAllChallenges();
+    const counts     = db.getAttemptCounts();
+    const stats      = db.getSolveStats();
+    const sorted     = [...challenges].sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
+    return json(res, 200, sorted.map(ch => buildChallengeEntry(ch, stats[ch.id])));
+  }
+
+  // GET /api/challenges
+  if (req.method === 'GET' && pathname === '/api/challenges') {
+    const challenges = db.getAllChallenges();
+    const stats      = db.getSolveStats();
+    return json(res, 200, challenges.map(ch => buildChallengeEntry(ch, stats[ch.id])));
+  }
+
+  // GET /api/challenges/:id
+  const chMatch = pathname.match(/^\/api\/challenges\/([^/]+)$/);
+  if (req.method === 'GET' && chMatch) {
+    const ch = db.getChallenge(chMatch[1]);
+    if (!ch) return json(res, 404, { error: 'Not found' });
+    const stats = db.getSolveStats();
+    return json(res, 200, buildChallengeEntry(ch, stats[ch.id]));
+  }
+
+  // POST /api/submissions
+  if (req.method === 'POST' && pathname === '/api/submissions') {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+    try {
+      processSubmission(body);
+      return json(res, 201, { ok: true });
+    } catch (e) {
+      console.error('[api] processSubmission error:', e.message);
+      return json(res, 500, { error: e.message });
+    }
+  }
+
+  // GET /api/leaderboard
+  if (req.method === 'GET' && pathname === '/api/leaderboard') {
+    const ratings = db.getAllRatings();
+    return json(res, 200, ratings.map((r, i) => buildAgentEntry(r, i + 1)));
+  }
+
+  // GET /api/agents/:hash
+  const agentMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (req.method === 'GET' && agentMatch) {
+    const r = db.getRating(agentMatch[1]);
+    if (!r) return json(res, 404, { error: 'Not found' });
+    const ratings = db.getAllRatings();
+    const rank    = ratings.findIndex(x => x.agent_hash === r.agent_hash) + 1;
+    return json(res, 200, buildAgentEntry(r, rank));
+  }
+
+  return json(res, 404, { error: 'Not found' });
+}
+
+// ── server ────────────────────────────────────────────────────────────────────
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch(err => {
+    console.error('[api] unhandled error:', err);
+    try { json(res, 500, { error: 'Internal server error' }); } catch (_) {}
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`[agentelo-api] listening on http://localhost:${PORT}`);
+});
