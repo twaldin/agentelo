@@ -96,6 +96,74 @@ function ensureResultsDir() {
 }
 
 // ---------------------------------------------------------------------------
+// Normalize challenge JSON (miner uses nested structure, runner expects flat)
+// ---------------------------------------------------------------------------
+function normalizeChallenge(raw) {
+  return {
+    id:           raw.id,
+    repo:         raw.repoUrl || raw.repo,
+    commit:       raw.buggyCommit || raw.commit,
+    fixCommit:    raw.fixCommit,
+    fixDiff:      raw.fixDiff,
+    title:        raw.issue?.title || raw.title || raw.id,
+    body:         raw.issue?.body  || raw.body  || '',
+    test_command: raw.testCommand  || raw.test_command || 'npm test',
+    difficulty:   raw.difficulty,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST result to API (non-blocking, non-fatal)
+// ---------------------------------------------------------------------------
+async function postToApi(result) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(result);
+    const options = {
+      hostname: 'localhost',
+      port: 4000,
+      path: '/api/submissions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+    const req = require('http').request(options, (res) => {
+      res.resume();
+      res.on('end', () => resolve());
+    });
+    req.on('error', () => resolve());
+    req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    req.write(body);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fetch recommended challenges from API (sorted by attempt count)
+// ---------------------------------------------------------------------------
+async function fetchRecommendedChallenges() {
+  return new Promise((resolve) => {
+    const req = require('http').request({
+      hostname: 'localhost',
+      port: 4000,
+      path: '/api/challenges/recommended',
+      method: 'GET',
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Shared play/seed logic
 // ---------------------------------------------------------------------------
 async function runAgentPlay(flags, { isBaseline = false } = {}) {
@@ -110,29 +178,40 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
   }
 
   // Load challenge
-  const challengeFiles = fs.existsSync(CHALLENGES_DIR)
-    ? fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json'))
-    : [];
-
-  if (challengeFiles.length === 0) {
-    console.log("[agentelo] No challenges found in challenges/. Run 'agentelo mine' to fetch some.");
-    process.exit(1);
-  }
-
-  let challengeFile;
+  let challenge;
   if (challengeId) {
-    challengeFile = path.join(CHALLENGES_DIR, `${challengeId}.json`);
+    const challengeFile = path.join(CHALLENGES_DIR, `${challengeId}.json`);
     if (!fs.existsSync(challengeFile)) {
       console.error(`[agentelo] Challenge not found: ${challengeId}`);
       process.exit(1);
     }
+    challenge = normalizeChallenge(JSON.parse(fs.readFileSync(challengeFile, 'utf8')));
   } else {
-    const idx = Math.floor(Math.random() * challengeFiles.length);
-    challengeFile = path.join(CHALLENGES_DIR, challengeFiles[idx]);
+    // Prefer challenges with most existing attempts (better ELO signal)
+    let selected = null;
+    const recommended = await fetchRecommendedChallenges();
+    if (recommended && recommended.length > 0) {
+      const pool = recommended.slice(0, 10);
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      const challengeFile = path.join(CHALLENGES_DIR, `${picked.id}.json`);
+      if (fs.existsSync(challengeFile)) {
+        selected = normalizeChallenge(JSON.parse(fs.readFileSync(challengeFile, 'utf8')));
+      }
+    }
+    if (!selected) {
+      const challengeFiles = fs.existsSync(CHALLENGES_DIR)
+        ? fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json'))
+        : [];
+      if (challengeFiles.length === 0) {
+        console.log("[agentelo] No challenges found in challenges/. Run 'agentelo mine' to fetch some.");
+        process.exit(1);
+      }
+      const idx = Math.floor(Math.random() * challengeFiles.length);
+      selected = normalizeChallenge(JSON.parse(fs.readFileSync(path.join(CHALLENGES_DIR, challengeFiles[idx]), 'utf8')));
+    }
+    challenge = selected;
   }
-
-  const challenge = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
-  console.log(`[agentelo] Challenge: ${challenge.id} — ${challenge.title}`);
+  console.log(`[agentelo] Challenge: ${challenge.id} — ${challenge.title?.slice(0, 60)}`);
 
   ensureResultsDir();
 
@@ -162,10 +241,27 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
 
   try {
     console.log(`[agentelo] Cloning ${challenge.repo} @ ${challenge.commit}...`);
-    execFileSync('git', ['clone', challenge.repo, tmpdir], { stdio: 'inherit' });
+    execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, tmpdir], { stdio: 'inherit' });
     execFileSync('git', ['checkout', challenge.commit], { cwd: tmpdir, stdio: 'inherit' });
 
-    // Anti-cheat: checksum BEFORE
+    // Install dependencies before agent starts
+    console.log('[agentelo] Installing dependencies...');
+    try {
+      if (fs.existsSync(path.join(tmpdir, 'package.json'))) {
+        execFileSync('npm', ['install', '--ignore-scripts'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
+      } else if (fs.existsSync(path.join(tmpdir, 'requirements.txt'))) {
+        execFileSync('pip', ['install', '-r', 'requirements.txt'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
+      } else if (fs.existsSync(path.join(tmpdir, 'pyproject.toml'))) {
+        execFileSync('pip', ['install', '-e', '.'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
+      } else if (fs.existsSync(path.join(tmpdir, 'go.mod'))) {
+        execFileSync('go', ['mod', 'download'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
+      }
+      console.log('[agentelo] Dependencies installed.');
+    } catch (e) {
+      console.warn('[agentelo] Warning: dependency install failed:', e.message?.slice(0, 100));
+    }
+
+    // Anti-cheat: checksum BEFORE (after deps install so node_modules isn't flagged)
     const beforeChecksums = checksumDir(tmpdir);
 
     // Build prompt
@@ -176,126 +272,77 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       `Issue: ${challenge.title}\n${challenge.body}\n\n` +
       `The repo is in your current working directory. Run tests with: ${challenge.test_command}.`;
 
-    const useTmux = hasTmux();
-    if (!useTmux) {
-      console.warn('[agentelo] Warning: tmux not available. Live viewer will be skipped.');
-    }
-
     const startedAt = new Date().toISOString();
 
-    // Spawn agent via openfleet
-    const spawnCmd = `/Users/twaldin/openfleet/bin/spawn`;
-    console.log(`[agentelo] Spawning agent via openfleet...`);
-
-    const spawnEnv = isBaseline
-      ? { ...process.env, HOME: (() => { fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-home-')); return fakeHome; })() }
-      : undefined;
-
-    execFileSync('node', [
-      spawnCmd,
-      runId,
-      '--harness', harness,
-      '--model', model,
-      '--dir', tmpdir,
-      '--bootstrap', prompt,
-    ], {
-      stdio: 'inherit',
-      ...(spawnEnv ? { env: spawnEnv } : {}),
-    });
-
-    console.log(`[agentelo] Spawned ${harness} agent. Live log: results/${runId}.log`);
-
-    // Start pipe-pane to capture output (BUG 1 fix: wrap logFile in single quotes)
-    if (useTmux) {
-      const safePipePaneCmd = `cat >> '${logFile}'`;
-      const safeTailCmd = `tail -f '${logFile}'`;
-
-      try {
-        execFileSync('tmux', [
-          'pipe-pane', '-t', `openfleet:${runId}`, '-O',
-          safePipePaneCmd,
-        ], { stdio: 'pipe' });
-      } catch (err) {
-        console.warn('[agentelo] Warning: could not start pipe-pane:', err.message);
-      }
-
-      // Open viewer window
-      try {
-        execFileSync('tmux', [
-          'new-window', '-t', 'openfleet', '-n', `${runId}-view`,
-          safeTailCmd,
-        ], { stdio: 'pipe' });
-        console.log(`[agentelo] Watching in tmux window: openfleet:${runId}-view`);
-      } catch (err) {
-        console.warn('[agentelo] Warning: could not open viewer window:', err.message);
-      }
+    // Build harness command — direct subprocess, no OpenFleet
+    let cmd, cmdArgs;
+    switch (harness) {
+      case 'claude-code':
+        cmd = 'claude';
+        // Don't use --bare for baselines — need keychain auth. Fake HOME hides user configs.
+        cmdArgs = ['-p', prompt, '--dangerously-skip-permissions', '--model', model];
+        break;
+      case 'opencode':
+        cmd = 'opencode';
+        cmdArgs = ['run', '--dir', tmpdir, '--model', model, prompt];
+        break;
+      case 'codex':
+        cmd = 'codex';
+        cmdArgs = ['-m', model, '--full-auto', prompt];
+        break;
+      default:
+        throw new Error(`Unsupported harness: ${harness}`);
     }
 
-    // Wait for completion — poll every 5s, detect done by 60s inactivity
-    const HARD_TIMEOUT_MS = 30 * 60 * 1000;
-    const INACTIVITY_THRESHOLD_MS = 60 * 1000;
-    const POLL_INTERVAL_MS = 5 * 1000;
+    // Set up environment
+    const runEnv = { ...process.env };
+    // NOTE: not overriding HOME — all harnesses need auth from user's home dir.
+    // Baseline isolation comes from the clean workdir (no .claude/, .opencode/, etc)
 
-    const startMs = Date.now();
-    let lastSize = -1;
-    let lastChangeMs = Date.now();
+    console.log(`[agentelo] Running: ${cmd} ${cmdArgs[0]}... (stdin closed, 30min timeout)`);
+    console.log(`[agentelo] Log: ${logFile}`);
+
+    // Run as subprocess — stdin closed, stdout/stderr captured to log
+    const logStream = fs.createWriteStream(logFile);
     let timedOut = false;
 
-    console.log('[agentelo] Waiting for agent to complete...');
-
-    await new Promise(resolve => {
-      const poll = () => {
+    const startMs = Date.now();
+    await new Promise((resolve) => {
+      const child = require('child_process').spawn(cmd, cmdArgs, {
+        cwd: tmpdir,
+        env: runEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],  // stdin=pipe (we close it), stdout+stderr=pipe
+        timeout: 30 * 60 * 1000,
+      });
+      // Close stdin immediately — no human input
+      child.stdin.end();
+      // Capture output
+      child.stdout.pipe(logStream);
+      child.stderr.pipe(logStream);
+      child.stdout.pipe(process.stdout);
+      child.stderr.pipe(process.stderr);
+      // Timeout
+      const timer = setTimeout(() => {
+        timedOut = true;
+        console.log('\n[agentelo] Timeout (30 min). Killing agent.');
+        child.kill('SIGTERM');
+        setTimeout(() => child.kill('SIGKILL'), 5000);
+      }, 30 * 60 * 1000);
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        logStream.end();
         const elapsed = Math.round((Date.now() - startMs) / 1000);
-        process.stdout.write(`\r[agentelo] Running... ${elapsed}s`);
-
-        // Check hard timeout
-        if (Date.now() - startMs >= HARD_TIMEOUT_MS) {
-          process.stdout.write('\n');
-          console.log('[agentelo] Hard timeout reached (30 min). Killing agent window.');
-          timedOut = true;
-          if (useTmux) {
-            try {
-              execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}`], { stdio: 'pipe' });
-            } catch (_) {}
-          }
-          resolve();
-          return;
-        }
-
-        // Check log file size
-        let currentSize = 0;
-        try {
-          currentSize = fs.statSync(logFile).size;
-        } catch (_) {}
-
-        if (currentSize !== lastSize) {
-          lastSize = currentSize;
-          lastChangeMs = Date.now();
-        // BUG 6 fix: only check inactivity when tmux is available (log file is being written)
-        } else if (useTmux && Date.now() - lastChangeMs >= INACTIVITY_THRESHOLD_MS) {
-          process.stdout.write('\n');
-          console.log('[agentelo] Agent appears done (60s inactivity).');
-          resolve();
-          return;
-        }
-
-        setTimeout(poll, POLL_INTERVAL_MS);
-      };
-      setTimeout(poll, POLL_INTERVAL_MS);
+        console.log(`\n[agentelo] Agent exited (code ${code}) after ${elapsed}s`);
+        resolve();
+      });
     });
 
     const finishedAt = new Date().toISOString();
 
-    // Stop pipe-pane
-    if (useTmux) {
-      try {
-        execFileSync('tmux', ['pipe-pane', '-t', `openfleet:${runId}`], { stdio: 'pipe' });
-      } catch (_) {}
-      // Kill viewer window
-      try {
-        execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}-view`], { stdio: 'pipe' });
-      } catch (_) {}
-    }
+    // Clean up tmux viewer if any
+    try {
+      execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}-view`], { stdio: 'pipe' });
+    } catch (_) {}
 
     // Anti-cheat: checksum AFTER
     const afterChecksums = checksumDir(tmpdir);
@@ -331,10 +378,18 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     // Clone a clean copy for scoring
     cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
     try {
-      execFileSync('git', ['clone', challenge.repo, cleanDir], { stdio: 'pipe' });
+      execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, cleanDir], { stdio: 'pipe' });
       execFileSync('git', ['checkout', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+      // Install deps for scoring too
+      if (fs.existsSync(path.join(cleanDir, 'package.json'))) {
+        execFileSync('npm', ['install', '--ignore-scripts'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
+      } else if (fs.existsSync(path.join(cleanDir, 'requirements.txt'))) {
+        execFileSync('pip', ['install', '-r', 'requirements.txt'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
+      } else if (fs.existsSync(path.join(cleanDir, 'go.mod'))) {
+        execFileSync('go', ['mod', 'download'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
+      }
     } catch (err) {
-      console.error('[agentelo] Failed to clone clean repo for scoring:', err.message);
+      console.error('[agentelo] Failed to clone/install clean repo for scoring:', err.message);
     }
 
     // Score
@@ -400,6 +455,9 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     if (isBaseline) {
       console.log(`Baseline: true (HOME isolated to ${fakeHome})`);
     }
+
+    // Post to API (non-blocking, best-effort — silently skip if API not running)
+    await postToApi(result);
 
   } finally {
     // BUG 2 fix: always clean up temp dirs
