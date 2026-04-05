@@ -226,11 +226,13 @@ async function processSubmission(body) {
       else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
       else                                                                        myScore = 0.5;
     } else {
-      // Both failed — more tests passing = win
+      // Both failed — more tests passing = win, then faster wins
       const myOk  = body.tests_ok || 0;
       const oppOk = oSub.tests_ok || 0;
       if (myOk > oppOk)      myScore = 1;
       else if (myOk < oppOk) myScore = 0;
+      else if (myOk > 0 && (body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0)) myScore = 1;
+      else if (myOk > 0 && (body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
       else                   myScore = 0.5;
     }
 
