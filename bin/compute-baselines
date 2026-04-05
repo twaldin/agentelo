@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+'use strict';
+
+// Compute baseline test counts for each challenge:
+// 1. Run tests on buggy commit with fix-PR test files → baseline_passing
+// 2. Run tests on fix commit → fix_passing
+// 3. broken_by_bug = fix_passing - baseline_passing
+// Stores results in challenges/*.json and prints summary
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync, execSync } = require('child_process');
+const os = require('os');
+
+const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'repos');
+
+function parseTestCounts(output) {
+  // node --test / borp
+  const nodePass = output.match(/pass\s+(\d+)/);
+  const nodeTotal = output.match(/tests\s+(\d+)/);
+  if (nodePass && nodeTotal) return { pass: parseInt(nodePass[1]), total: parseInt(nodeTotal[1]) };
+
+  // pytest
+  const pytest = output.match(/(\d+)\s+passed/);
+  if (pytest) return { pass: parseInt(pytest[1]), total: parseInt(pytest[1]) };
+
+  // vitest
+  const vitest = output.match(/(\d+)\s+passed.*\((\d+)\)/);
+  if (vitest) return { pass: parseInt(vitest[1]), total: parseInt(vitest[2]) };
+
+  return { pass: 0, total: 0 };
+}
+
+function installDeps(dir) {
+  try {
+    if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
+      execFileSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      execFileSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    }
+  } catch (_) {}
+}
+
+function runTests(dir, testCommand) {
+  try {
+    // For npm test that includes lint, just run unit tests
+    let cmd = testCommand;
+    if (cmd === 'npm test') {
+      // Check if npm run unit exists
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        if (pkg.scripts && pkg.scripts.unit) cmd = 'npm run unit';
+      } catch (_) {}
+    }
+    const output = execSync(cmd, { cwd: dir, stdio: 'pipe', timeout: 600000, encoding: 'utf8' });
+    return output;
+  } catch (err) {
+    return (err.stdout || '') + (err.stderr || '');
+  }
+}
+
+function copyTestFiles(srcDir, dstDir) {
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(srcDir, full);
+      if (entry.isDirectory()) {
+        if (entry.name === '.git' || entry.name === 'node_modules') continue;
+        walk(full);
+      } else if (entry.isFile()) {
+        const p = rel.toLowerCase();
+        if (p.includes('/test/') || p.includes('/tests/') || p.includes('.test.') || p.includes('.spec.')) {
+          const dst = path.join(dstDir, rel);
+          try {
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(full, dst);
+          } catch (_) {}
+        }
+      }
+    }
+  }
+  walk(srcDir);
+}
+
+const challenges = fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json'));
+console.log(`Computing baselines for ${challenges.length} challenges...`);
+
+let good = 0, bad = 0, skipped = 0;
+
+for (const file of challenges) {
+  const cPath = path.join(CHALLENGES_DIR, file);
+  const c = JSON.parse(fs.readFileSync(cPath, 'utf8'));
+  const name = file.replace('.json', '');
+
+  // Skip non-testable
+  if (!c.testCommand || c.testCommand === 'cargo test' || name.startsWith('ui-') || name.startsWith('jq-')) {
+    skipped++;
+    continue;
+  }
+
+  const repoSlug = (c.repoUrl || c.repo || '').replace('https://github.com/', '').replace(/\//g, '-');
+  const cacheDir = path.join(CACHE_DIR, repoSlug);
+  if (!fs.existsSync(path.join(cacheDir, '.git'))) {
+    console.log(`  SKIP ${name} — no cache for ${repoSlug}`);
+    skipped++;
+    continue;
+  }
+
+  const buggyCommit = c.buggyCommit || c.commit;
+  const fixCommit = c.fixCommit;
+  if (!buggyCommit || !fixCommit) {
+    console.log(`  SKIP ${name} — missing commits`);
+    skipped++;
+    continue;
+  }
+
+  console.log(`  ${name}...`);
+
+  try {
+    // Setup buggy commit with fix-PR tests
+    const tmpBuggy = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-buggy-'));
+    const tmpFix = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-fix-'));
+
+    // Buggy commit
+    execFileSync('cp', ['-r', cacheDir + '/', tmpBuggy + '/'], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', buggyCommit], { cwd: tmpBuggy, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: tmpBuggy, stdio: 'pipe' });
+    installDeps(tmpBuggy);
+
+    // Inject fix-commit test files
+    const tmpFixSrc = fs.mkdtempSync(path.join(os.tmpdir(), 'baseline-fixsrc-'));
+    execFileSync('cp', ['-r', path.join(cacheDir, '.git'), path.join(tmpFixSrc, '.git')], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', fixCommit], { cwd: tmpFixSrc, stdio: 'pipe' });
+    copyTestFiles(tmpFixSrc, tmpBuggy);
+
+    // Run tests on buggy
+    const buggyOutput = runTests(tmpBuggy, c.testCommand);
+    const buggyResult = parseTestCounts(buggyOutput);
+
+    // Fix commit
+    execFileSync('cp', ['-r', cacheDir + '/', tmpFix + '/'], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', fixCommit], { cwd: tmpFix, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: tmpFix, stdio: 'pipe' });
+    installDeps(tmpFix);
+    const fixOutput = runTests(tmpFix, c.testCommand);
+    const fixResult = parseTestCounts(fixOutput);
+
+    const brokenByBug = fixResult.pass - buggyResult.pass;
+
+    // Store on challenge
+    c.baseline_passing = buggyResult.pass;
+    c.baseline_total = buggyResult.total;
+    c.fix_passing = fixResult.pass;
+    c.fix_total = fixResult.total;
+    c.broken_by_bug = brokenByBug;
+    fs.writeFileSync(cPath, JSON.stringify(c, null, 2));
+
+    const status = brokenByBug > 0 ? '✓' : '✗';
+    console.log(`    ${status} buggy=${buggyResult.pass}/${buggyResult.total} fix=${fixResult.pass}/${fixResult.total} broken=${brokenByBug}`);
+
+    if (brokenByBug > 0) good++;
+    else bad++;
+
+    // Cleanup
+    try { fs.rmSync(tmpBuggy, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(tmpFix, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(tmpFixSrc, { recursive: true, force: true }); } catch (_) {}
+  } catch (err) {
+    console.log(`    ERROR: ${err.message?.slice(0, 100)}`);
+    skipped++;
+  }
+}
+
+console.log(`\nDone. Good: ${good}, Bad (0 broken): ${bad}, Skipped: ${skipped}`);
