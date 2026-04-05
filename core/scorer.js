@@ -39,6 +39,11 @@ async function score(diff, repoDir, challenge, logFile) {
     try { fs.unlinkSync(tmpPatch); } catch (_) {}
   }
 
+  // Inject fix-commit test files so we score against the PR's test suite
+  if (challenge.fixCommit && challenge.repo) {
+    await injectFixTests(repoDir, challenge);
+  }
+
   // Resolve log file destination
   const resolvedLog = logFile || '/dev/null';
 
@@ -63,6 +68,56 @@ async function score(diff, repoDir, challenge, logFile) {
     exit_code: exitCode,
     diff_lines: diffLines,
   };
+}
+
+/**
+ * Clone the fix commit and copy test files into the agent's working dir.
+ * Non-fatal: if anything fails, scoring falls back to the existing tests.
+ */
+async function injectFixTests(repoDir, challenge) {
+  const { execFileSync } = require('child_process');
+  const fixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-fix-'));
+  try {
+    execFileSync('git', ['clone', '--quiet', challenge.repo, fixDir], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '--quiet', challenge.fixCommit], { cwd: fixDir, stdio: 'pipe' });
+    copyTestFiles(fixDir, fixDir, repoDir);
+  } catch (err) {
+    console.warn('[scorer] Warning: could not inject fix-commit tests:', err.message);
+  } finally {
+    try { fs.rmSync(fixDir, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+function isTestFile(relPath) {
+  const p = relPath.toLowerCase().replace(/\\/g, '/');
+  return (
+    p.includes('/test/')   || p.includes('/tests/') ||
+    p.includes('/spec/')   || p.includes('/specs/') ||
+    p.includes('.test.')   || p.includes('.spec.')  ||
+    p.endsWith('.test.js') || p.endsWith('.spec.js') ||
+    p.endsWith('.test.ts') || p.endsWith('.spec.ts') ||
+    p.endsWith('_test.go') || p.endsWith('_test.rs')
+  );
+}
+
+function copyTestFiles(srcBase, srcDir, dstBase) {
+  let entries;
+  try { entries = fs.readdirSync(srcDir, { withFileTypes: true }); }
+  catch (_) { return; }
+  for (const entry of entries) {
+    const srcFull = path.join(srcDir, entry.name);
+    const rel     = path.relative(srcBase, srcFull);
+    const dstFull = path.join(dstBase, rel);
+    if (entry.isDirectory()) {
+      if (entry.name === '.git') continue;
+      copyTestFiles(srcBase, srcFull, dstBase);
+    } else if (entry.isFile() && isTestFile(rel)) {
+      try {
+        fs.mkdirSync(path.dirname(dstFull), { recursive: true });
+        fs.copyFileSync(srcFull, dstFull);
+      } catch (_) {}
+    }
+  }
 }
 
 /**
