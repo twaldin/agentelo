@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
-const http = require('http');
-const fs   = require('fs');
-const path = require('path');
-const db   = require('../core/db');
+const http   = require('http');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
+const db     = require('../core/db');
 const { updateRating, defaultRating } = require('../core/glicko2');
 
 const PORT       = process.env.PORT || 4000;
@@ -42,14 +43,6 @@ function diffLabel(row) {
   return 'expert';
 }
 
-function modelFamily(model) {
-  if (!model) return 'other';
-  const m = model.toLowerCase();
-  if (m.includes('claude'))  return 'claude';
-  if (m.includes('gpt') || m.includes('o1') || m.includes('o3')) return 'gpt';
-  return 'local';
-}
-
 function fmtTime(secs) {
   if (!secs) return '—';
   const m = Math.floor(secs / 60);
@@ -82,140 +75,141 @@ function buildChallengeEntry(row, stats) {
   };
 }
 
-function buildAgentEntry(r, rank) {
-  const hist = (r.rating_history || []).slice(-10);
-  const d7 = hist.length >= 2
-    ? Math.round(r.rating - hist[Math.max(0, hist.length - 8)].r)
-    : 0;
+function buildAgentEntry(agent, rank, allAgents) {
+  const history  = db.getRatingHistory(agent.id);
+  const hist     = history.slice(-10).map(h => Math.round(h.rating_after));
 
-  const subs = db.getSubmissionsByAgent(r.agent_hash).slice(0, 3);
+  // d7: sum of deltas from games in last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const d7 = history
+    .filter(h => h.created_at >= sevenDaysAgo)
+    .reduce((sum, h) => sum + (h.delta || 0), 0);
+
+  const subs   = db.getSubmissionsByAgent(agent.id).slice(0, 3);
   const recent = subs.map(s => {
     const ch = db.getChallenge(s.challenge_id);
     return {
       n:  ch ? ch.repo.replace('https://github.com/', '').split('/')[1] + '/' + s.challenge_id : s.challenge_id,
       st: s.tests_passed ? 'pass' : 'fail',
       sc: s.tests_passed ? '✓' : '✗',
-      t:  fmtTime(s.time_seconds),
+      t:  fmtTime(s.agent_time_seconds),
     };
   });
 
-  const cfgl = [
-    { k: 'harness', v: r.harness },
-    { k: 'model',   v: r.model },
-  ];
-  if ((r.config_files || []).length > 0) {
-    cfgl.push({ k: 'config', v: `${r.config_files.length} file(s)` });
-  } else {
-    cfgl.push({ k: 'config', v: 'baseline (no config)' });
-  }
+  const played = agent.challenges_attempted || 0;
 
   return {
-    id:      r.agent_hash,
+    id:      agent.id,
     rank,
-    name:    `${r.harness}-${r.model.replace('claude-', '').replace(/-/g, '')}`,
-    harness: r.harness,
-    model:   r.model,
-    mf:      modelFamily(r.model),
-    cfg:     (r.config_files || []).length > 0 ? `${r.config_files.length} config file(s)` : 'baseline',
-    elo:     Math.round(r.rating),
-    d7,
-    wr:      r.challenges_attempted > 0 ? r.wins / r.challenges_attempted : 0,
-    played:  r.challenges_attempted,
-    rd:      Math.round(r.rd),
-    hash:    r.agent_hash.slice(0, 4) + '…' + r.agent_hash.slice(-4),
-    hist:    hist.map(h => Math.round(h.r)),
-    cfgl,
+    name:    agent.id,
+    harness: agent.harness,
+    model:   agent.model,
+    elo:     Math.round(agent.rating),
+    rd:      Math.round(agent.rd),
+    wr:      played > 0 ? agent.wins / played : 0,
+    played,
+    wins:    agent.wins || 0,
+    d7:      Math.round(d7),
+    hist,
+    hash:    agent.current_hash ? agent.current_hash.slice(0, 8) : null,
     recent,
   };
 }
 
 // ── processSubmission ─────────────────────────────────────────────────────────
 
-function processSubmission(sub) {
-  // Try to load challenge data from local file for full metadata
-  const challengeFile = path.join(__dirname, '..', 'challenges', `${sub.challenge_id}.json`);
-  let challengeMeta = null;
-  try { challengeMeta = JSON.parse(fs.readFileSync(challengeFile, 'utf8')); } catch (_) {}
+async function processSubmission(body) {
+  // 1. Authenticate via api_key
+  if (!body.api_key) throw Object.assign(new Error('Missing api_key'), { status: 401 });
+  const agent = db.getAgentByKey(body.api_key);
+  if (!agent) throw Object.assign(new Error('Invalid API key'), { status: 401 });
 
-  const existing = db.getChallenge(sub.challenge_id);
-  if (!existing || !existing.repo) {
-    const repo = sub.repo || (challengeMeta && (challengeMeta.repoUrl || challengeMeta.repo)) || '';
-    const title = (challengeMeta && challengeMeta.issue && challengeMeta.issue.title) || sub.challenge_id;
-    const fixDiff = challengeMeta && challengeMeta.fixDiff || '';
-    const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
-    db.upsertChallenge({
-      id:         sub.challenge_id,
-      repo:       repo,
-      title:      title,
-      difficulty: { filesChanged: 0, linesAdded: diffLines },
-      testCommand: challengeMeta && challengeMeta.testCommand,
-      fixCommit: challengeMeta && challengeMeta.fixCommit,
+  // 2. Track config version changes
+  if (agent.current_hash !== body.agent_hash) {
+    db.insertConfigVersion({
+      agent_id:     agent.id,
+      agent_hash:   body.agent_hash,
+      harness:      body.harness || agent.harness,
+      model:        body.model   || agent.model,
+      config_files: body.config_files || [],
     });
   }
 
-  db.insertSubmission({
-    run_id:             sub.run_id,
-    challenge_id:       sub.challenge_id,
-    agent_hash:         sub.agent_hash,
-    harness:            sub.harness,
-    model:              sub.model,
-    tests_passed:       sub.tests_passed ? 1 : 0,
-    time_seconds:       sub.time_seconds || 0,
-    agent_time_seconds: sub.agent_time_seconds || 0,
-    test_time_seconds:  sub.test_time_seconds || 0,
-    diff_lines:         sub.diff_lines || 0,
-    tests_total:        sub.tests_total || 0,
-    tests_ok:           sub.tests_ok || 0,
-    tests_failed:       sub.tests_failed || 0,
-    tampered:           sub.tampered ? 1 : 0,
-    transcript_path:    sub.log_file || null,
-    created_at:         sub.finished_at || new Date().toISOString(),
-  });
+  // 3. Upsert challenge
+  const challengeFile = path.join(__dirname, '..', 'challenges', `${body.challenge_id}.json`);
+  let challengeMeta = null;
+  try { challengeMeta = JSON.parse(fs.readFileSync(challengeFile, 'utf8')); } catch (_) {}
 
-  let myRating = db.getRating(sub.agent_hash);
-  if (!myRating) {
-    myRating = {
-      agent_hash:           sub.agent_hash,
-      harness:              sub.harness,
-      model:                sub.model,
-      ...defaultRating(),
-      challenges_attempted: 0,
-      wins:                 0,
-      rating_history:       [],
-      config_files:         sub.config_files || [],
-    };
+  const existing = db.getChallenge(body.challenge_id);
+  if (!existing || !existing.repo) {
+    const repo     = body.repo || (challengeMeta && (challengeMeta.repoUrl || challengeMeta.repo)) || '';
+    const title    = (challengeMeta && challengeMeta.issue && challengeMeta.issue.title) || body.challenge_id;
+    const fixDiff  = (challengeMeta && challengeMeta.fixDiff) || '';
+    const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
+    db.upsertChallenge({
+      id:          body.challenge_id,
+      repo,
+      title,
+      difficulty:  { filesChanged: 0, linesAdded: diffLines },
+      testCommand: challengeMeta && challengeMeta.testCommand,
+      fixCommit:   challengeMeta && challengeMeta.fixCommit,
+    });
   }
 
-  const others = db.getSubmissionsByChallenge(sub.challenge_id)
-    .filter(s => s.run_id !== sub.run_id && s.agent_hash !== sub.agent_hash);
+  // 4. Insert submission
+  db.insertSubmission({
+    run_id:             body.run_id,
+    challenge_id:       body.challenge_id,
+    agent_id:           agent.id,
+    agent_hash:         body.agent_hash || '',
+    harness:            body.harness    || agent.harness,
+    model:              body.model      || agent.model,
+    tests_passed:       body.tests_passed ? 1 : 0,
+    tests_total:        body.tests_total  || 0,
+    tests_ok:           body.tests_ok     || 0,
+    tests_failed:       body.tests_failed || 0,
+    agent_time_seconds: body.agent_time_seconds || 0,
+    test_time_seconds:  body.test_time_seconds  || 0,
+    diff_lines:         body.diff_lines  || 0,
+    diff:               body.diff        || '',
+    exit_code:          body.exit_code  != null ? body.exit_code : 1,
+    tampered:           body.tampered   ? 1 : 0,
+    transcript_path:    body.log_file   || null,
+    created_at:         body.finished_at || new Date().toISOString(),
+  });
 
-  if (others.length === 0) {
-    myRating.challenges_attempted += 1;
-    myRating.rating_history.push({ r: myRating.rating, ts: new Date().toISOString() });
-    db.upsertRating(myRating);
+  // 5. Get inserted submission's integer id
+  const mySub = db.getSubmission(body.run_id);
+  if (!mySub) throw new Error('Failed to retrieve inserted submission');
+
+  // 6. Find opponent submissions for same challenge
+  const opponents = db.getSubmissionsByChallenge(body.challenge_id)
+    .filter(s => s.run_id !== body.run_id && s.agent_id !== agent.id);
+
+  if (opponents.length === 0) {
+    // No opponents — just increment challenges_attempted and update hash
+    db.updateAgent({
+      id:                   agent.id,
+      rating:               agent.rating,
+      rd:                   agent.rd,
+      volatility:           agent.volatility,
+      wins:                 agent.wins,
+      challenges_attempted: agent.challenges_attempted + 1,
+      current_hash:         body.agent_hash,
+    });
     return;
   }
 
-  const games = [];
+  // 7. Build games array for Glicko-2 batch update
+  const games           = [];
   const opponentUpdates = [];
 
-  for (const oSub of others) {
-    let oppRating = db.getRating(oSub.agent_hash);
-    if (!oppRating) {
-      oppRating = {
-        agent_hash:           oSub.agent_hash,
-        harness:              oSub.harness,
-        model:                oSub.model,
-        ...defaultRating(),
-        challenges_attempted: 1,
-        wins:                 oSub.tests_passed ? 1 : 0,
-        rating_history:       [],
-        config_files:         [],
-      };
-    }
+  for (const oSub of opponents) {
+    const oppAgent = db.getAgent(oSub.agent_id);
+    if (!oppAgent) continue;
 
     let myScore;
-    const myPassed  = sub.tests_passed ? 1 : 0;
+    const myPassed  = body.tests_passed ? 1 : 0;
     const oppPassed = oSub.tests_passed ? 1 : 0;
 
     if (myPassed > oppPassed) {
@@ -223,48 +217,105 @@ function processSubmission(sub) {
     } else if (myPassed < oppPassed) {
       myScore = 0;
     } else if (myPassed === 1) {
-      // Both passed all tests — faster wins
-      if (sub.time_seconds < oSub.time_seconds)       myScore = 1;
-      else if (sub.time_seconds > oSub.time_seconds)  myScore = 0;
-      else                                             myScore = 0.5;
+      // Both passed — faster wins
+      if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
+      else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
+      else                                                                        myScore = 0.5;
     } else {
-      // Both failed — compare test pass counts for partial credit
-      const myOk  = sub.tests_ok || 0;
+      // Both failed — more tests passing = win
+      const myOk  = body.tests_ok || 0;
       const oppOk = oSub.tests_ok || 0;
-      if (myOk > oppOk)       myScore = 1;   // more tests passing = win
-      else if (myOk < oppOk)  myScore = 0;
-      else                    myScore = 0.5;  // same number of tests = draw
+      if (myOk > oppOk)      myScore = 1;
+      else if (myOk < oppOk) myScore = 0;
+      else                   myScore = 0.5;
     }
 
-    games.push({ opponentRating: oppRating.rating, opponentRd: oppRating.rd, score: myScore });
-    opponentUpdates.push({ oppRating, myScore });
+    games.push({ opponentRating: oppAgent.rating, opponentRd: oppAgent.rd, score: myScore });
+    opponentUpdates.push({ oppAgent, oSub, myScore });
   }
 
-  const myNew  = updateRating({ rating: myRating.rating, rd: myRating.rd, volatility: myRating.volatility }, games);
-  const myWins = games.filter(g => g.score === 1).length;
-  myRating.rating     = myNew.rating;
-  myRating.rd         = myNew.rd;
-  myRating.volatility = myNew.volatility;
-  myRating.challenges_attempted += 1;
-  myRating.wins       += myWins;
-  myRating.rating_history.push({ r: myNew.rating, ts: new Date().toISOString() });
-  if (myRating.rating_history.length > 50) myRating.rating_history = myRating.rating_history.slice(-50);
-  db.upsertRating(myRating);
+  // 8. Batch Glicko-2 update for submitting agent
+  const myNew  = updateRating(
+    { rating: agent.rating, rd: agent.rd, volatility: agent.volatility },
+    games
+  );
+  const myWins     = games.filter(g => g.score === 1).length;
+  const myDeltaTotal = myNew.rating - agent.rating;
 
-  for (const { oppRating, myScore } of opponentUpdates) {
+  // 9. Insert game rows and update opponent ratings
+  for (let i = 0; i < opponentUpdates.length; i++) {
+    const { oppAgent, oSub, myScore } = opponentUpdates[i];
     const oppScore = myScore === 1 ? 0 : myScore === 0 ? 1 : 0.5;
+
+    // Per-game delta for submitting agent: prorate total delta evenly across opponents
+    const perGameDelta = Math.round((myDeltaTotal / opponentUpdates.length) * 10) / 10;
+    const myRatingAfterGame = Math.round((agent.rating + perGameDelta) * 10) / 10;
+
+    // Insert game row for submitting agent
+    db.insertGame({
+      challenge_id:          body.challenge_id,
+      agent_id:              agent.id,
+      opponent_id:           oppAgent.id,
+      submission_id:         mySub.id,
+      opponent_submission_id: oSub.id,
+      score:                 myScore,
+      rating_before:         agent.rating,
+      rating_after:          myRatingAfterGame,
+      rd_before:             agent.rd,
+      rd_after:              myNew.rd,
+      delta:                 perGameDelta,
+      opponent_rating:       oppAgent.rating,
+      opponent_rd:           oppAgent.rd,
+      opponent_model:        oppAgent.model,
+    });
+
+    // Compute opponent's new rating
     const oppNew = updateRating(
-      { rating: oppRating.rating, rd: oppRating.rd, volatility: oppRating.volatility },
-      [{ opponentRating: myRating.rating, opponentRd: myRating.rd, score: oppScore }]
+      { rating: oppAgent.rating, rd: oppAgent.rd, volatility: oppAgent.volatility },
+      [{ opponentRating: agent.rating, opponentRd: agent.rd, score: oppScore }]
     );
-    oppRating.rating     = oppNew.rating;
-    oppRating.rd         = oppNew.rd;
-    oppRating.volatility = oppNew.volatility;
-    if (oppScore === 1) oppRating.wins += 1;
-    oppRating.rating_history.push({ r: oppNew.rating, ts: new Date().toISOString() });
-    if (oppRating.rating_history.length > 50) oppRating.rating_history = oppRating.rating_history.slice(-50);
-    db.upsertRating(oppRating);
+    const oppDelta = oppNew.rating - oppAgent.rating;
+
+    // Insert game row for opponent
+    db.insertGame({
+      challenge_id:          body.challenge_id,
+      agent_id:              oppAgent.id,
+      opponent_id:           agent.id,
+      submission_id:         oSub.id,
+      opponent_submission_id: mySub.id,
+      score:                 oppScore,
+      rating_before:         oppAgent.rating,
+      rating_after:          oppNew.rating,
+      rd_before:             oppAgent.rd,
+      rd_after:              oppNew.rd,
+      delta:                 oppDelta,
+      opponent_rating:       agent.rating,
+      opponent_rd:           agent.rd,
+      opponent_model:        agent.model,
+    });
+
+    // Update opponent agent
+    db.updateAgent({
+      id:                   oppAgent.id,
+      rating:               oppNew.rating,
+      rd:                   oppNew.rd,
+      volatility:           oppNew.volatility,
+      wins:                 oppScore === 1 ? oppAgent.wins + 1 : oppAgent.wins,
+      challenges_attempted: oppAgent.challenges_attempted,
+      current_hash:         oppAgent.current_hash,
+    });
   }
+
+  // 10. Update submitting agent
+  db.updateAgent({
+    id:                   agent.id,
+    rating:               myNew.rating,
+    rd:                   myNew.rd,
+    volatility:           myNew.volatility,
+    wins:                 agent.wins + myWins,
+    challenges_attempted: agent.challenges_attempted + 1,
+    current_hash:         body.agent_hash,
+  });
 }
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -293,6 +344,29 @@ async function handleRequest(req, res) {
     return json(res, 404, { error: 'Frontend not found' });
   }
 
+  // POST /api/register
+  if (req.method === 'POST' && pathname === '/api/register') {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    if (!body.name || !body.harness || !body.model) {
+      return json(res, 400, { error: 'name, harness, and model are required' });
+    }
+
+    const api_key = 'ael_sk_' + crypto.randomBytes(24).toString('hex');
+    try {
+      db.createAgent({ id: body.name, api_key, harness: body.harness, model: body.model });
+      return json(res, 201, { ok: true, agent_id: body.name, api_key });
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) {
+        return json(res, 409, { error: 'Agent name already taken' });
+      }
+      console.error('[api] register error:', e.message);
+      return json(res, 500, { error: e.message });
+    }
+  }
+
   // GET /api/challenges/recommended  (must come before /:id)
   if (req.method === 'GET' && pathname === '/api/challenges/recommended') {
     const challenges = db.getAllChallenges();
@@ -317,32 +391,30 @@ async function handleRequest(req, res) {
     const stats = db.getSolveStats();
     const entry = buildChallengeEntry(ch, stats[ch.id]);
 
-    // Enrich with issue body and fix diff from challenge file
     const challengeFile = path.join(__dirname, '..', 'challenges', `${chMatch[1]}.json`);
     try {
       const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
-      entry.body = meta.issue?.body || meta.body || '';
-      entry.fixDiff = meta.fixDiff || '';
+      entry.body      = meta.issue?.body || meta.body || '';
+      entry.fixDiff   = meta.fixDiff   || '';
       entry.fixCommit = meta.fixCommit || '';
     } catch (_) {}
 
-    // Include all attempts for this challenge
     const subs = db.getSubmissionsByChallenge(chMatch[1]);
     entry.attempts = subs.map(s => {
-      const agent = db.getRating(s.agent_hash);
+      const agent = db.getAgent(s.agent_id);
       return {
-        run_id: s.run_id,
-        model: s.model,
-        harness: s.harness,
-        passed: !!s.tests_passed,
-        time: fmtTime(s.agent_time_seconds || s.time_seconds),
-        test_time: fmtTime(s.test_time_seconds || 0),
-        diff_lines: s.diff_lines,
-        tests_ok: s.tests_ok || 0,
-        tests_total: s.tests_total || 0,
+        run_id:       s.run_id,
+        model:        s.model,
+        harness:      s.harness,
+        passed:       !!s.tests_passed,
+        time:         fmtTime(s.agent_time_seconds),
+        test_time:    fmtTime(s.test_time_seconds || 0),
+        diff_lines:   s.diff_lines,
+        tests_ok:     s.tests_ok     || 0,
+        tests_total:  s.tests_total  || 0,
         tests_failed: s.tests_failed || 0,
-        agent_name: agent ? `${agent.harness}-${agent.model.replace(/-/g, '')}` : s.model,
-        created_at: s.created_at,
+        agent_name:   agent ? agent.id : s.model,
+        created_at:   s.created_at,
       };
     });
 
@@ -355,9 +427,11 @@ async function handleRequest(req, res) {
     try { body = await readBody(req); }
     catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
     try {
-      processSubmission(body);
+      await processSubmission(body);
       return json(res, 201, { ok: true });
     } catch (e) {
+      const status = e.status || 500;
+      if (status !== 500) return json(res, status, { error: e.message });
       console.error('[api] processSubmission error:', e.message);
       return json(res, 500, { error: e.message });
     }
@@ -365,26 +439,131 @@ async function handleRequest(req, res) {
 
   // GET /api/leaderboard
   if (req.method === 'GET' && pathname === '/api/leaderboard') {
-    const ratings = db.getAllRatings();
-    return json(res, 200, ratings.map((r, i) => buildAgentEntry(r, i + 1)));
+    const agents = db.getAllAgents();
+    return json(res, 200, agents.map((a, i) => buildAgentEntry(a, i + 1, agents)));
   }
 
-  // GET /api/agents/:hash
+  // GET /api/submissions/:id
+  const subMatch = pathname.match(/^\/api\/submissions\/([^/]+)$/);
+  if (req.method === 'GET' && subMatch) {
+    const rawId = subMatch[1];
+    let sub = db.getSubmission(rawId);
+    if (!sub) {
+      const intId = parseInt(rawId, 10);
+      if (!isNaN(intId)) sub = db.getSubmissionById(intId);
+    }
+    if (!sub) return json(res, 404, { error: 'Not found' });
+
+    const games = db.getGamesBySubmission(sub.id).map(g => {
+      const oppSub = db.getSubmissionById(g.opponent_submission_id);
+      return {
+        opponent_id:        g.opponent_id,
+        opponent_model:     g.opponent_model,
+        score:              g.score,
+        delta:              g.delta,
+        rating_after:       g.rating_after,
+        opponent_tests_ok:    oppSub ? oppSub.tests_ok    : null,
+        opponent_tests_total: oppSub ? oppSub.tests_total : null,
+        opponent_time:        oppSub ? oppSub.agent_time_seconds : null,
+      };
+    });
+
+    return json(res, 200, {
+      run_id:             sub.run_id,
+      challenge_id:       sub.challenge_id,
+      agent_id:           sub.agent_id,
+      model:              sub.model,
+      tests_ok:           sub.tests_ok,
+      tests_total:        sub.tests_total,
+      agent_time_seconds: sub.agent_time_seconds,
+      diff_lines:         sub.diff_lines,
+      diff:               sub.diff,
+      exit_code:          sub.exit_code,
+      games,
+    });
+  }
+
+  // GET /api/agents/:id
   const agentMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
   if (req.method === 'GET' && agentMatch) {
-    const r = db.getRating(agentMatch[1]);
-    if (!r) return json(res, 404, { error: 'Not found' });
-    const ratings = db.getAllRatings();
-    const rank    = ratings.findIndex(x => x.agent_hash === r.agent_hash) + 1;
-    return json(res, 200, buildAgentEntry(r, rank));
+    const agent = db.getAgent(agentMatch[1]);
+    if (!agent) return json(res, 404, { error: 'Not found' });
+
+    const allAgents = db.getAllAgents();
+    const rank      = allAgents.findIndex(a => a.id === agent.id) + 1;
+    const played    = agent.challenges_attempted || 0;
+    const losses    = played - (agent.wins || 0);
+
+    const ratingHistory = db.getRatingHistory(agent.id).map(h => ({
+      r:          h.rating_after,
+      ts:         h.created_at,
+      delta:      h.delta,
+      score:      h.score,
+      challenge:  h.challenge_id,
+      opponent:   h.opponent_id,
+    }));
+
+    const configVersions = db.getConfigVersions(agent.id).map(cv => ({
+      hash:         cv.agent_hash,
+      model:        cv.model,
+      first_seen_at: cv.first_seen_at,
+    }));
+
+    // Build matches: submissions with their game rows
+    const allSubs = db.getSubmissionsByAgent(agent.id);
+    const matches = allSubs.map(sub => {
+      const games = db.getGamesBySubmission(sub.id).map(g => {
+        const oppSub = db.getSubmissionById(g.opponent_submission_id);
+        return {
+          opponent_id:          g.opponent_id,
+          opponent_model:       g.opponent_model,
+          score:                g.score,
+          delta:                g.delta,
+          rating_after:         g.rating_after,
+          opponent_tests_ok:    oppSub ? oppSub.tests_ok    : null,
+          opponent_tests_total: oppSub ? oppSub.tests_total : null,
+          opponent_time:        oppSub ? oppSub.agent_time_seconds : null,
+        };
+      });
+      const totalDelta = games.reduce((sum, g) => sum + (g.delta || 0), 0);
+      return {
+        submission_id: sub.id,
+        run_id:        sub.run_id,
+        challenge_id:  sub.challenge_id,
+        tests_ok:      sub.tests_ok,
+        tests_total:   sub.tests_total,
+        tests_passed:  !!sub.tests_passed,
+        agent_time:    sub.agent_time_seconds,
+        diff_lines:    sub.diff_lines,
+        exit_code:     sub.exit_code,
+        created_at:    sub.created_at,
+        games,
+        total_delta:   Math.round(totalDelta * 10) / 10,
+      };
+    });
+
+    return json(res, 200, {
+      id:             agent.id,
+      rank,
+      harness:        agent.harness,
+      model:          agent.model,
+      current_hash:   agent.current_hash,
+      elo:            Math.round(agent.rating),
+      rd:             Math.round(agent.rd),
+      played,
+      wins:           agent.wins || 0,
+      losses,
+      wr:             played > 0 ? (agent.wins || 0) / played : 0,
+      ratingHistory,
+      configVersions,
+      matches,
+    });
   }
 
   return json(res, 404, { error: 'Not found' });
 }
 
-// ── server ────────────────────────────────────────────────────────────────────
-
-// ── import all challenge JSONs into DB on startup ─────────────────────────────
+// ── importChallenges ──────────────────────────────────────────────────────────
 
 function importChallenges() {
   const challengesDir = path.join(__dirname, '..', 'challenges');
@@ -394,18 +573,18 @@ function importChallenges() {
   for (const f of files) {
     const id = f.replace('.json', '');
     const existing = db.getChallenge(id);
-    if (existing && existing.repo) continue; // already has full data
+    if (existing && existing.repo) continue;
     try {
       const meta = JSON.parse(fs.readFileSync(path.join(challengesDir, f), 'utf8'));
       const fixDiff = meta.fixDiff || '';
       const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
       db.upsertChallenge({
         id,
-        repo: meta.repoUrl || meta.repo || '',
-        title: meta.issue?.title || meta.title || id,
-        difficulty: { filesChanged: 0, linesAdded: diffLines },
+        repo:        meta.repoUrl || meta.repo || '',
+        title:       meta.issue?.title || meta.title || id,
+        difficulty:  { filesChanged: 0, linesAdded: diffLines },
         testCommand: meta.testCommand,
-        fixCommit: meta.fixCommit,
+        fixCommit:   meta.fixCommit,
       });
       imported++;
     } catch (_) {}
