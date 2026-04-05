@@ -454,7 +454,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
         break;
       case 'codex':
         cmd = 'codex';
-        cmdArgs = ['exec', '-m', model, '--full-auto', '-C', tmpdir, prompt];
+        cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '-C', tmpdir, prompt];
         break;
       default:
         throw new Error(`Unsupported harness: ${harness}`);
@@ -588,7 +588,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
             retryCmdArgs = ['run', '--dir', tmpdir, '--model', model, retryPrompt];
             break;
           case 'codex':
-            retryCmdArgs = ['exec', '-m', model, '--full-auto', '-C', tmpdir, retryPrompt];
+            retryCmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '-C', tmpdir, retryPrompt];
             break;
           default:
             retryCmdArgs = [...cmdArgs.slice(0, -1), retryPrompt];
