@@ -23,6 +23,7 @@ const {
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const CHALLENGES_DIR = path.join(PROJECT_ROOT, 'challenges');
 const RESULTS_DIR = path.join(PROJECT_ROOT, 'results');
+const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'repos');
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -92,6 +93,33 @@ function hasTmux() {
 function ensureResultsDir() {
   if (!fs.existsSync(RESULTS_DIR)) {
     fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Install dependencies — handles npm, pnpm, pip (with venv), cargo
+// ---------------------------------------------------------------------------
+function installDeps(dir) {
+  try {
+    if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
+      execFileSync('pnpm', ['install', '--frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      execFileSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'requirements.txt'))) {
+      // Use venv to isolate Python deps — never install globally
+      const venvDir = path.join(dir, '.venv');
+      execFileSync('python3', ['-m', 'venv', venvDir], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+      const pip = path.join(venvDir, 'bin', 'pip');
+      if (fs.existsSync(path.join(dir, 'pyproject.toml'))) {
+        execFileSync(pip, ['install', '-e', '.'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      } else {
+        execFileSync(pip, ['install', '-r', 'requirements.txt'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      }
+    } else if (fs.existsSync(path.join(dir, 'Cargo.toml'))) {
+      execFileSync('cargo', ['build'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    }
+  } catch (e) {
+    console.warn('[agentelo] Dep install warning:', e.message?.slice(0, 200));
   }
 }
 
@@ -240,26 +268,53 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
   let fakeHome = null;
 
   try {
-    console.log(`[agentelo] Cloning ${challenge.repo} @ ${challenge.commit}...`);
-    execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, tmpdir], { stdio: 'inherit' });
-    execFileSync('git', ['checkout', challenge.commit], { cwd: tmpdir, stdio: 'inherit' });
+    // Use persistent repo cache — survives reboots, race-safe with lockfile
+    const repoSlug = challenge.repo.replace('https://github.com/', '').replace(/\//g, '-');
+    const cacheDir = path.join(CACHE_DIR, repoSlug);
+    const lockFile = cacheDir + '.lock';
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-    // Install dependencies before agent starts
-    console.log('[agentelo] Installing dependencies...');
-    try {
-      if (fs.existsSync(path.join(tmpdir, 'package.json'))) {
-        execFileSync('npm', ['install', '--ignore-scripts'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
-      } else if (fs.existsSync(path.join(tmpdir, 'requirements.txt'))) {
-        execFileSync('pip', ['install', '-r', 'requirements.txt'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
-      } else if (fs.existsSync(path.join(tmpdir, 'pyproject.toml'))) {
-        execFileSync('pip', ['install', '-e', '.'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
-      } else if (fs.existsSync(path.join(tmpdir, 'go.mod'))) {
-        execFileSync('go', ['mod', 'download'], { cwd: tmpdir, stdio: 'pipe', timeout: 120000 });
+    // Race-safe clone: use lockfile to prevent concurrent clones
+    if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+      let lockFd;
+      try {
+        lockFd = fs.openSync(lockFile, 'wx'); // exclusive create — fails if exists
+      } catch (_) {
+        // Another process is cloning — wait for it (up to 5 min)
+        console.log(`[agentelo] Waiting for another process to finish cloning ${repoSlug}...`);
+        const deadline = Date.now() + 300000;
+        while (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD')) && Date.now() < deadline) {
+          execFileSync('sleep', ['2']);
+        }
+        if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+          throw new Error(`Timed out waiting for cache clone of ${repoSlug}`);
+        }
+        lockFd = null;
       }
-      console.log('[agentelo] Dependencies installed.');
-    } catch (e) {
-      console.warn('[agentelo] Warning: dependency install failed:', e.message?.slice(0, 100));
+      if (lockFd !== null && lockFd !== undefined) {
+        try {
+          console.log(`[agentelo] Caching repo ${challenge.repo}...`);
+          // Clone to a temp name, then rename atomically
+          const cloneTmp = cacheDir + '-cloning-' + process.pid;
+          execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, cloneTmp], { stdio: 'inherit', timeout: 600000 });
+          fs.renameSync(cloneTmp, cacheDir);
+          console.log('[agentelo] Cache ready.');
+        } finally {
+          fs.closeSync(lockFd);
+          try { fs.unlinkSync(lockFile); } catch (_) {}
+        }
+      }
+    } else {
+      console.log(`[agentelo] Using cached repo for ${repoSlug}`);
     }
+
+    // Copy cache to temp dir and checkout the buggy commit
+    execFileSync('cp', ['-r', cacheDir + '/', tmpdir + '/'], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: tmpdir, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: tmpdir, stdio: 'pipe' });
+    // Install deps for the specific commit
+    installDeps(tmpdir);
+    console.log('[agentelo] Repo ready.');
 
     // Anti-cheat: checksum BEFORE (after deps install so node_modules isn't flagged)
     const beforeChecksums = checksumDir(tmpdir);
@@ -375,21 +430,15 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       diff = execSync('git diff', { cwd: tmpdir, stdio: 'pipe' }).toString();
     } catch (_) {}
 
-    // Clone a clean copy for scoring
+    // Create clean copy for scoring — use cache instead of re-cloning
     cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
     try {
-      execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, cleanDir], { stdio: 'pipe' });
-      execFileSync('git', ['checkout', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
-      // Install deps for scoring too
-      if (fs.existsSync(path.join(cleanDir, 'package.json'))) {
-        execFileSync('npm', ['install', '--ignore-scripts'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
-      } else if (fs.existsSync(path.join(cleanDir, 'requirements.txt'))) {
-        execFileSync('pip', ['install', '-r', 'requirements.txt'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
-      } else if (fs.existsSync(path.join(cleanDir, 'go.mod'))) {
-        execFileSync('go', ['mod', 'download'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
-      }
+      execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
+      execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+      execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+      installDeps(cleanDir);
     } catch (err) {
-      console.error('[agentelo] Failed to clone/install clean repo for scoring:', err.message);
+      console.error('[agentelo] Failed to prepare clean repo for scoring:', err.message?.slice(0, 200));
     }
 
     // Score

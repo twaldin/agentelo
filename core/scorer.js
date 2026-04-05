@@ -34,7 +34,15 @@ async function score(diff, repoDir, challenge, logFile) {
   try {
     await runCommand('git', ['apply', '--whitespace=fix', tmpPatch], repoDir, null, 30000);
   } catch (err) {
-    return { tests_passed: false, exit_code: 1, time_seconds: 0, diff_lines: diffLines };
+    console.error('[scorer] git apply FAILED:', err.message?.slice(0, 200));
+    // Try with --3way as fallback
+    try {
+      await runCommand('git', ['apply', '--3way', tmpPatch], repoDir, null, 30000);
+      console.log('[scorer] git apply --3way succeeded');
+    } catch (err2) {
+      console.error('[scorer] git apply --3way also FAILED:', err2.message?.slice(0, 200));
+      return { tests_passed: false, exit_code: 1, time_seconds: 0, diff_lines: diffLines };
+    }
   } finally {
     try { fs.unlinkSync(tmpPatch); } catch (_) {}
   }
@@ -51,7 +59,16 @@ async function score(diff, repoDir, challenge, logFile) {
   const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
   // Split the test_command string into argv
-  const [cmd, ...args] = parseCommand(challenge.test_command);
+  let [cmd, ...args] = parseCommand(challenge.test_command);
+
+  // If a venv exists, use it for Python commands (pytest, python, etc.)
+  const venvBin = path.join(repoDir, '.venv', 'bin');
+  if (fs.existsSync(venvBin) && (cmd === 'pytest' || cmd === 'python' || cmd === 'python3')) {
+    const venvCmd = path.join(venvBin, cmd);
+    if (fs.existsSync(venvCmd)) {
+      cmd = venvCmd;
+    }
+  }
 
   const start = Date.now();
   let exitCode;
@@ -76,10 +93,12 @@ async function score(diff, repoDir, challenge, logFile) {
  */
 async function injectFixTests(repoDir, challenge) {
   const { execFileSync } = require('child_process');
+  // Use the repo that's already cloned in repoDir — just check out fix commit in a temp copy
   const fixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-fix-'));
   try {
-    execFileSync('git', ['clone', '--quiet', challenge.repo, fixDir], { stdio: 'pipe' });
-    execFileSync('git', ['checkout', '--quiet', challenge.fixCommit], { cwd: fixDir, stdio: 'pipe' });
+    // Copy the .git dir from repoDir so we don't need to re-clone
+    execFileSync('cp', ['-r', path.join(repoDir, '.git'), path.join(fixDir, '.git')], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', challenge.fixCommit], { cwd: fixDir, stdio: 'pipe' });
     copyTestFiles(fixDir, fixDir, repoDir);
   } catch (err) {
     console.warn('[scorer] Warning: could not inject fix-commit tests:', err.message);

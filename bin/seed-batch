@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-const { execFileSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const RESULTS_DIR = path.resolve(__dirname, '..', 'results');
+const LOGS_DIR = path.resolve(__dirname, '..', 'results');
 const AGENTELO = path.resolve(__dirname, 'agentelo');
-const MAX_CONCURRENT = 5;
+const MAX_CONCURRENT = parseInt(process.env.AGENTELO_CONCURRENCY || '3', 10);
 
 // Models to seed — free/unlimited first
 const MODELS = [
@@ -27,43 +29,67 @@ const challenges = fs.readdirSync(CHALLENGES_DIR)
   .map(f => f.replace('.json', ''))
   // Sort smaller repos first (fastify, koa, svelte, etc before angular, deno)
   .sort((a, b) => {
-    const small = ['fastify', 'koa', 'svelte', 'ui', 'fastapi', 'next.js'];
+    const small = ['fastify', 'koa', 'svelte', 'fastapi', 'next.js'];
     const aSmall = small.some(s => a.startsWith(s)) ? 0 : 1;
     const bSmall = small.some(s => b.startsWith(s)) ? 0 : 1;
     return aSmall - bSmall;
   });
 
-console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models = ${challenges.length * MODELS.length} runs`);
+console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models`);
 console.log(`Max concurrent: ${MAX_CONCURRENT}`);
 
-// Build job queue — interleave: each challenge gets all models before moving on
+// Build job queue — skip challenges that can't run
 const jobs = [];
 for (const c of challenges) {
+  const cFile = path.join(CHALLENGES_DIR, `${c}.json`);
+  try {
+    const cData = JSON.parse(fs.readFileSync(cFile, 'utf8'));
+    if (!cData.testCommand) { console.log(`Skipping ${c} — no test command`); continue; }
+    if (cData.testCommand === 'cargo test') { console.log(`Skipping ${c} — cargo/rust`); continue; }
+    if (c.startsWith('ui-') || c.startsWith('jq-')) { console.log(`Skipping ${c} — pnpm/no-test repos`); continue; }
+  } catch { continue; }
   for (const m of MODELS) {
-    // Check if result already exists
-    const resultPattern = `${c}-${m.harness}`;
-    const existing = fs.readdirSync(path.resolve(__dirname, '..', 'results')).filter(f => f.startsWith(resultPattern) && f.endsWith('.json'));
-    if (existing.length > 0) continue;
+    // Check if result already exists (any result for this challenge+harness+model combo)
+    try {
+      const existing = fs.readdirSync(RESULTS_DIR).filter(f =>
+        f.startsWith(`${c}-${m.harness}`) && f.endsWith('.json')
+      );
+      // Check if any existing result is from this model
+      const hasResult = existing.some(f => {
+        try {
+          const r = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
+          return r.model === m.model;
+        } catch { return false; }
+      });
+      if (hasResult) continue;
+    } catch {}
     jobs.push({ ...m, challenge: c });
   }
 }
 
 console.log(`${jobs.length} jobs remaining (skipping existing results)`);
+if (jobs.length === 0) { console.log('Nothing to do.'); process.exit(0); }
 
 let running = 0;
-let completed = 0;
+let passed = 0;
 let failed = 0;
+let errored = 0;
 let idx = 0;
 
 function runNext() {
   if (idx >= jobs.length && running === 0) {
-    console.log(`\nDone. Completed: ${completed}, Failed: ${failed}`);
+    console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
     process.exit(0);
   }
   while (running < MAX_CONCURRENT && idx < jobs.length) {
     const job = jobs[idx++];
     running++;
-    console.log(`[${completed+failed+running}/${jobs.length}] Starting: ${job.challenge} × ${job.model}`);
+    const jobNum = passed + failed + errored + running;
+    console.log(`[${jobNum}/${jobs.length}] Starting: ${job.challenge} × ${job.model}`);
+
+    // Save child output to a log file for debugging
+    const childLogFile = path.join(LOGS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
+    const childLogStream = fs.createWriteStream(childLogFile);
 
     const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -71,20 +97,25 @@ function runNext() {
     });
 
     let output = '';
-    child.stdout.on('data', d => output += d);
-    child.stderr.on('data', d => output += d);
+    child.stdout.on('data', d => { output += d; childLogStream.write(d); });
+    child.stderr.on('data', d => { output += d; childLogStream.write(d); });
 
     child.on('close', (code) => {
+      childLogStream.end();
       running--;
       if (code === 0 && output.includes('Tests passed: YES')) {
-        completed++;
+        passed++;
         console.log(`  ✓ ${job.challenge} × ${job.model} — PASSED`);
       } else if (code === 0) {
-        completed++;
+        failed++;
         console.log(`  ✗ ${job.challenge} × ${job.model} — completed but tests failed`);
       } else {
-        failed++;
-        console.log(`  ✗ ${job.challenge} × ${job.model} — error (exit ${code})`);
+        errored++;
+        // Extract the last meaningful error line for visibility
+        const lines = output.split('\n').filter(l => l.includes('Error') || l.includes('error') || l.includes('FAIL'));
+        const hint = lines.length > 0 ? ` (${lines[lines.length - 1].trim().slice(0, 80)})` : '';
+        console.log(`  ✗ ${job.challenge} × ${job.model} — error (exit ${code})${hint}`);
+        console.log(`    Log: ${childLogFile}`);
       }
       runNext();
     });
@@ -92,6 +123,6 @@ function runNext() {
 }
 
 // Ensure results dir
-try { fs.mkdirSync(path.resolve(__dirname, '..', 'results'), { recursive: true }); } catch {}
+try { fs.mkdirSync(RESULTS_DIR, { recursive: true }); } catch {}
 
 runNext();
