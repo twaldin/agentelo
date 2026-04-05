@@ -829,7 +829,7 @@ async function openAgent(id) {
   if (!a) return;
   selId = id;
   var dc = a.d7 > 0 ? 'var(--green)' : a.d7 < 0 ? 'var(--red)' : 'var(--text-lo)';
-  var ds = a.d7 > 0 ? '+' + a.d7 : '' + a.d7;
+  var ds = a.d7 > 0 ? '+' + Math.round(a.d7) : '' + Math.round(a.d7);
   var losses = (a.played || 0) - (a.wins || 0) - (a.draws || 0);
 
   // Match history HTML
