@@ -23,12 +23,12 @@ function slugify(str) {
 
 // Models to seed — free/unlimited first, then paid, then local
 const MODELS = [
-  // Free remote models (via opencode built-in) — unlimited
-  { harness: 'opencode', model: 'opencode/minimax-m2.5-free', local: false },
-  { harness: 'opencode', model: 'opencode/qwen3.6-plus-free', local: false },
-  { harness: 'opencode', model: 'opencode/nemotron-3-super-free', local: false },
-  { harness: 'opencode', model: 'opencode/gpt-5-nano', local: false },
-  { harness: 'opencode', model: 'opencode/big-pickle', local: false },
+  // Free remote models — DISABLED (hang due to empty tool_calls bug in opencode #4255)
+  // { harness: 'opencode', model: 'opencode/minimax-m2.5-free', local: false },
+  // { harness: 'opencode', model: 'opencode/qwen3.6-plus-free', local: false },
+  // { harness: 'opencode', model: 'opencode/nemotron-3-super-free', local: false },
+  // { harness: 'opencode', model: 'opencode/gpt-5-nano', local: false },
+  // { harness: 'opencode', model: 'opencode/big-pickle', local: false },
   // Paid remote (via opencode)
   { harness: 'opencode', model: 'openai/gpt-5.4-mini', local: false },
   { harness: 'opencode', model: 'openai/gpt-5.4', local: false },
