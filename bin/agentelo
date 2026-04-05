@@ -353,9 +353,10 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
 
   ensureResultsDir();
 
-  // Generate run_id
+  // Generate run_id — include model slug for uniqueness across concurrent runs
   const timestamp = Math.floor(Date.now() / 1000);
-  const rawRunId = `${challenge.id}-${harness}-${timestamp}`;
+  const modelSlug = slugify(model);
+  const rawRunId = `${challenge.id}-${harness}-${modelSlug}-${timestamp}`;
 
   // BUG 1 fix: validate runId to prevent shell injection via path interpolation
   if (!/^[a-zA-Z0-9._-]+$/.test(rawRunId)) {
