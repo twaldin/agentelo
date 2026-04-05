@@ -939,10 +939,8 @@ async function openAgent(id) {
       '<div>' +
         '<div class="p-rnk">' + (a.harness||'').toUpperCase() + '</div>' +
         '<div class="p-nm">' + a.id + '</div>' +
-        '<div style="display:flex;align-items:baseline;gap:16px;margin-top:8px">' +
-          '<div class="p-elo">' + (a.elo||1500) + '</div>' +
-          '<div style="font-size:.85rem;color:var(--text-lo)">Glicko: ' + (a.elo||1500) + '&plusmn;' + (a.rd||350) + '</div>' +
-        '</div>' +
+        '<div class="p-elo" style="margin-top:8px">' + (a.elo||1500) + '</div>' +
+        '<div style="font-size:.75rem;color:var(--text-lo);margin-top:4px">Glicko: ' + (a.elo||1500) + ' &plusmn; ' + (a.rd||350) + '</div>' +
       '</div>' +
       '<div style="text-align:center;padding:12px 20px;border:2px solid var(--border-hi)">' +
         '<div style="font-family:\'Press Start 2P\',monospace;font-size: 20px;color:var(--green);text-shadow:0 0 8px rgba(0,255,65,.5)">#' + (a.rank||'—') + '</div>' +
