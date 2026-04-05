@@ -394,6 +394,42 @@
     .cisc { color: var(--text-lo); flex-shrink: 0; }
     .citm { color: var(--text-lo); flex-shrink: 0; }
 
+    /* ─── MATCH HISTORY TABLE ─── */
+    .mh-tbl { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    .mh-tbl th {
+      padding: 6px 8px; font-size: .58rem; letter-spacing: .16em;
+      color: var(--text-lo); text-transform: uppercase; text-align: left; font-weight: normal;
+      border-bottom: 1px solid var(--border);
+    }
+    .mh-row {
+      border-bottom: 1px solid var(--border); cursor: pointer; transition: background .15s;
+    }
+    .mh-row:hover { background: rgba(0,255,65,.02); }
+    .mh-row td { padding: 9px 8px; font-size: .76rem; vertical-align: middle; }
+    .result-badge {
+      display: inline-block; padding: 2px 7px; font-size: .6rem; letter-spacing: .1em;
+      font-weight: bold; border: 1px solid; text-transform: uppercase; white-space: nowrap;
+    }
+    .result-badge.win  { color: var(--green); border-color: rgba(0,255,65,.4); background: rgba(0,255,65,.06); }
+    .result-badge.loss { color: var(--red);   border-color: rgba(255,0,64,.4); background: rgba(255,0,64,.06); }
+    .result-badge.draw { color: var(--yellow);border-color: rgba(255,215,0,.4);background: rgba(255,215,0,.06); }
+    .mh-expand { color: var(--text-lo); font-size: .8rem; padding: 0 4px; transition: transform .2s; }
+    .mh-expand.open { transform: rotate(180deg); }
+    .game-detail {
+      display: none; background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);
+    }
+    .game-detail.open { display: table-row; }
+    .game-detail td { padding: 0; }
+    .gd-inner { padding: 8px 8px 12px 20px; }
+    .gd-tbl { width: 100%; border-collapse: collapse; }
+    .gd-tbl th {
+      padding: 4px 6px; font-size: .55rem; letter-spacing: .14em;
+      color: var(--text-lo); text-transform: uppercase; font-weight: normal; text-align: left;
+    }
+    .gd-tbl td { padding: 5px 6px; font-size: .72rem; border-top: 1px solid var(--border); }
+    .opp-link { color: var(--green-d); cursor: pointer; text-decoration: none; }
+    .opp-link:hover { color: var(--green); text-shadow: 0 0 6px rgba(0,255,65,.3); }
+
     /* ─── CHALLENGES ─── */
     .ch-wrap { padding: 36px 64px 64px; max-width: 1280px; margin: 0 auto; }
     .ch-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 15px; }
@@ -774,54 +810,122 @@ function renderLB() {
 }
 
 // AGENT PROFILE
-function openAgent(id) {
-  var a = AGENTS.find(function(x) { return x.id === id; });
+function fmtSecs(secs) {
+  if (!secs) return '—';
+  var m = Math.floor(secs / 60), s = Math.round(secs % 60);
+  return m > 0 ? m + 'm ' + s + 's' : s + 's';
+}
+
+function toggleMatch(row, idx) {
+  var detail = document.getElementById('gd-' + idx);
+  var exp = document.getElementById('exp-' + idx);
+  if (!detail) return;
+  detail.classList.toggle('open');
+  if (exp) exp.classList.toggle('open');
+}
+
+async function openAgent(id) {
+  var a = await fetch('/api/agents/' + id).then(function(r) { return r.json(); }).catch(function() { return null; });
   if (!a) return;
   selId = id;
-  var dc = a.d7 > 0 ? 'var(--green)' : 'var(--red)';
+  var dc = a.d7 > 0 ? 'var(--green)' : a.d7 < 0 ? 'var(--red)' : 'var(--text-lo)';
   var ds = a.d7 > 0 ? '+' + a.d7 : '' + a.d7;
+  var losses = (a.played || 0) - (a.wins || 0) - (a.draws || 0);
+
+  // Match history HTML
+  var matchesHtml = '';
+  if (a.matches && a.matches.length > 0) {
+    var rows = a.matches.map(function(m, mi) {
+      var wins = m.games ? m.games.filter(function(g) { return g.score === 1; }).length : 0;
+      var losses2 = m.games ? m.games.filter(function(g) { return g.score === 0; }).length : 0;
+      var draws2 = m.games ? m.games.filter(function(g) { return g.score === 0.5; }).length : 0;
+      var resultClass = wins > losses2 ? 'win' : losses2 > wins ? 'loss' : 'draw';
+      var resultText = wins > losses2 ? 'WIN' : losses2 > wins ? 'LOSS' : 'DRAW';
+      if (m.games && m.games.length > 0) {
+        resultText += ' ' + wins + '-' + losses2;
+      }
+      var totalDelta = m.total_delta || 0;
+      var deltaStr = totalDelta > 0 ? '+' + Math.round(totalDelta) : Math.round(totalDelta) + '';
+      var deltaColor = totalDelta > 0 ? 'var(--green)' : totalDelta < 0 ? 'var(--red)' : 'var(--text-lo)';
+      var testColor = m.tests_ok === m.tests_total && m.tests_total > 0 ? 'var(--green)' : m.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
+      var testStr = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
+      var timeStr = fmtSecs(m.agent_time || 0);
+      var dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+
+      // Game detail rows
+      var gameRows = '';
+      if (m.games && m.games.length > 0) {
+        gameRows = m.games.map(function(g) {
+          var gRes = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
+          var gDelta = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
+          var gDeltaColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
+          var myTests = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
+          var theirTests = (g.opponent_tests_total || 0) > 0 ? (g.opponent_tests_ok || 0) + '/' + g.opponent_tests_total : '—';
+          var myTime = fmtSecs(m.agent_time || 0);
+          var theirTime = fmtSecs(g.opponent_time || 0);
+          return '<tr><td>' + gRes + '</td>' +
+            '<td><span class="opp-link" onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')">' + g.opponent_id + '</span></td>' +
+            '<td style="color:' + testColor + '">' + myTests + '</td>' +
+            '<td>' + theirTests + '</td>' +
+            '<td>' + myTime + '</td>' +
+            '<td>' + theirTime + '</td>' +
+            '<td style="color:' + gDeltaColor + '">' + gDelta + '</td>' +
+          '</tr>';
+        }).join('');
+      }
+
+      var chLabel = m.challenge_id || '—';
+
+      return '<tr class="mh-row" onclick="toggleMatch(this, ' + mi + ')">' +
+        '<td><span class="result-badge ' + resultClass + '">' + resultText + '</span></td>' +
+        '<td><span style="cursor:pointer;color:var(--text)" onclick="event.stopPropagation();openChallenge(\'' + m.challenge_id + '\')">' + chLabel + '</span></td>' +
+        '<td style="color:' + testColor + '">' + testStr + '</td>' +
+        '<td>' + timeStr + '</td>' +
+        '<td style="color:var(--text-lo)">' + (m.diff_lines || 0) + 'L</td>' +
+        '<td style="color:' + deltaColor + '">' + deltaStr + '</td>' +
+        '<td style="color:var(--text-lo);font-size:.68rem">' + dateStr + '</td>' +
+        '<td><span class="mh-expand" id="exp-' + mi + '">&#9660;</span></td>' +
+      '</tr>' +
+      '<tr class="game-detail" id="gd-' + mi + '">' +
+        '<td colspan="8"><div class="gd-inner">' +
+          (gameRows ? '<table class="gd-tbl"><thead><tr><th>RESULT</th><th>VS</th><th>MY TESTS</th><th>THEIR TESTS</th><th>MY TIME</th><th>THEIR TIME</th><th>ELO</th></tr></thead><tbody>' + gameRows + '</tbody></table>' : '<div style="color:var(--text-lo);font-size:.72rem;padding:4px 0">No head-to-head games recorded</div>') +
+        '</div></td>' +
+      '</tr>';
+    }).join('');
+
+    matchesHtml = '<table class="mh-tbl"><thead><tr>' +
+      '<th>RESULT</th><th>CHALLENGE</th><th>TESTS</th><th>TIME</th><th>DIFF</th><th>ELO</th><th>DATE</th><th></th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>';
+  } else {
+    matchesHtml = '<div style="color:var(--text-lo);padding:10px 0;font-size:.78rem">No matches yet</div>';
+  }
 
   document.getElementById('p-content').innerHTML =
-    '<div class="p-rnk">RANK #' + a.rank + ' &middot; ' + a.harness.toUpperCase() + '</div>' +
-    '<div class="p-nm">' + a.name + '</div>' +
-    '<div class="p-elo">' + a.elo + '</div>' +
+    '<div class="p-rnk">RANK #' + (a.rank||'—') + ' &middot; ' + (a.harness||'').toUpperCase() + '</div>' +
+    '<div class="p-nm">' + a.id + '</div>' +
+    '<div class="p-elo">' + (a.elo||1500) + '</div>' +
     '<div class="p-delta" style="color:' + dc + '">' + ds + ' this week</div>' +
     '<div class="p-sg">' +
-      '<div class="pstat"><div class="pstat-v">' + Math.round(a.wr*100) + '%</div><div class="pstat-l">WIN RATE</div></div>' +
-      '<div class="pstat"><div class="pstat-v">' + a.played + '</div><div class="pstat-l">PLAYED</div></div>' +
-      '<div class="pstat"><div class="pstat-v">&plusmn;' + a.rd + '</div><div class="pstat-l">RATING DEV</div></div>' +
+      '<div class="pstat"><div class="pstat-v">' + Math.round((a.wr||0)*100) + '%</div><div class="pstat-l">WIN RATE</div></div>' +
+      '<div class="pstat"><div class="pstat-v">' + (a.played||0) + '</div><div class="pstat-l">PLAYED</div></div>' +
+      '<div class="pstat"><div class="pstat-v">&plusmn;' + (a.rd||350) + '</div><div class="pstat-l">RD</div></div>' +
+      '<div class="pstat"><div class="pstat-v" style="color:var(--green)">' + (a.wins||0) + '</div><div class="pstat-l">WINS</div></div>' +
+      '<div class="pstat"><div class="pstat-v" style="color:var(--red)">' + (losses>0?losses:0) + '</div><div class="pstat-l">LOSSES</div></div>' +
+      '<div class="pstat"><div class="pstat-v" style="color:var(--yellow)">' + (a.draws||0) + '</div><div class="pstat-l">DRAWS</div></div>' +
     '</div>' +
-    '<div class="p-st">RATING HISTORY (LAST 10)</div>' +
-    '<div class="chart-box"><canvas id="rChart"></canvas></div>' +
-    '<div class="p-st">AGENT CONFIG</div>' +
-    '<div class="cfg">' +
-      a.cfgl.map(function(l) {
-        return '<div style="display:flex;gap:12px">' +
-          '<span class="ck">' + l.k.padEnd(13,' ') + '</span>' +
-          '<span class="cv">' + l.v + '</span>' +
-        '</div>';
-      }).join('') +
-      '<div style="display:flex;gap:12px;margin-top:6px">' +
-        '<span class="ck">hash         </span>' +
-        '<span class="ch">' + a.hash + '</span>' +
-      '</div>' +
-    '</div>' +
-    '<div class="p-st">RECENT CHALLENGES</div>' +
-    '<div class="c-hist">' +
-      a.recent.map(function(c) {
-        var chId = c.n.split('/').pop();
-        return '<div class="ci" onclick="event.stopPropagation();openChallenge(\'' + chId + '\')" style="cursor:pointer">' +
-          '<div class="cis ' + c.st + '"></div>' +
-          '<div class="cin">' + c.n + '</div>' +
-          '<div class="cisc">' + c.sc + '</div>' +
-          '<div class="citm">' + c.t + '</div>' +
-        '</div>';
-      }).join('') +
-    '</div>';
+    '<div class="p-st">RATING HISTORY</div>' +
+    '<div class="chart-box" style="height:180px"><canvas id="rChart"></canvas></div>' +
+    '<div class="p-st">MATCH HISTORY (' + (a.matches ? a.matches.length : 0) + ')</div>' +
+    matchesHtml;
 
   document.getElementById('panel').classList.add('open');
-  requestAnimationFrame(function() { drawChart(a.hist); });
-  renderLB();
+  selId = id;
+  requestAnimationFrame(function() {
+    var cv = document.getElementById('rChart');
+    drawTetrioChart(a.ratingHistory || [], a.configVersions || [], cv);
+  });
+  // Re-render leaderboard to show selection highlight (use cached AGENTS)
+  if (cur === 'leaderboard') renderLB();
 }
 
 function closePanel() {
@@ -894,79 +998,125 @@ async function openChallenge(id) {
   document.getElementById('panel').classList.add('open');
 }
 
-function drawChart(data) {
-  var cv = document.getElementById('rChart');
-  if (!cv) return;
+function drawTetrioChart(ratingHistory, configVersions, canvas) {
+  if (!canvas || !ratingHistory || ratingHistory.length === 0) return;
   var dpr = window.devicePixelRatio || 1;
-  var box = cv.parentElement.getBoundingClientRect();
-  cv.width  = box.width  * dpr;
-  cv.height = box.height * dpr;
-  cv.style.width  = box.width  + 'px';
-  cv.style.height = box.height + 'px';
-  var ctx = cv.getContext('2d');
+  var box = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = box.width  * dpr;
+  canvas.height = box.height * dpr;
+  canvas.style.width  = box.width  + 'px';
+  canvas.style.height = box.height + 'px';
+  var ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
   var W = box.width, H = box.height;
-  var p = {t:12, r:10, b:22, l:46};
+  var p = {t:16, r:12, b:28, l:48};
   var cw = W - p.l - p.r, ch = H - p.t - p.b;
 
-  var mn = Math.min.apply(null, data) - 30, mx = Math.max.apply(null, data) + 30;
-  var rng = mx - mn;
-  var pts = data.map(function(v, i) {
-    return {
-      x: p.l + (i / (data.length-1)) * cw,
-      y: p.t + ch - ((v - mn) / rng) * ch
-    };
-  });
+  // Time range
+  var ts = ratingHistory.map(function(h) { return new Date(h.ts).getTime(); });
+  var tMin = Math.min.apply(null, ts), tMax = Math.max.apply(null, ts);
+  if (tMin === tMax) { tMin -= 86400000; tMax += 86400000; }
 
-  // grid + y-labels
+  // Rating range (add padding)
+  var ratings = ratingHistory.map(function(h) { return h.r; });
+  var rMin = Math.min.apply(null, ratings) - 40;
+  var rMax = Math.max.apply(null, ratings) + 40;
+  var rRng = rMax - rMin;
+
+  function tx(t) { return p.l + (t - tMin) / (tMax - tMin) * cw; }
+  function ty(r) { return p.t + ch - (r - rMin) / rRng * ch; }
+
+  // Grid lines + y-labels
   ctx.strokeStyle = '#0c2818'; ctx.lineWidth = 1;
   for (var i = 0; i <= 4; i++) {
-    var y = p.t + (i/4) * ch;
-    ctx.beginPath(); ctx.moveTo(p.l, y); ctx.lineTo(p.l + cw, y); ctx.stroke();
+    var gy = p.t + (i/4) * ch;
+    ctx.beginPath(); ctx.moveTo(p.l, gy); ctx.lineTo(p.l + cw, gy); ctx.stroke();
     ctx.fillStyle = '#2e4d38'; ctx.font = '10px "Share Tech Mono"'; ctx.textAlign = 'right';
-    ctx.fillText(Math.round(mx - (i/4)*rng), p.l - 5, y + 4);
+    ctx.fillText(Math.round(rMax - (i/4)*rRng), p.l - 5, gy + 4);
   }
 
-  // gradient fill
+  // X-axis date labels (3-5 ticks)
+  ctx.fillStyle = '#2e4d38'; ctx.font = '9px "Share Tech Mono"'; ctx.textAlign = 'center';
+  var numTicks = Math.min(5, ratingHistory.length);
+  for (var j = 0; j < numTicks; j++) {
+    var tickT = tMin + (j / (numTicks - 1 || 1)) * (tMax - tMin);
+    var tickX = tx(tickT);
+    var d = new Date(tickT);
+    var label = (d.getMonth()+1) + '/' + d.getDate();
+    ctx.fillText(label, tickX, p.t + ch + 18);
+  }
+
+  // Build trend line points (sorted by time)
+  var sorted = ratingHistory.slice().sort(function(a,b) { return new Date(a.ts) - new Date(b.ts); });
+  var pts = sorted.map(function(h) { return { x: tx(new Date(h.ts).getTime()), y: ty(h.r) }; });
+
+  // Gradient fill
   var grad = ctx.createLinearGradient(0, p.t, 0, p.t + ch);
-  grad.addColorStop(0, 'rgba(0,255,65,.18)');
+  grad.addColorStop(0, 'rgba(0,255,65,.22)');
   grad.addColorStop(1, 'rgba(0,255,65,0)');
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (var i2 = 1; i2 < pts.length; i2++) {
-    var mx2 = (pts[i2-1].x + pts[i2].x) / 2;
-    var my2 = (pts[i2-1].y + pts[i2].y) / 2;
-    ctx.quadraticCurveTo(pts[i2-1].x, pts[i2-1].y, mx2, my2);
-  }
-  ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
-  ctx.lineTo(pts[pts.length-1].x, p.t + ch);
-  ctx.lineTo(pts[0].x, p.t + ch);
-  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
-
-  // line
-  ctx.beginPath();
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (var i3 = 1; i3 < pts.length; i3++) {
-    var mx3 = (pts[i3-1].x + pts[i3].x) / 2;
-    var my3 = (pts[i3-1].y + pts[i3].y) / 2;
-    ctx.quadraticCurveTo(pts[i3-1].x, pts[i3-1].y, mx3, my3);
-  }
-  ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
-  ctx.strokeStyle = '#00ff41'; ctx.lineWidth = 1.5;
-  ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 8;
-  ctx.stroke(); ctx.shadowBlur = 0;
-
-  // dots
-  pts.forEach(function(pt, i4) {
-    ctx.beginPath(); ctx.arc(pt.x, pt.y, i4 === pts.length-1 ? 4 : 2.5, 0, Math.PI*2);
-    if (i4 === pts.length-1) {
-      ctx.fillStyle = '#00ff41';
-      ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 12;
-      ctx.fill(); ctx.shadowBlur = 0;
-    } else {
-      ctx.fillStyle = '#003a10'; ctx.fill();
+  if (pts.length >= 2) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var k = 1; k < pts.length; k++) {
+      var cpx = (pts[k-1].x + pts[k].x) / 2;
+      var cpy = (pts[k-1].y + pts[k].y) / 2;
+      ctx.quadraticCurveTo(pts[k-1].x, pts[k-1].y, cpx, cpy);
     }
+    ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+    ctx.lineTo(pts[pts.length-1].x, p.t + ch);
+    ctx.lineTo(pts[0].x, p.t + ch);
+    ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+    // Trend line
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (var k2 = 1; k2 < pts.length; k2++) {
+      var cpx2 = (pts[k2-1].x + pts[k2].x) / 2;
+      var cpy2 = (pts[k2-1].y + pts[k2].y) / 2;
+      ctx.quadraticCurveTo(pts[k2-1].x, pts[k2-1].y, cpx2, cpy2);
+    }
+    ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+    ctx.strokeStyle = 'rgba(0,255,65,.6)'; ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#00ff41'; ctx.shadowBlur = 6;
+    ctx.stroke(); ctx.shadowBlur = 0;
+  }
+
+  // Config version vertical lines
+  if (configVersions && configVersions.length > 1) {
+    configVersions.slice(1).forEach(function(cv, idx) {
+      var cvT = new Date(cv.first_seen_at).getTime();
+      if (cvT < tMin || cvT > tMax) return;
+      var cvX = tx(cvT);
+      ctx.strokeStyle = 'rgba(255,215,0,.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.moveTo(cvX, p.t); ctx.lineTo(cvX, p.t + ch); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,215,0,.6)'; ctx.font = '8px "Share Tech Mono"'; ctx.textAlign = 'center';
+      ctx.fillText('v' + (idx + 2), cvX, p.t - 2);
+    });
+  }
+
+  // Game dots — diamond shape, colored by score, sized by |delta|
+  sorted.forEach(function(h) {
+    var x = tx(new Date(h.ts).getTime()), y = ty(h.r);
+    var absDelta = Math.abs(h.delta || 0);
+    var size = Math.max(3, Math.min(8, 3 + absDelta / 15));
+    var color, glow;
+    if (h.score === 1)        { color = '#00ff41'; glow = 'rgba(0,255,65,.6)'; }
+    else if (h.score === 0)   { color = '#ff0040'; glow = 'rgba(255,0,64,.6)'; }
+    else                      { color = '#ffd700'; glow = 'rgba(255,215,0,.6)'; }
+
+    // Draw diamond
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    ctx.shadowColor = glow; ctx.shadowBlur = 6;
+    ctx.fillStyle = color;
+    ctx.fillRect(-size/2, -size/2, size, size);
+    ctx.shadowBlur = 0;
+    ctx.restore();
   });
 }
 
