@@ -1,0 +1,493 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const { execSync, execFileSync } = require('child_process');
+
+const { score } = require('../core/scorer');
+const { computeAgentHash } = require('../core/agentHash');
+const {
+  loadResults,
+  sortResultsByDate,
+  formatResultsTable,
+  aggregateLeaderboard,
+  formatLeaderboardTable,
+} = require('../core/results');
+
+// ---------------------------------------------------------------------------
+// Paths
+// ---------------------------------------------------------------------------
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const CHALLENGES_DIR = path.join(PROJECT_ROOT, 'challenges');
+const RESULTS_DIR = path.join(PROJECT_ROOT, 'results');
+
+// ---------------------------------------------------------------------------
+// Arg parsing helpers
+// ---------------------------------------------------------------------------
+function parseArgs(argv) {
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith('--')) {
+      const key = argv[i].slice(2);
+      const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : true;
+      flags[key] = val;
+      if (val !== true) i++;
+    }
+  }
+  return flags;
+}
+
+// ---------------------------------------------------------------------------
+// File-walk checksum helper
+// ---------------------------------------------------------------------------
+function checksumDir(dir) {
+  const result = {};
+  function walk(current, base) {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      // BUG 3 fix: normalize path separator to '/' for cross-platform consistency
+      const rel = path.relative(base, full).split(path.sep).join('/');
+      if (entry.isDirectory()) {
+        // skip .git directory
+        if (entry.name === '.git') continue;
+        walk(full, base);
+      } else if (entry.isFile()) {
+        try {
+          const content = fs.readFileSync(full);
+          result[rel] = crypto.createHash('sha256').update(content).digest('hex');
+        } catch (_) {
+          // skip unreadable files
+        }
+      }
+    }
+  }
+  walk(dir, dir);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// tmux availability check
+// ---------------------------------------------------------------------------
+function hasTmux() {
+  try {
+    execFileSync('which', ['tmux'], { stdio: 'pipe' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ensure results dir exists
+// ---------------------------------------------------------------------------
+function ensureResultsDir() {
+  if (!fs.existsSync(RESULTS_DIR)) {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared play/seed logic
+// ---------------------------------------------------------------------------
+async function runAgentPlay(flags, { isBaseline = false } = {}) {
+  const harness = flags.harness;
+  const model = flags.model;
+  const challengeId = flags.challenge;
+
+  if (!harness || !model) {
+    const cmd = isBaseline ? 'seed' : 'play';
+    console.error(`[agentelo] Usage: agentelo ${cmd} --harness <name> --model <model> [--challenge <id>]`);
+    process.exit(1);
+  }
+
+  // Load challenge
+  const challengeFiles = fs.existsSync(CHALLENGES_DIR)
+    ? fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json'))
+    : [];
+
+  if (challengeFiles.length === 0) {
+    console.log("[agentelo] No challenges found in challenges/. Run 'agentelo mine' to fetch some.");
+    process.exit(1);
+  }
+
+  let challengeFile;
+  if (challengeId) {
+    challengeFile = path.join(CHALLENGES_DIR, `${challengeId}.json`);
+    if (!fs.existsSync(challengeFile)) {
+      console.error(`[agentelo] Challenge not found: ${challengeId}`);
+      process.exit(1);
+    }
+  } else {
+    const idx = Math.floor(Math.random() * challengeFiles.length);
+    challengeFile = path.join(CHALLENGES_DIR, challengeFiles[idx]);
+  }
+
+  const challenge = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+  console.log(`[agentelo] Challenge: ${challenge.id} — ${challenge.title}`);
+
+  ensureResultsDir();
+
+  // Generate run_id
+  const timestamp = Math.floor(Date.now() / 1000);
+  const rawRunId = `${challenge.id}-${harness}-${timestamp}`;
+
+  // BUG 1 fix: validate runId to prevent shell injection via path interpolation
+  if (!/^[a-zA-Z0-9._-]+$/.test(rawRunId)) {
+    console.error('[agentelo] Invalid run ID contains unsafe characters.');
+    process.exit(1);
+  }
+  const runId = rawRunId;
+
+  // Create log file
+  const logFile = path.join(RESULTS_DIR, `${runId}.log`);
+
+  // BUG 1 fix: verify logFile path contains no single quotes before using in shell strings
+  if (logFile.includes("'")) throw new Error('logFile path contains single quotes');
+
+  fs.writeFileSync(logFile, '', 'utf8');
+
+  // BUG 2 fix: wrap everything after temp dir creation in try/finally for cleanup
+  const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-'));
+  let cleanDir = null;
+  let fakeHome = null;
+
+  try {
+    console.log(`[agentelo] Cloning ${challenge.repo} @ ${challenge.commit}...`);
+    execFileSync('git', ['clone', challenge.repo, tmpdir], { stdio: 'inherit' });
+    execFileSync('git', ['checkout', challenge.commit], { cwd: tmpdir, stdio: 'inherit' });
+
+    // Anti-cheat: checksum BEFORE
+    const beforeChecksums = checksumDir(tmpdir);
+
+    // Build prompt
+    const prompt =
+      `You are being evaluated by AgentElo. This is an autonomous challenge — no human will respond. ` +
+      `Do not ask questions. Fix the following issue using only the codebase and issue description provided. ` +
+      `Work until you have a complete solution, then stop.\n\n` +
+      `Issue: ${challenge.title}\n${challenge.body}\n\n` +
+      `The repo is in your current working directory. Run tests with: ${challenge.test_command}.`;
+
+    const useTmux = hasTmux();
+    if (!useTmux) {
+      console.warn('[agentelo] Warning: tmux not available. Live viewer will be skipped.');
+    }
+
+    const startedAt = new Date().toISOString();
+
+    // Spawn agent via openfleet
+    const spawnCmd = `/Users/twaldin/openfleet/bin/spawn`;
+    console.log(`[agentelo] Spawning agent via openfleet...`);
+
+    const spawnEnv = isBaseline
+      ? { ...process.env, HOME: (() => { fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-home-')); return fakeHome; })() }
+      : undefined;
+
+    execFileSync('node', [
+      spawnCmd,
+      runId,
+      '--harness', harness,
+      '--model', model,
+      '--dir', tmpdir,
+      '--bootstrap', prompt,
+    ], {
+      stdio: 'inherit',
+      ...(spawnEnv ? { env: spawnEnv } : {}),
+    });
+
+    console.log(`[agentelo] Spawned ${harness} agent. Live log: results/${runId}.log`);
+
+    // Start pipe-pane to capture output (BUG 1 fix: wrap logFile in single quotes)
+    if (useTmux) {
+      const safePipePaneCmd = `cat >> '${logFile}'`;
+      const safeTailCmd = `tail -f '${logFile}'`;
+
+      try {
+        execFileSync('tmux', [
+          'pipe-pane', '-t', `openfleet:${runId}`, '-O',
+          safePipePaneCmd,
+        ], { stdio: 'pipe' });
+      } catch (err) {
+        console.warn('[agentelo] Warning: could not start pipe-pane:', err.message);
+      }
+
+      // Open viewer window
+      try {
+        execFileSync('tmux', [
+          'new-window', '-t', 'openfleet', '-n', `${runId}-view`,
+          safeTailCmd,
+        ], { stdio: 'pipe' });
+        console.log(`[agentelo] Watching in tmux window: openfleet:${runId}-view`);
+      } catch (err) {
+        console.warn('[agentelo] Warning: could not open viewer window:', err.message);
+      }
+    }
+
+    // Wait for completion — poll every 5s, detect done by 60s inactivity
+    const HARD_TIMEOUT_MS = 30 * 60 * 1000;
+    const INACTIVITY_THRESHOLD_MS = 60 * 1000;
+    const POLL_INTERVAL_MS = 5 * 1000;
+
+    const startMs = Date.now();
+    let lastSize = -1;
+    let lastChangeMs = Date.now();
+    let timedOut = false;
+
+    console.log('[agentelo] Waiting for agent to complete...');
+
+    await new Promise(resolve => {
+      const poll = () => {
+        const elapsed = Math.round((Date.now() - startMs) / 1000);
+        process.stdout.write(`\r[agentelo] Running... ${elapsed}s`);
+
+        // Check hard timeout
+        if (Date.now() - startMs >= HARD_TIMEOUT_MS) {
+          process.stdout.write('\n');
+          console.log('[agentelo] Hard timeout reached (30 min). Killing agent window.');
+          timedOut = true;
+          if (useTmux) {
+            try {
+              execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}`], { stdio: 'pipe' });
+            } catch (_) {}
+          }
+          resolve();
+          return;
+        }
+
+        // Check log file size
+        let currentSize = 0;
+        try {
+          currentSize = fs.statSync(logFile).size;
+        } catch (_) {}
+
+        if (currentSize !== lastSize) {
+          lastSize = currentSize;
+          lastChangeMs = Date.now();
+        // BUG 6 fix: only check inactivity when tmux is available (log file is being written)
+        } else if (useTmux && Date.now() - lastChangeMs >= INACTIVITY_THRESHOLD_MS) {
+          process.stdout.write('\n');
+          console.log('[agentelo] Agent appears done (60s inactivity).');
+          resolve();
+          return;
+        }
+
+        setTimeout(poll, POLL_INTERVAL_MS);
+      };
+      setTimeout(poll, POLL_INTERVAL_MS);
+    });
+
+    const finishedAt = new Date().toISOString();
+
+    // Stop pipe-pane
+    if (useTmux) {
+      try {
+        execFileSync('tmux', ['pipe-pane', '-t', `openfleet:${runId}`], { stdio: 'pipe' });
+      } catch (_) {}
+      // Kill viewer window
+      try {
+        execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}-view`], { stdio: 'pipe' });
+      } catch (_) {}
+    }
+
+    // Anti-cheat: checksum AFTER
+    const afterChecksums = checksumDir(tmpdir);
+
+    // Get git diff names
+    let gitDiffNames = [];
+    try {
+      const diffNameOut = execSync('git diff --name-only', { cwd: tmpdir, stdio: 'pipe' }).toString().trim();
+      gitDiffNames = diffNameOut.split('\n').filter(Boolean);
+    } catch (_) {}
+
+    // Detect tampered files
+    const tamperedFiles = [];
+    for (const [relpath, beforeHash] of Object.entries(beforeChecksums)) {
+      if (afterChecksums[relpath] !== beforeHash && !gitDiffNames.includes(relpath)) {
+        tamperedFiles.push(relpath);
+      }
+    }
+    // Also flag new files not in git diff
+    for (const relpath of Object.keys(afterChecksums)) {
+      if (!beforeChecksums[relpath] && !gitDiffNames.includes(relpath)) {
+        tamperedFiles.push(relpath);
+      }
+    }
+    const tampered = tamperedFiles.length > 0;
+
+    // Collect git diff
+    let diff = '';
+    try {
+      diff = execSync('git diff', { cwd: tmpdir, stdio: 'pipe' }).toString();
+    } catch (_) {}
+
+    // Clone a clean copy for scoring
+    cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
+    try {
+      execFileSync('git', ['clone', challenge.repo, cleanDir], { stdio: 'pipe' });
+      execFileSync('git', ['checkout', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+    } catch (err) {
+      console.error('[agentelo] Failed to clone clean repo for scoring:', err.message);
+    }
+
+    // Score
+    let scoreResult = { tests_passed: false, time_seconds: 0, exit_code: 1, diff_lines: 0 };
+    try {
+      scoreResult = await score(diff, cleanDir, challenge, logFile);
+    } catch (err) {
+      console.error('[agentelo] Scoring error:', err.message);
+    }
+
+    // Compute agent_hash
+    let agentHash;
+    let configFiles;
+    if (isBaseline) {
+      // For seed: hash is just harness + model since HOME is isolated
+      agentHash = crypto
+        .createHash('sha256')
+        .update(`${harness}:${model}`)
+        .digest('hex')
+        .slice(0, 12);
+      configFiles = [];
+    } else {
+      const hashResult = await computeAgentHash(harness, model, tmpdir);
+      agentHash = hashResult.hash;
+      configFiles = hashResult.configFiles;
+    }
+
+    // Build result object
+    const result = {
+      run_id: runId,
+      challenge_id: challenge.id,
+      harness,
+      model,
+      agent_hash: agentHash,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      tests_passed: scoreResult.tests_passed,
+      time_seconds: scoreResult.time_seconds,
+      exit_code: scoreResult.exit_code,
+      diff_lines: scoreResult.diff_lines,
+      diff,
+      tampered,
+      tampered_files: tamperedFiles,
+      log_file: logFile,
+      timed_out: timedOut,
+      config_files: configFiles,
+      ...(isBaseline ? { baseline: true, home_isolation: fakeHome } : {}),
+      ...(isBaseline ? { config_files_hashed: [] } : {}),
+    };
+
+    // Save result
+    const resultFile = path.join(RESULTS_DIR, `${runId}.json`);
+    fs.writeFileSync(resultFile, JSON.stringify(result, null, 2), 'utf8');
+
+    // Print summary
+    console.log('\n[agentelo] Done!');
+    console.log(`Challenge: ${challenge.id}`);
+    console.log(`Tests passed: ${result.tests_passed ? 'YES' : 'NO'}`);
+    console.log(`Time: ${Math.round(result.time_seconds)}s`);
+    console.log(`Diff lines: ${result.diff_lines}`);
+    console.log(`Tampered: ${tampered ? 'YES' : 'NO'}`);
+    console.log(`Result saved: results/${runId}.json`);
+    if (isBaseline) {
+      console.log(`Baseline: true (HOME isolated to ${fakeHome})`);
+    }
+
+  } finally {
+    // BUG 2 fix: always clean up temp dirs
+    try { fs.rmSync(tmpdir, { recursive: true, force: true }); } catch (_) {}
+    if (cleanDir) try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch (_) {}
+    if (fakeHome) try { fs.rmSync(fakeHome, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: play
+// ---------------------------------------------------------------------------
+async function cmdPlay(flags) {
+  return runAgentPlay(flags, { isBaseline: false });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: seed
+// ---------------------------------------------------------------------------
+async function cmdSeed(flags) {
+  return runAgentPlay(flags, { isBaseline: true });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: results
+// ---------------------------------------------------------------------------
+function cmdResults() {
+  ensureResultsDir();
+  const results = loadResults(RESULTS_DIR);
+  if (results.length === 0) {
+    console.log('[agentelo] No results yet.');
+    return;
+  }
+  const sorted = sortResultsByDate(results);
+  console.log(formatResultsTable(sorted));
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: leaderboard
+// ---------------------------------------------------------------------------
+function cmdLeaderboard() {
+  ensureResultsDir();
+  const results = loadResults(RESULTS_DIR);
+  if (results.length === 0) {
+    console.log('[agentelo] No results yet.');
+    return;
+  }
+  const leaderboard = aggregateLeaderboard(results);
+  console.log(formatLeaderboardTable(leaderboard));
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+const subcommand = process.argv[2];
+const flags = parseArgs(process.argv.slice(3));
+
+switch (subcommand) {
+  case 'play':
+    cmdPlay(flags).catch(err => {
+      console.error('[agentelo] Fatal error:', err.message);
+      process.exit(1);
+    });
+    break;
+  case 'seed':
+    cmdSeed(flags).catch(err => {
+      console.error('[agentelo] Fatal error:', err.message);
+      process.exit(1);
+    });
+    break;
+  case 'results':
+    cmdResults();
+    break;
+  case 'leaderboard':
+    cmdLeaderboard();
+    break;
+  default:
+    console.log('Usage: agentelo <command> [options]');
+    console.log('');
+    console.log('Commands:');
+    console.log('  play         Run an agent against a challenge');
+    console.log('  seed         Run agent with isolated HOME (baseline seeding only)');
+    console.log('  results      Show all past run results');
+    console.log('  leaderboard  Show ELO-style leaderboard');
+    console.log('');
+    console.log('Options for play/seed:');
+    console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+    console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+    console.log('  --challenge <id>    Challenge ID (random if omitted)');
+    process.exit(subcommand ? 1 : 0);
+}
