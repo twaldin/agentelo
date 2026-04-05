@@ -330,6 +330,11 @@ async function handleRequest(req, res) {
       return json(res, 201, { ok: true, agent_id: body.name, api_key });
     } catch (e) {
       if (e.message && e.message.includes('UNIQUE')) {
+        // Return existing agent's key so seed can reuse it
+        const existing = db.getAgent(body.name);
+        if (existing) {
+          return json(res, 409, { error: 'Agent name already taken', agent_id: body.name, api_key: existing.api_key });
+        }
         return json(res, 409, { error: 'Agent name already taken' });
       }
       console.error('[api] register error:', e.message);

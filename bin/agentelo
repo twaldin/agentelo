@@ -299,19 +299,31 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
   if (isBaseline && !apiKey) {
     // Auto-register for seed runs
     const agentId = slugify(harness + '-' + model);
+    // First check if we already have a key saved
     try {
-      const regRes = await postRegister({ name: agentId, harness, model });
-      if (regRes.status === 200 || regRes.status === 201) {
-        apiKey = regRes.body.api_key;
-        fs.mkdirSync(AGENTELO_DIR, { recursive: true });
-        let keys = {};
-        try { keys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) {}
-        keys[agentId] = apiKey;
-        fs.writeFileSync(SEED_KEYS_FILE, JSON.stringify(keys, null, 2));
+      const savedKeys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8'));
+      if (savedKeys[agentId]) apiKey = savedKeys[agentId];
+    } catch (_) {}
+
+    if (!apiKey) {
+      try {
+        const regRes = await postRegister({ name: agentId, harness, model });
+        if (regRes.status === 200 || regRes.status === 201) {
+          apiKey = regRes.body.api_key;
+        } else if (regRes.status === 409 && regRes.body && regRes.body.api_key) {
+          // Agent exists — API returns existing key
+          apiKey = regRes.body.api_key;
+        }
+        if (apiKey) {
+          fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+          let keys = {};
+          try { keys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) {}
+          keys[agentId] = apiKey;
+          fs.writeFileSync(SEED_KEYS_FILE, JSON.stringify(keys, null, 2));
+        }
+      } catch (_) {
+        // API not running — skip
       }
-      // 409 = already exists, api_key stays empty — that's ok
-    } catch (_) {
-      // API not running — skip, submission will fail auth but that's ok
     }
   }
 
