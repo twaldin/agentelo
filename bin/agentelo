@@ -453,7 +453,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
         break;
       case 'codex':
         cmd = 'codex';
-        cmdArgs = ['-m', model, '--full-auto', prompt];
+        cmdArgs = ['exec', '-m', model, '--full-auto', '-C', tmpdir, prompt];
         break;
       default:
         throw new Error(`Unsupported harness: ${harness}`);

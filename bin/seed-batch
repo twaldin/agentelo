@@ -32,10 +32,10 @@ const MODELS = [
   // Paid remote (via opencode)
   { harness: 'opencode', model: 'openai/gpt-5.4-mini', local: false },
   { harness: 'opencode', model: 'openai/gpt-5.4', local: false },
-  // Codex harness — DISABLED (requires terminal stdin)
-  // { harness: "codex", model: "gpt-5.4", local: false },
-  // { harness: "codex", model: "gpt-5.4-mini", local: false },
-  // { harness: "codex", model: "o4-mini", local: false },
+  // Codex harness (uses `codex exec` for headless mode)
+  { harness: 'codex', model: 'gpt-5.4', local: false },
+  { harness: 'codex', model: 'gpt-5.4-mini', local: false },
+  { harness: 'codex', model: 'o4-mini', local: false },
   // Claude (rate-limited)
   { harness: 'claude-code', model: 'claude-haiku-4-5-20251001', local: false },
   { harness: 'claude-code', model: 'claude-sonnet-4-6', local: false },
