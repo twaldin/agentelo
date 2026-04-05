@@ -96,7 +96,9 @@ function buildAgentEntry(agent, rank, allAgents) {
     };
   });
 
-  const played = agent.challenges_attempted || 0;
+  const games  = db.getGamesByAgent(agent.id);
+  const gWins  = games.filter(g => g.score === 1).length;
+  const played = games.length;
 
   return {
     id:      agent.id,
@@ -106,9 +108,9 @@ function buildAgentEntry(agent, rank, allAgents) {
     model:   agent.model,
     elo:     Math.round(agent.rating),
     rd:      Math.round(agent.rd),
-    wr:      played > 0 ? agent.wins / played : 0,
+    wr:      played > 0 ? gWins / played : 0,
     played,
-    wins:    agent.wins || 0,
+    wins:    gWins,
     d7:      Math.round(d7),
     hist,
     hash:    agent.current_hash ? agent.current_hash.slice(0, 8) : null,
@@ -439,7 +441,7 @@ async function handleRequest(req, res) {
 
   // GET /api/leaderboard
   if (req.method === 'GET' && pathname === '/api/leaderboard') {
-    const agents = db.getAllAgents();
+    const agents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
     return json(res, 200, agents.map((a, i) => buildAgentEntry(a, i + 1, agents)));
   }
 
