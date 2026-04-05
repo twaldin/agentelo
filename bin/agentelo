@@ -24,6 +24,9 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 const CHALLENGES_DIR = path.join(PROJECT_ROOT, 'challenges');
 const RESULTS_DIR = path.join(PROJECT_ROOT, 'results');
 const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'repos');
+const AGENTELO_DIR = path.join(os.homedir(), '.agentelo');
+const CREDS_FILE = path.join(AGENTELO_DIR, 'credentials.json');
+const SEED_KEYS_FILE = path.join(AGENTELO_DIR, '.seed-keys.json');
 
 // ---------------------------------------------------------------------------
 // Arg parsing helpers
@@ -141,6 +144,75 @@ function normalizeChallenge(raw) {
 }
 
 // ---------------------------------------------------------------------------
+// Slugify helper
+// ---------------------------------------------------------------------------
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// POST to /api/register
+// ---------------------------------------------------------------------------
+async function postRegister(body) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = require('http').request({
+      hostname: 'localhost', port: 4000, path: '/api/register', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+    }, (res) => {
+      let out = '';
+      res.on('data', c => out += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(out) }));
+    });
+    req.on('error', reject);
+    req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.write(data);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: register
+// ---------------------------------------------------------------------------
+async function cmdRegister(flags) {
+  if (!flags.name) {
+    console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
+    process.exit(1);
+  }
+  if (!flags.harness || !flags.model) {
+    console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
+    process.exit(1);
+  }
+
+  let res;
+  try {
+    res = await postRegister({ name: flags.name, harness: flags.harness, model: flags.model });
+  } catch (err) {
+    console.error('[agentelo] Registration failed:', err.message);
+    process.exit(1);
+  }
+
+  if (res.status === 409) {
+    console.error('[agentelo] Agent name already taken');
+    process.exit(1);
+  }
+
+  if (res.status !== 200 && res.status !== 201) {
+    console.error('[agentelo] Registration error:', JSON.stringify(res.body));
+    process.exit(1);
+  }
+
+  const { agent_id, api_key } = res.body;
+  fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+  fs.writeFileSync(CREDS_FILE, JSON.stringify({ agent_id, api_key }, null, 2));
+
+  console.log(`Agent registered: ${agent_id}`);
+  console.log(`API key: ${api_key}`);
+  console.log(`Saved to ~/.agentelo/credentials.json`);
+  console.log(`Set AGENTELO_KEY=${api_key} in your environment to authenticate.`);
+}
+
+// ---------------------------------------------------------------------------
 // POST result to API (non-blocking, non-fatal)
 // ---------------------------------------------------------------------------
 async function postToApi(result) {
@@ -203,6 +275,33 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     const cmd = isBaseline ? 'seed' : 'play';
     console.error(`[agentelo] Usage: agentelo ${cmd} --harness <name> --model <model> [--challenge <id>]`);
     process.exit(1);
+  }
+
+  // Resolve api_key
+  let apiKey = process.env.AGENTELO_KEY || '';
+
+  if (!isBaseline && !apiKey) {
+    console.error('[agentelo] Set AGENTELO_KEY or run `agentelo register` first.');
+    process.exit(1);
+  }
+
+  if (isBaseline && !apiKey) {
+    // Auto-register for seed runs
+    const agentId = slugify(harness + '-' + model);
+    try {
+      const regRes = await postRegister({ name: agentId, harness, model });
+      if (regRes.status === 200 || regRes.status === 201) {
+        apiKey = regRes.body.api_key;
+        fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+        let keys = {};
+        try { keys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) {}
+        keys[agentId] = apiKey;
+        fs.writeFileSync(SEED_KEYS_FILE, JSON.stringify(keys, null, 2));
+      }
+      // 409 = already exists, api_key stays empty — that's ok
+    } catch (_) {
+      // API not running — skip, submission will fail auth but that's ok
+    }
   }
 
   // Load challenge
@@ -489,6 +588,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       log_file: logFile,
       timed_out: timedOut,
       config_files: configFiles,
+      api_key: apiKey,
       ...(isBaseline ? { baseline: true, home_isolation: fakeHome } : {}),
       ...(isBaseline ? { config_files_hashed: [] } : {}),
     };
@@ -587,14 +687,23 @@ switch (subcommand) {
   case 'leaderboard':
     cmdLeaderboard();
     break;
+  case 'register':
+    cmdRegister(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+    break;
   default:
     console.log('Usage: agentelo <command> [options]');
     console.log('');
     console.log('Commands:');
+    console.log('  register     Register an agent and save API credentials');
     console.log('  play         Run an agent against a challenge');
     console.log('  seed         Run agent with isolated HOME (baseline seeding only)');
     console.log('  results      Show all past run results');
     console.log('  leaderboard  Show ELO-style leaderboard');
+    console.log('');
+    console.log('Options for register:');
+    console.log('  --name <username>   Agent username');
+    console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+    console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
     console.log('');
     console.log('Options for play/seed:');
     console.log('  --harness <name>    Agent harness (e.g. claude-code)');
