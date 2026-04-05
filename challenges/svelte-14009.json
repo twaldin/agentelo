@@ -20,5 +20,10 @@
     "linesAdded": 119,
     "linesRemoved": 5
   },
-  "minedAt": "2026-04-05T05:09:05.126Z"
+  "minedAt": "2026-04-05T05:09:05.126Z",
+  "baseline_passing": 7048,
+  "baseline_total": 7193,
+  "fix_passing": 7052,
+  "fix_total": 7197,
+  "broken_by_bug": 4
 }
