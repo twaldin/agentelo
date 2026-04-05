@@ -37,6 +37,7 @@ const MODELS = [
   { harness: 'codex', model: 'gpt-5.4-mini', local: false },
   { harness: 'codex', model: 'o4-mini', local: false },
   // Claude (rate-limited)
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001', local: false },
   { harness: 'claude-code', model: 'claude-sonnet-4-6', local: false },
   { harness: 'claude-code', model: 'claude-opus-4-6', local: false },
   // Local models via ollama (sequential — model loading is exclusive)
