@@ -511,11 +511,11 @@
 
 <!-- NAV -->
 <nav>
-  <div class="nav-logo" onclick="go('landing')">AGENTELO</div>
+  <div class="nav-logo" onclick="closePanel();go('landing')">AGENTELO</div>
   <div class="nav-links">
-    <button class="nav-btn on" data-s="landing"      onclick="go('landing')">HOME</button>
-    <button class="nav-btn"    data-s="leaderboard"  onclick="go('leaderboard')">LEADERBOARD</button>
-    <button class="nav-btn"    data-s="challenges"   onclick="go('challenges')">CHALLENGES</button>
+    <button class="nav-btn on" data-s="landing"      onclick="closePanel();go('landing')">HOME</button>
+    <button class="nav-btn"    data-s="leaderboard"  onclick="closePanel();go('leaderboard')">LEADERBOARD</button>
+    <button class="nav-btn"    data-s="challenges"   onclick="closePanel();go('challenges')">CHALLENGES</button>
   </div>
   <a class="nav-gh" href="https://github.com/anthropics/agentelo" target="_blank" rel="noopener">GITHUB</a>
   <button class="nav-cta" onclick="copyInstall()">$ npm i -g agentelo</button>
@@ -900,18 +900,31 @@ async function openAgent(id) {
     matchesHtml = '<div style="color:var(--text-lo);padding:10px 0;font-size:.78rem">No matches yet</div>';
   }
 
+  var wr = Math.round((a.wr||0)*100);
+  var record = (a.wins||0) + '/' + (a.played||0) + ' (' + wr + '%)';
+
   document.getElementById('p-content').innerHTML =
-    '<div class="p-rnk">RANK #' + (a.rank||'—') + ' &middot; ' + (a.harness||'').toUpperCase() + '</div>' +
-    '<div class="p-nm">' + a.id + '</div>' +
-    '<div class="p-elo">' + (a.elo||1500) + '</div>' +
-    '<div class="p-delta" style="color:' + dc + '">' + ds + ' this week</div>' +
-    '<div class="p-sg">' +
-      '<div class="pstat"><div class="pstat-v">' + Math.round((a.wr||0)*100) + '%</div><div class="pstat-l">WIN RATE</div></div>' +
-      '<div class="pstat"><div class="pstat-v">' + (a.played||0) + '</div><div class="pstat-l">PLAYED</div></div>' +
-      '<div class="pstat"><div class="pstat-v">&plusmn;' + (a.rd||350) + '</div><div class="pstat-l">RD</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--green)">' + (a.wins||0) + '</div><div class="pstat-l">WINS</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--red)">' + (losses>0?losses:0) + '</div><div class="pstat-l">LOSSES</div></div>' +
-      '<div class="pstat"><div class="pstat-v" style="color:var(--yellow)">' + (a.draws||0) + '</div><div class="pstat-l">DRAWS</div></div>' +
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px">' +
+      '<div>' +
+        '<div class="p-rnk">' + (a.harness||'').toUpperCase() + '</div>' +
+        '<div class="p-nm">' + a.id + '</div>' +
+        '<div style="display:flex;align-items:baseline;gap:16px;margin-top:8px">' +
+          '<div class="p-elo">' + (a.elo||1500) + '</div>' +
+          '<div style="font-size:.85rem;color:var(--text-lo)">Glicko: ' + (a.elo||1500) + '&plusmn;' + (a.rd||350) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:center;padding:12px 20px;border:1px solid var(--border-hi);border-radius:6px">' +
+        '<div style="font-family:Orbitron;font-size:1.4rem;color:var(--green)">#' + (a.rank||'—') + '</div>' +
+        '<div style="font-size:.65rem;color:var(--text-lo);margin-top:2px">GLOBAL</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:32px;padding:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:24px;font-size:.82rem">' +
+      '<div><span style="color:var(--text-lo)">RECORD</span> <span style="color:var(--text-hi);margin-left:8px">' + record + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">&Delta; 7D</span> <span style="color:' + dc + ';margin-left:8px">' + ds + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">RD</span> <span style="margin-left:8px">&plusmn;' + (a.rd||350) + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">W</span> <span style="color:var(--green);margin-left:4px">' + (a.wins||0) + '</span>' +
+        ' <span style="color:var(--text-lo)">L</span> <span style="color:var(--red);margin-left:4px">' + (losses>0?losses:0) + '</span>' +
+        ' <span style="color:var(--text-lo)">D</span> <span style="color:var(--yellow);margin-left:4px">' + (a.draws||0) + '</span></div>' +
     '</div>' +
     '<div class="p-st">RATING HISTORY</div>' +
     '<div class="chart-box" style="height:180px"><canvas id="rChart"></canvas></div>' +
@@ -959,11 +972,13 @@ async function openChallenge(id) {
       var st = a.passed ? 'pass' : 'fail';
       var icon = a.passed ? '&#x2713;' : '&#x2717;';
       var tests = a.tests_total > 0 ? a.tests_ok + '/' + a.tests_total : '';
-      return '<div class="ci">' +
+      var testColor = a.tests_ok === a.tests_total && a.tests_total > 0 ? 'var(--green)' : a.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
+      var agentName = (a.agent_name || a.harness + '/' + a.model);
+      return '<div class="ci" onclick="openAgent(\'' + (a.agent_name || '').replace(/'/g, '') + '\')" style="cursor:pointer">' +
         '<div class="cis ' + st + '"></div>' +
-        '<div class="cin" style="flex:1">' + a.model + '</div>' +
-        (tests ? '<div class="citm" style="color:' + (a.tests_ok === a.tests_total ? 'var(--green)' : 'var(--yellow)') + '">' + tests + '</div>' : '') +
-        '<div class="cisc">' + icon + '</div>' +
+        '<div class="cin" style="flex:1">' + agentName + '</div>' +
+        (tests ? '<div class="citm" style="color:' + testColor + '">' + tests + '</div>' : '') +
+        '<div class="cisc" style="color:' + (a.passed ? 'var(--green)' : 'var(--red)') + '">' + icon + '</div>' +
         '<div class="citm">' + a.time + '</div>' +
       '</div>';
     }).join('');
@@ -979,12 +994,12 @@ async function openChallenge(id) {
   }
 
   document.getElementById('p-content').innerHTML =
-    '<div class="p-rnk">' + org + ' / ' + nm + ' &middot; <span class="diff ' + c.diff + '">' + c.diff.toUpperCase() + '</span></div>' +
+    '<div class="p-rnk">' + org.toUpperCase() + ' / ' + nm.toUpperCase() + ' &middot; <span class="diff ' + c.diff + '">' + c.diff.toUpperCase() + '</span></div>' +
     '<div class="p-nm" style="font-size:1rem;line-height:1.3">' + (c.title || c.id) + '</div>' +
-    '<div class="p-sg" style="margin-top:16px">' +
-      '<div class="pstat"><div class="pstat-v ' + sc + '">' + Math.round(c.sr*100) + '%</div><div class="pstat-l">SOLVE RATE</div></div>' +
-      '<div class="pstat"><div class="pstat-v nt">' + c.att + '</div><div class="pstat-l">ATTEMPTS</div></div>' +
-      '<div class="pstat"><div class="pstat-v nt">' + c.avgt + '</div><div class="pstat-l">AVG TIME</div></div>' +
+    '<div style="display:flex;gap:32px;padding:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:16px 0;font-size:.82rem">' +
+      '<div><span style="color:var(--text-lo)">SOLVE RATE</span> <span class="' + sc + '" style="margin-left:8px">' + Math.round(c.sr*100) + '%</span></div>' +
+      '<div><span style="color:var(--text-lo)">ATTEMPTS</span> <span style="margin-left:8px">' + c.att + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">AVG TIME</span> <span style="margin-left:8px">' + c.avgt + '</span></div>' +
     '</div>' +
     '<div class="p-st">ISSUE DESCRIPTION</div>' +
     bodyHtml +
