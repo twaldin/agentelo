@@ -1,0 +1,24 @@
+{
+  "id": "next.js-65040",
+  "repo": "vercel/next.js",
+  "repoUrl": "https://github.com/vercel/next.js",
+  "issue": {
+    "number": 65040,
+    "title": "Routes are broken when the page extension contains only 'tsx'.",
+    "body": "### Link to the code that reproduces this issue\n\nhttps://github.com/thecuvii/page-extensions-repro\n\n### To Reproduce\n\n1. Create a new TypeScript app.\r\n\r\n2. Set `pageExtensions` to `['tsx']` in next.config.js.\r\n\r\n3. Visiting `localhost:3000` will result in an error page with the message: 'pageExtensions.map is not a function'.\r\n\r\n![CleanShot 2024-04-25 at 7 20 49@2x](https://github.com/vercel/next.js/assets/11806619/f9020634-aea0-45c9-ba20-7f129be44828)\r\n\r\n4. Set pageExtension to `['tsx', 'ts'] and the problem will be resolved.\n\n### Current vs. Expected behavior\n\nThe router works when the `pageExtensions` are set to `['tsx']`.\n\n### Provide environment information\n\n```bash\nOperating System:\r\n  Platform: darwin\r\n  Arch: arm64\r\n  Version: Darwin Kernel Version 23.4.0: Fri Mar 15 00:10:42 PDT 2024; root:xnu-10063.101.17~1/RELEASE_ARM64_T6000\r\n  Available memory (MB): 65536\r\n  Available CPU cores: 10\r\nBinaries:\r\n  Node: 20.12.2\r\n  npm: 10.5.0\r\n  Yarn: N/A\r\n  pnpm: 9.0.5\r\nRelevant Packages:\r\n  next: 14.2.3 // Latest available version is detected (14.2.3).\r\n  eslint-config-next: N/A\r\n  react: 18.2.0\r\n  react-dom: 18.2.0\r\n  typescript: 5.4.5\r\nNext.js Config:\r\n  output: N/A\n```\n\n\n### Which area(s) are affected? (Select all that apply)\n\nPages Router, Runtime\n\n### Which stage(s) are affected? (Select all that apply)\n\nnext dev (local)\n\n### Additional context\n\n_No response_\n\n<sub>[NEXT-3244](https://linear.app/vercel/issue/NEXT-3244/routes-are-broken-when-the-page-extension-contains-only-tsx)</sub>"
+  },
+  "pr": {
+    "number": 65105,
+    "url": "https://github.com/vercel/next.js/pull/65105"
+  },
+  "buggyCommit": "5897fc051d28d7dffea31cd31646a149bd504623",
+  "fixCommit": "3050f45a0a57f8e2ca5ab3edfc8533e8bd1ecf59",
+  "fixDiff": null,
+  "testCommand": "npm test",
+  "difficulty": {
+    "filesChanged": 0,
+    "linesAdded": 0,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-05T22:32:59.110Z"
+}
