@@ -1,0 +1,418 @@
+#!/usr/bin/env node
+'use strict';
+
+// Mine performance optimization challenges from GitHub PRs
+// Finds merged PRs that improve performance, extracts benchmarks,
+// and creates challenges where agents compete on execution speed.
+
+const { spawnSync, execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// --- Config ---
+
+const DEFAULT_REPOS = [
+  'fastify/fastify',
+  'koajs/koa',
+  'expressjs/express',
+  'honojs/hono',
+  'sveltejs/svelte',
+  'vitejs/vite',
+  'webpack/webpack',
+  'esbuild/esbuild',
+  'colinhacks/zod',
+  'tRPC/trpc',
+  'vercel/ai',
+];
+
+// Parse --repo flags
+const cliArgs = process.argv.slice(2);
+const cliRepos = [];
+for (let i = 0; i < cliArgs.length; i++) {
+  if (cliArgs[i] === '--repo' && cliArgs[i + 1]) cliRepos.push(cliArgs[++i]);
+}
+const ACTIVE_REPOS = cliRepos.length > 0 ? cliRepos : DEFAULT_REPOS;
+
+const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'repos');
+const ONE_YEAR_AGO = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+const MAX_FILES = 30;
+const MAX_LINES = 2000;
+
+fs.mkdirSync(CHALLENGES_DIR, { recursive: true });
+fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+// --- Shell helpers ---
+
+function run(cmd, args, { input, allowFail } = {}) {
+  const res = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+    ...(input != null ? { input } : {}),
+  });
+  if (res.status !== 0 && !allowFail) {
+    const msg = (res.stderr || '').trim() || res.error?.message || 'failed';
+    throw new Error(`${cmd} ${args.slice(0, 2).join(' ')}: ${msg}`);
+  }
+  return res;
+}
+
+// --- Search for perf-related PRs ---
+
+const PERF_SEARCH_TERMS = [
+  'improve performance',
+  'optimize',
+  'speed up',
+  'faster',
+  'perf:',
+  'perf(',
+  'reduce overhead',
+  'improve throughput',
+];
+
+// Skip chore/docs/ci PRs
+const SKIP_PREFIXES = ['chore:', 'chore(', 'docs:', 'docs(', 'ci:', 'ci(', 'test:', 'test(', 'build:', 'build('];
+
+function searchPerfPRs(repo) {
+  const all = [];
+  // Search merged PRs with perf-related terms
+  for (const term of PERF_SEARCH_TERMS) {
+    const res = run('gh', [
+      'pr', 'list', '--repo', repo,
+      '--state', 'merged',
+      '--search', `"${term}" in:title`,
+      '--limit', '20',
+      '--json', 'number,title,mergeCommit,additions,deletions,changedFiles,mergedAt',
+    ], { allowFail: true });
+
+    if (res.status !== 0 || !res.stdout.trim()) continue;
+
+    try {
+      const prs = JSON.parse(res.stdout);
+      for (const pr of prs) {
+        if (!pr.mergedAt || new Date(pr.mergedAt) < ONE_YEAR_AGO) continue;
+        if (pr.changedFiles > MAX_FILES) continue;
+        if ((pr.additions + pr.deletions) > MAX_LINES) continue;
+        // Dedupe by PR number
+        if (!all.find(p => p.number === pr.number)) {
+          all.push(pr);
+        }
+      }
+    } catch {}
+  }
+
+  // Also search by labels
+  for (const label of ['performance', 'perf', 'optimization']) {
+    const res = run('gh', [
+      'pr', 'list', '--repo', repo,
+      '--state', 'merged',
+      '--label', label,
+      '--limit', '20',
+      '--json', 'number,title,mergeCommit,additions,deletions,changedFiles,mergedAt',
+    ], { allowFail: true });
+
+    if (res.status !== 0 || !res.stdout.trim()) continue;
+    try {
+      const prs = JSON.parse(res.stdout);
+      for (const pr of prs) {
+        if (!pr.mergedAt || new Date(pr.mergedAt) < ONE_YEAR_AGO) continue;
+        if (pr.changedFiles > MAX_FILES) continue;
+        if ((pr.additions + pr.deletions) > MAX_LINES) continue;
+        if (!all.find(p => p.number === pr.number)) {
+          all.push(pr);
+        }
+      }
+    } catch {}
+  }
+
+  return all;
+}
+
+// --- Fetch PR details ---
+
+function fetchPRDetails(repo, prNumber) {
+  const res = run('gh', [
+    'pr', 'view', String(prNumber), '--repo', repo,
+    '--json', 'number,title,body,mergeCommit,additions,deletions,changedFiles,mergedAt,labels',
+  ], { allowFail: true });
+  if (res.status !== 0) return null;
+  try { return JSON.parse(res.stdout); } catch { return null; }
+}
+
+function fetchPRDiff(repo, prNumber) {
+  const res = run('gh', ['pr', 'diff', String(prNumber), '--repo', repo], { allowFail: true });
+  return res.status === 0 ? res.stdout : null;
+}
+
+// --- Detect test command ---
+
+function detectTestCommand(repo) {
+  const [owner, name] = repo.split('/');
+
+  // Check bun
+  const bunCheck = run('gh', ['api', `repos/${owner}/${name}/contents/bun.lock`, '--jq', '.name'], { allowFail: true });
+  if (bunCheck.status === 0 && (bunCheck.stdout || '').trim()) return 'bun test';
+
+  // Check pnpm
+  const pnpmCheck = run('gh', ['api', `repos/${owner}/${name}/contents/pnpm-lock.yaml`, '--jq', '.name'], { allowFail: true });
+  const hasPnpm = pnpmCheck.status === 0 && (pnpmCheck.stdout || '').trim();
+
+  // Check package.json
+  const pkgRes = run('gh', ['api', `repos/${owner}/${name}/contents/package.json`], { allowFail: true });
+  if (pkgRes.status === 0) {
+    try {
+      const obj = JSON.parse(pkgRes.stdout);
+      if (obj.content) {
+        const pkg = JSON.parse(Buffer.from(obj.content.replace(/\s/g, ''), 'base64').toString());
+        const test = pkg.scripts?.test;
+        if (test && !test.includes('no test') && !test.includes('echo')) {
+          return hasPnpm ? 'pnpm test' : 'npm test';
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// --- Repo caching ---
+
+function ensureRepoCache(repo) {
+  const slug = repo.replace(/\//g, '-');
+  const dir = path.join(CACHE_DIR, slug);
+  if (fs.existsSync(path.join(dir, '.git'))) {
+    try { spawnSync('git', ['fetch', '--all'], { cwd: dir, stdio: 'pipe', timeout: 120000 }); } catch {}
+    return dir;
+  }
+  console.log(`  Cloning ${repo}...`);
+  const res = spawnSync('git', ['clone', '--bare', `https://github.com/${repo}.git`, dir + '/.git'], {
+    stdio: 'pipe', timeout: 300000,
+  });
+  if (res.status !== 0) return null;
+  spawnSync('git', ['config', '--bool', 'core.bare', 'false'], { cwd: dir, stdio: 'pipe' });
+  return dir;
+}
+
+// --- Test parsing ---
+
+function parseTestCounts(output) {
+  const vitestTests = output.match(/Tests\s+(\d+)\s+passed.*?\((\d+)\)/);
+  if (vitestTests) return { pass: parseInt(vitestTests[1]), total: parseInt(vitestTests[2]) };
+
+  const jestPassed = output.match(/Tests:\s*(?:\d+\s+\w+,\s*)*?(\d+)\s+passed/);
+  const jestTotal = output.match(/Tests:\s*(?:\d+\s+\w+,\s*)*?(\d+)\s+total/);
+  if (jestPassed && jestTotal) return { pass: parseInt(jestPassed[1]), total: parseInt(jestTotal[1]) };
+
+  const nodePass = output.match(/^[#ℹ]?\s*pass\s+(\d+)/m);
+  const nodeTotal = output.match(/^[#ℹ]?\s*tests\s+(\d+)/m);
+  if (nodePass && nodeTotal) return { pass: parseInt(nodePass[1]), total: parseInt(nodeTotal[1]) };
+
+  const mocha = output.match(/(\d+)\s+passing/);
+  const mochaFail = output.match(/(\d+)\s+failing/);
+  if (mocha) {
+    const p = parseInt(mocha[1]);
+    return { pass: p, total: p + (mochaFail ? parseInt(mochaFail[1]) : 0) };
+  }
+
+  const pytest = output.match(/(\d+)\s+passed/);
+  if (pytest) {
+    const p = parseInt(pytest[1]);
+    const pyFail = output.match(/(\d+)\s+failed/);
+    return { pass: p, total: p + (pyFail ? parseInt(pyFail[1]) : 0) };
+  }
+
+  return { pass: 0, total: 0 };
+}
+
+function installDeps(dir, testCommand) {
+  try {
+    if (fs.existsSync(path.join(dir, 'bun.lock')) || fs.existsSync(path.join(dir, 'bun.lockb'))) {
+      spawnSync('bun', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (testCommand?.startsWith('pnpm') || fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
+      spawnSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      spawnSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    }
+  } catch {}
+}
+
+function runTests(dir, testCommand) {
+  try {
+    // If npm test includes lint, skip lint and run unit tests directly
+    let cmd = testCommand;
+    if (cmd === 'npm test' || cmd === 'pnpm test') {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        if (pkg.scripts?.unit) cmd = cmd.replace('test', 'run unit');
+      } catch {}
+    }
+    return execSync(cmd, { cwd: dir, stdio: 'pipe', timeout: 600000, encoding: 'utf8' });
+  } catch (err) {
+    return (err.stdout || '') + (err.stderr || '');
+  }
+}
+
+// --- Validate perf challenge ---
+// For a perf challenge, we need:
+// 1. Tests pass on BOTH pre-PR and post-PR commits (no regressions)
+// 2. The PR doesn't break existing tests
+// 3. The challenge is: given pre-PR code, make it faster (like the PR did)
+
+function validatePerfChallenge(cacheDir, beforeCommit, afterCommit, testCommand) {
+  const tmpBefore = fs.mkdtempSync(path.join(os.tmpdir(), 'perf-before-'));
+  const tmpAfter = fs.mkdtempSync(path.join(os.tmpdir(), 'perf-after-'));
+
+  try {
+    // Test BEFORE commit (pre-optimization)
+    spawnSync('cp', ['-r', cacheDir + '/', tmpBefore + '/'], { stdio: 'pipe' });
+    spawnSync('git', ['checkout', '-f', beforeCommit], { cwd: tmpBefore, stdio: 'pipe' });
+    spawnSync('git', ['clean', '-fd'], { cwd: tmpBefore, stdio: 'pipe' });
+    installDeps(tmpBefore, testCommand);
+    const beforeOutput = runTests(tmpBefore, testCommand);
+    const beforeResult = parseTestCounts(beforeOutput);
+
+    // Test AFTER commit (post-optimization)
+    spawnSync('cp', ['-r', cacheDir + '/', tmpAfter + '/'], { stdio: 'pipe' });
+    spawnSync('git', ['checkout', '-f', afterCommit], { cwd: tmpAfter, stdio: 'pipe' });
+    spawnSync('git', ['clean', '-fd'], { cwd: tmpAfter, stdio: 'pipe' });
+    installDeps(tmpAfter, testCommand);
+    const afterOutput = runTests(tmpAfter, testCommand);
+    const afterResult = parseTestCounts(afterOutput);
+
+    return {
+      before_passing: beforeResult.pass,
+      before_total: beforeResult.total,
+      after_passing: afterResult.pass,
+      after_total: afterResult.total,
+      // For perf challenges: both commits should pass tests
+      // We require no test regressions (after >= before)
+      tests_stable: afterResult.pass >= beforeResult.pass && beforeResult.pass > 0,
+    };
+  } finally {
+    try { fs.rmSync(tmpBefore, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(tmpAfter, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// --- Mine a repo ---
+
+function mineRepo(repo) {
+  const [, name] = repo.split('/');
+  process.stdout.write(`\n[${repo}] searching for perf PRs... `);
+
+  let prs;
+  try {
+    prs = searchPerfPRs(repo);
+  } catch (e) {
+    console.error(`FAILED: ${e.message}`);
+    return 0;
+  }
+  console.log(`${prs.length} found`);
+
+  if (prs.length === 0) return 0;
+
+  const testCommand = detectTestCommand(repo);
+  if (!testCommand) {
+    console.log(`  SKIP — no test command detected`);
+    return 0;
+  }
+
+  const cacheDir = ensureRepoCache(repo);
+  if (!cacheDir) {
+    console.log(`  SKIP — could not clone`);
+    return 0;
+  }
+
+  let saved = 0;
+  for (const pr of prs) {
+    const id = `perf-${name}-${pr.number}`;
+    const outPath = path.join(CHALLENGES_DIR, `${id}.json`);
+    if (fs.existsSync(outPath)) continue;
+
+    // Skip non-code PRs
+    const titleLower = (pr.title || '').toLowerCase();
+    if (SKIP_PREFIXES.some(p => titleLower.startsWith(p))) {
+      console.log(`  skip PR #${pr.number} "${(pr.title||'').slice(0,50)}" — chore/docs/ci`);
+      continue;
+    }
+    // Skip PRs that just remove things without adding
+    if (pr.additions === 0) {
+      console.log(`  skip PR #${pr.number} — deletion only`);
+      continue;
+    }
+
+    const details = fetchPRDetails(repo, pr.number);
+    if (!details || !details.mergeCommit) {
+      console.log(`  skip PR #${pr.number} — no merge commit`);
+      continue;
+    }
+
+    // Get parent commit (before the optimization)
+    const commitRes = run('gh', ['api', `repos/${repo.split('/')[0]}/${name}/commits/${details.mergeCommit.oid}`, '--jq', '.parents[0].sha'], { allowFail: true });
+    if (commitRes.status !== 0 || !commitRes.stdout.trim()) {
+      console.log(`  skip PR #${pr.number} — can't get parent commit`);
+      continue;
+    }
+    const beforeCommit = commitRes.stdout.trim();
+    const afterCommit = details.mergeCommit.oid;
+
+    console.log(`  ${id}: validating...`);
+
+    try {
+      const validation = validatePerfChallenge(cacheDir, beforeCommit, afterCommit, testCommand);
+
+      if (!validation.tests_stable) {
+        console.log(`    SKIP — tests not stable (before=${validation.before_passing} after=${validation.after_passing})`);
+        continue;
+      }
+
+      const diff = fetchPRDiff(repo, pr.number);
+
+      const challenge = {
+        id,
+        type: 'perf',
+        repo,
+        repoUrl: `https://github.com/${repo}`,
+        pr: {
+          number: pr.number,
+          title: details.title,
+          body: details.body || '',
+          url: `https://github.com/${repo}/pull/${pr.number}`,
+        },
+        beforeCommit,
+        afterCommit,
+        fixDiff: diff || '',
+        testCommand,
+        before_passing: validation.before_passing,
+        after_passing: validation.after_passing,
+        difficulty: {
+          filesChanged: pr.changedFiles,
+          linesAdded: pr.additions,
+          linesRemoved: pr.deletions,
+        },
+        minedAt: new Date().toISOString(),
+      };
+
+      fs.writeFileSync(outPath, JSON.stringify(challenge, null, 2));
+      saved++;
+      console.log(`    ✓ saved ${id} (before=${validation.before_passing} after=${validation.after_passing}, +${pr.additions}/-${pr.deletions})`);
+    } catch (e) {
+      console.log(`    ERROR: ${(e.message || '').slice(0, 80)}`);
+    }
+  }
+
+  return saved;
+}
+
+// --- Entry point ---
+
+console.log('AgentElo Performance Challenge Miner');
+console.log(`Repos: ${ACTIVE_REPOS.length}${cliRepos.length ? ' (from --repo)' : ''}`);
+console.log(`Output: ${CHALLENGES_DIR}`);
+
+let total = 0;
+for (const repo of ACTIVE_REPOS) {
+  total += mineRepo(repo);
+}
+
+console.log(`\nDone. ${total} perf challenges saved.`);

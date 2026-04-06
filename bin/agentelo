@@ -142,15 +142,17 @@ function installDeps(dir) {
 // ---------------------------------------------------------------------------
 function normalizeChallenge(raw) {
   return {
-    id:           raw.id,
-    repo:         raw.repoUrl || raw.repo,
-    commit:       raw.buggyCommit || raw.commit,
-    fixCommit:    raw.fixCommit,
-    fixDiff:      raw.fixDiff,
-    title:        raw.issue?.title || raw.title || raw.id,
-    body:         raw.issue?.body  || raw.body  || '',
-    test_command: raw.testCommand  || raw.test_command || 'npm test',
-    difficulty:   raw.difficulty,
+    id:               raw.id,
+    repo:             raw.repoUrl || raw.repo,
+    commit:           raw.buggyCommit || raw.commit,
+    fixCommit:        raw.fixCommit,
+    fixDiff:          raw.fixDiff,
+    title:            raw.issue?.title || raw.title || raw.id,
+    body:             raw.issue?.body  || raw.body  || '',
+    test_command:     raw.testCommand  || raw.test_command || 'npm test',
+    difficulty:       raw.difficulty,
+    baseline_passing: raw.baseline_passing || 0,
+    broken_by_bug:    raw.broken_by_bug || 0,
   };
 }
 
@@ -433,7 +435,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
 
     // Copy cache to temp dir and checkout the buggy commit
     execFileSync('cp', ['-r', cacheDir + '/', tmpdir + '/'], { stdio: 'pipe' });
-    execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: tmpdir, stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: tmpdir, stdio: 'pipe' });
     execFileSync('git', ['clean', '-fd'], { cwd: tmpdir, stdio: 'pipe' });
     // Install deps for the specific commit
     installDeps(tmpdir);
@@ -558,7 +560,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
     try {
       execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
-      execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+      execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
       execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
       installDeps(cleanDir);
     } catch (err) {
@@ -573,9 +575,14 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       console.error('[agentelo] Scoring error:', err.message);
     }
 
-    // RETRY: if tests failed and agent produced a diff, give the agent one chance to fix
-    if (!scoreResult.tests_passed && diff && diff.trim() && !timedOut) {
-      console.log('[agentelo] Tests failed — giving agent one retry with error feedback...');
+    // RETRY: if agent didn't fix all broken tests, give one chance to improve
+    // Use tests_ok vs baseline instead of binary tests_passed
+    const baseline = challenge.baseline_passing || 0;
+    const broken = challenge.broken_by_bug || 0;
+    const fixed = Math.max(0, (scoreResult.tests_ok || 0) - baseline);
+    const fullyFixed = broken > 0 ? fixed >= broken : scoreResult.exit_code === 0;
+    if (!fullyFixed && diff && diff.trim() && !timedOut) {
+      console.log(`[agentelo] ${fixed}/${broken} tests fixed — giving agent one retry with error feedback...`);
 
       // Build feedback prompt with test errors from the scorer's clean run
       const testLog = scoreResult.test_output || '';
@@ -630,14 +637,15 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
       try {
         execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
-        execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+        execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
         execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
         installDeps(cleanDir);
       } catch (_) {}
 
       try {
         scoreResult = await score(diff, cleanDir, challenge, logFile);
-        console.log('[agentelo] Retry score: tests_passed=' + scoreResult.tests_passed);
+        const retryFixed = Math.max(0, (scoreResult.tests_ok || 0) - baseline);
+        console.log(`[agentelo] Retry score: ${retryFixed}/${broken} fixed (tests_ok=${scoreResult.tests_ok})`);
       } catch (err) {
         console.error('[agentelo] Retry scoring error:', err.message);
       }
@@ -659,6 +667,28 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       agentHash = hashResult.hash;
       configFiles = hashResult.configFiles;
     }
+
+    // Extract token usage from agent log
+    let tokensIn = 0, tokensOut = 0, costUsd = 0;
+    let transcript = '';
+    try {
+      const logContent = fs.readFileSync(logFile, 'utf8');
+      transcript = logContent;
+      // Claude Code: "Total tokens: 1234 input, 5678 output" or "Cost: $0.12"
+      const claudeTokens = logContent.match(/(\d[\d,]+)\s*input.*?(\d[\d,]+)\s*output/i);
+      if (claudeTokens) {
+        tokensIn = parseInt(claudeTokens[1].replace(/,/g, ''));
+        tokensOut = parseInt(claudeTokens[2].replace(/,/g, ''));
+      }
+      const claudeCost = logContent.match(/(?:cost|total).*?\$(\d+\.?\d*)/i);
+      if (claudeCost) costUsd = parseFloat(claudeCost[1]);
+      // OpenCode/OpenRouter: look for usage patterns
+      const orTokens = logContent.match(/usage.*?prompt.*?(\d+).*?completion.*?(\d+)/i);
+      if (orTokens) {
+        tokensIn = parseInt(orTokens[1]);
+        tokensOut = parseInt(orTokens[2]);
+      }
+    } catch {}
 
     // Build result object
     const result = {
@@ -686,6 +716,9 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
       timed_out: timedOut,
       config_files: configFiles,
       api_key: apiKey,
+      tokens_in: tokensIn,
+      tokens_out: tokensOut,
+      cost_usd: costUsd,
       ...(isBaseline ? { baseline: true, home_isolation: fakeHome } : {}),
       ...(isBaseline ? { config_files_hashed: [] } : {}),
     };
@@ -697,7 +730,9 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     // Print summary
     console.log('\n[agentelo] Done!');
     console.log(`Challenge: ${challenge.id}`);
-    console.log(`Tests passed: ${result.tests_passed ? 'YES' : 'NO'}`);
+    const finalFixed = Math.max(0, (result.tests_ok || 0) - (challenge.baseline_passing || 0));
+    const finalBroken = challenge.broken_by_bug || 0;
+    console.log(`Tests fixed: ${finalFixed}/${finalBroken} (tests_ok=${result.tests_ok})`);
     console.log(`Time: ${Math.round(result.time_seconds)}s`);
     console.log(`Diff lines: ${result.diff_lines}`);
     console.log(`Tampered: ${tampered ? 'YES' : 'NO'}`);

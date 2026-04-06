@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-const { spawnSync } = require('child_process');
+const { spawnSync, execFileSync, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // --- Config ---
 
@@ -45,7 +46,17 @@ const REPOS = [
   'denoland/deno',
 ];
 
+// --- Parse --repo flags ---
+const cliArgs = process.argv.slice(2);
+const cliRepos = [];
+for (let i = 0; i < cliArgs.length; i++) {
+  if (cliArgs[i] === '--repo' && cliArgs[i + 1]) cliRepos.push(cliArgs[++i]);
+}
+const ACTIVE_REPOS = cliRepos.length > 0 ? cliRepos : REPOS;
+const MIN_BROKEN = parseInt(process.env.MIN_BROKEN || '3', 10);
+
 const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'repos');
 const NINETY_DAYS_AGO = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
 const MAX_FILES = 30;
 const MAX_LINES = 2000;
@@ -99,14 +110,22 @@ function detectTestCommand(repo) {
   const [owner, name] = repo.split('/');
   let cmd = null;
 
-  // package.json → Node
+  // Check for bun or pnpm first
+  const bunCheck = run('gh', ['api', `repos/${owner}/${name}/contents/bun.lock`, '--jq', '.name'], { allowFail: true });
+  const hasBunLock = bunCheck.status === 0 && (bunCheck.stdout || '').trim().length > 0;
+  const pnpmCheck = run('gh', ['api', `repos/${owner}/${name}/contents/pnpm-lock.yaml`, '--jq', '.name'], { allowFail: true });
+  const hasPnpmLock = pnpmCheck.status === 0 && (pnpmCheck.stdout || '').trim().length > 0;
+
+  // package.json → Node (bun, pnpm, or npm)
   if (!cmd) {
     const content = fetchFileContent(owner, name, 'package.json');
     if (content) {
       try {
         const pkg = JSON.parse(content);
         const test = pkg.scripts?.test;
-        if (test && !test.includes('no test') && !test.includes('echo')) cmd = 'npm test';
+        if (test && !test.includes('no test') && !test.includes('echo')) {
+          cmd = hasBunLock ? 'bun test' : hasPnpmLock ? 'pnpm test' : 'npm test';
+        }
       } catch {}
     }
   }
@@ -134,6 +153,8 @@ function detectTestCommand(repo) {
 }
 
 // --- GitHub GraphQL query for bug issues with linked PRs ---
+
+const BUG_LABELS = ['bug', '🐛 bug', 'type: bug', 'kind/bug'];
 
 const ISSUES_QUERY = `
 query GetBugIssues($owner: String!, $name: String!, $cursor: String) {
@@ -178,13 +199,14 @@ query GetBugIssues($owner: String!, $name: String!, $cursor: String) {
 }
 `;
 
-function fetchIssues(owner, name) {
+function fetchIssuesWithLabel(owner, name, label) {
+  const query = ISSUES_QUERY.replace('labels: ["bug"]', `labels: ["${label}"]`);
   const all = [];
   let cursor = null;
   let pages = 0;
 
   while (pages < 3) {
-    const data = graphql(ISSUES_QUERY, { owner, name, cursor });
+    const data = graphql(query, { owner, name, cursor });
     const page = data.repository.issues;
 
     for (const issue of page.nodes) {
@@ -196,7 +218,6 @@ function fetchIssues(owner, name) {
 
     if (!page.pageInfo.hasNextPage) break;
 
-    // Stop paginating if the oldest on this page is outside the window
     const oldest = page.nodes[page.nodes.length - 1];
     if (oldest && new Date(oldest.closedAt) < NINETY_DAYS_AGO) break;
 
@@ -205,6 +226,21 @@ function fetchIssues(owner, name) {
   }
 
   return all;
+}
+
+function fetchIssues(owner, name) {
+  // Try multiple bug label variants — repos use different conventions
+  for (const label of BUG_LABELS) {
+    try {
+      const issues = fetchIssuesWithLabel(owner, name, label);
+      if (issues.length > 0) {
+        console.log(`(label: "${label}")`);
+        return issues;
+      }
+    } catch (_) {}
+  }
+  console.log(`(no bug issues found with labels: ${BUG_LABELS.join(', ')})`);
+  return [];
 }
 
 // --- PR diff fetching ---
@@ -225,6 +261,174 @@ function fetchPRDiff(repo, prNumber) {
     return parts.join('\n') || null;
   } catch {}
   return null;
+}
+
+// --- Repo caching ---
+
+fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+function ensureRepoCache(repo) {
+  const slug = repo.replace(/\//g, '-');
+  const dir = path.join(CACHE_DIR, slug);
+  if (fs.existsSync(path.join(dir, '.git'))) {
+    // Fetch latest
+    try { spawnSync('git', ['fetch', '--all'], { cwd: dir, stdio: 'pipe', timeout: 120000 }); } catch (_) {}
+    return dir;
+  }
+  console.log(`  Cloning ${repo}...`);
+  const res = spawnSync('git', ['clone', '--bare', `https://github.com/${repo}.git`, dir + '/.git'], {
+    stdio: 'pipe', timeout: 300000,
+  });
+  if (res.status !== 0) {
+    console.log(`  FAILED to clone ${repo}`);
+    return null;
+  }
+  // Convert bare to normal for checkout
+  spawnSync('git', ['config', '--bool', 'core.bare', 'false'], { cwd: dir, stdio: 'pipe' });
+  return dir;
+}
+
+// --- Baseline computation ---
+
+function parseTestCounts(output) {
+  // vitest: "Tests  N passed (M)" or "Tests  N passed | M failed (T)"
+  const vitestTests = output.match(/Tests\s+(\d+)\s+passed.*?\((\d+)\)/);
+  if (vitestTests) return { pass: parseInt(vitestTests[1]), total: parseInt(vitestTests[2]) };
+
+  // jest: "Tests: N passed, M total" or "Tests: N failed, M passed, T total"
+  const jestPassed = output.match(/Tests:\s*(?:\d+\s+\w+,\s*)*?(\d+)\s+passed/);
+  const jestTotal = output.match(/Tests:\s*(?:\d+\s+\w+,\s*)*?(\d+)\s+total/);
+  if (jestPassed && jestTotal) return { pass: parseInt(jestPassed[1]), total: parseInt(jestTotal[1]) };
+
+  // node --test / borp: "pass N" and "tests N" on separate lines
+  const nodePass = output.match(/^[#ℹ]?\s*pass\s+(\d+)/m);
+  const nodeTotal = output.match(/^[#ℹ]?\s*tests\s+(\d+)/m);
+  if (nodePass && nodeTotal) return { pass: parseInt(nodePass[1]), total: parseInt(nodeTotal[1]) };
+
+  // TAP-style
+  const tapOk = output.match(/# pass\s+(\d+)/);
+  const tapTotal = output.match(/# tests\s+(\d+)/);
+  if (tapOk && tapTotal) return { pass: parseInt(tapOk[1]), total: parseInt(tapTotal[1]) };
+
+  // mocha/chai: "N passing"
+  const mocha = output.match(/(\d+)\s+passing/);
+  const mochaFail = output.match(/(\d+)\s+failing/);
+  if (mocha) {
+    const p = parseInt(mocha[1]);
+    const f = mochaFail ? parseInt(mochaFail[1]) : 0;
+    return { pass: p, total: p + f };
+  }
+
+  // pytest: "N passed" or "N passed, M failed"
+  const pytest = output.match(/(\d+)\s+passed/);
+  if (pytest) {
+    const p = parseInt(pytest[1]);
+    const pyFail = output.match(/(\d+)\s+failed/);
+    const f = pyFail ? parseInt(pyFail[1]) : 0;
+    return { pass: p, total: p + f };
+  }
+
+  return { pass: 0, total: 0 };
+}
+
+function installDeps(dir, testCommand) {
+  try {
+    if (fs.existsSync(path.join(dir, 'bun.lock')) || fs.existsSync(path.join(dir, 'bun.lockb'))) {
+      spawnSync('bun', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (testCommand && testCommand.startsWith('pnpm')) {
+      spawnSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
+      spawnSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      spawnSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    }
+  } catch (_) {}
+}
+
+function runTestsLocal(dir, testCommand) {
+  try {
+    let cmd = testCommand;
+    if (cmd === 'npm test' || cmd === 'pnpm test') {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        if (pkg.scripts?.unit) cmd = cmd.replace('test', 'run unit');
+      else if (pkg.scripts?.['tests-only']) cmd = cmd.replace('test', 'run tests-only');
+      } catch {}
+    }
+    return execSync(cmd, { cwd: dir, stdio: 'pipe', timeout: 600000, encoding: 'utf8' });
+  } catch (err) {
+    return (err.stdout || '') + (err.stderr || '');
+  }
+}
+
+function copyTestFiles(srcDir, dstDir) {
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(srcDir, full);
+      if (entry.isDirectory()) {
+        if (entry.name === '.git' || entry.name === 'node_modules') continue;
+        walk(full);
+      } else if (entry.isFile()) {
+        const p = rel.toLowerCase();
+        if (p.includes('/test/') || p.includes('/tests/') || p.includes('.test.') || p.includes('.spec.')) {
+          const dst = path.join(dstDir, rel);
+          try {
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(full, dst);
+          } catch (_) {}
+        }
+      }
+    }
+  }
+  walk(srcDir);
+}
+
+function computeBaseline(cacheDir, buggyCommit, fixCommit, testCommand) {
+  const tmpBuggy = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-buggy-'));
+  const tmpFix = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-fix-'));
+  const tmpFixSrc = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-fixsrc-'));
+
+  try {
+    // Checkout buggy commit
+    spawnSync('cp', ['-r', cacheDir + '/', tmpBuggy + '/'], { stdio: 'pipe' });
+    spawnSync('git', ['checkout', '-f', buggyCommit], { cwd: tmpBuggy, stdio: 'pipe' });
+    spawnSync('git', ['clean', '-fd'], { cwd: tmpBuggy, stdio: 'pipe' });
+    installDeps(tmpBuggy, testCommand);
+
+    // Get fix-commit test files and inject into buggy
+    spawnSync('cp', ['-r', path.join(cacheDir, '.git'), path.join(tmpFixSrc, '.git')], { stdio: 'pipe' });
+    spawnSync('git', ['checkout', '-f', fixCommit], { cwd: tmpFixSrc, stdio: 'pipe' });
+    copyTestFiles(tmpFixSrc, tmpBuggy);
+
+    // Run tests on buggy (with fix tests)
+    const buggyOutput = runTestsLocal(tmpBuggy, testCommand);
+    const buggyResult = parseTestCounts(buggyOutput);
+
+    // Checkout fix commit
+    spawnSync('cp', ['-r', cacheDir + '/', tmpFix + '/'], { stdio: 'pipe' });
+    spawnSync('git', ['checkout', '-f', fixCommit], { cwd: tmpFix, stdio: 'pipe' });
+    spawnSync('git', ['clean', '-fd'], { cwd: tmpFix, stdio: 'pipe' });
+    installDeps(tmpFix, testCommand);
+
+    // Run tests on fix
+    const fixOutput = runTestsLocal(tmpFix, testCommand);
+    const fixResult = parseTestCounts(fixOutput);
+
+    return {
+      baseline_passing: buggyResult.pass,
+      baseline_total: buggyResult.total,
+      fix_passing: fixResult.pass,
+      fix_total: fixResult.total,
+      broken_by_bug: fixResult.pass - buggyResult.pass,
+    };
+  } finally {
+    try { fs.rmSync(tmpBuggy, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(tmpFix, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(tmpFixSrc, { recursive: true, force: true }); } catch (_) {}
+  }
 }
 
 // --- Build challenge object ---
@@ -294,7 +498,14 @@ function mineRepo(repo) {
     console.error(`FAILED: ${e.message}`);
     return 0;
   }
-  console.log(`${issues.length} in 90-day window`);
+  console.log(`${issues.length} in window`);
+
+  // Clone/cache repo for baseline computation
+  const cacheDir = ensureRepoCache(repo);
+  if (!cacheDir) {
+    console.log(`  SKIP ${repo} — could not clone`);
+    return 0;
+  }
 
   let saved = 0;
   for (const issue of issues) {
@@ -302,7 +513,6 @@ function mineRepo(repo) {
     const outPath = path.join(CHALLENGES_DIR, `${id}.json`);
 
     if (fs.existsSync(outPath)) {
-      console.log(`  skip ${id} (exists)`);
       continue;
     }
 
@@ -320,10 +530,36 @@ function mineRepo(repo) {
       continue;
     }
 
+    if (!challenge.testCommand) {
+      console.log(`  skip ${id} — no test command`);
+      continue;
+    }
+
+    // Compute baseline inline
+    console.log(`  ${id}: computing baseline...`);
+    try {
+      const baseline = computeBaseline(cacheDir, challenge.buggyCommit, challenge.fixCommit, challenge.testCommand);
+      challenge.baseline_passing = baseline.baseline_passing;
+      challenge.baseline_total = baseline.baseline_total;
+      challenge.fix_passing = baseline.fix_passing;
+      challenge.fix_total = baseline.fix_total;
+      challenge.broken_by_bug = baseline.broken_by_bug;
+
+      if (baseline.broken_by_bug < MIN_BROKEN) {
+        console.log(`    SKIP — broken_by_bug=${baseline.broken_by_bug} (need >=${MIN_BROKEN})`);
+        continue;
+      }
+
+      console.log(`    ✓ buggy=${baseline.baseline_passing}/${baseline.baseline_total} fix=${baseline.fix_passing}/${baseline.fix_total} broken=${baseline.broken_by_bug}`);
+    } catch (e) {
+      console.log(`    baseline error: ${(e.message || '').slice(0, 80)}`);
+      continue;
+    }
+
     fs.writeFileSync(outPath, JSON.stringify(challenge, null, 2));
     saved++;
     const { filesChanged, linesAdded, linesRemoved } = challenge.difficulty;
-    console.log(`  saved ${id} (+${linesAdded}/-${linesRemoved} in ${filesChanged} files)`);
+    console.log(`    saved ${id} (+${linesAdded}/-${linesRemoved} in ${filesChanged} files)`);
   }
 
   return saved;
@@ -332,12 +568,14 @@ function mineRepo(repo) {
 // --- Entry point ---
 
 console.log('AgentElo Challenge Miner');
+console.log(`Repos: ${ACTIVE_REPOS.length}${cliRepos.length ? ' (from --repo)' : ''}`);
 console.log(`Window: ${NINETY_DAYS_AGO.toISOString().split('T')[0]} → today`);
+console.log(`Min broken_by_bug: ${MIN_BROKEN}`);
 console.log(`Output: ${CHALLENGES_DIR}`);
 
 let total = 0;
-for (const repo of REPOS) {
+for (const repo of ACTIVE_REPOS) {
   total += mineRepo(repo);
 }
 
-console.log(`\nDone. ${total} challenges saved to ${CHALLENGES_DIR}`);
+console.log(`\nDone. ${total} validated challenges saved to ${CHALLENGES_DIR}`);

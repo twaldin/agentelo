@@ -282,13 +282,13 @@ function insertSubmission(sub) {
        tests_passed, tests_total, tests_ok, tests_failed,
        agent_time_seconds, test_time_seconds, diff_lines, diff,
        exit_code, tampered, rating_at_submission, rd_at_submission,
-       transcript_path, created_at)
+       transcript_path, tokens_in, tokens_out, cost_usd, created_at)
     VALUES
       (@run_id, @challenge_id, @agent_id, @agent_hash, @harness, @model,
        @tests_passed, @tests_total, @tests_ok, @tests_failed,
        @agent_time_seconds, @test_time_seconds, @diff_lines, @diff,
        @exit_code, @tampered, @rating_at_submission, @rd_at_submission,
-       @transcript_path, @created_at)
+       @transcript_path, @tokens_in, @tokens_out, @cost_usd, @created_at)
   `).run({
     run_id: sub.run_id,
     challenge_id: sub.challenge_id,
@@ -309,6 +309,9 @@ function insertSubmission(sub) {
     rating_at_submission: sub.rating_at_submission || 1500,
     rd_at_submission: sub.rd_at_submission || 350,
     transcript_path: sub.transcript_path || null,
+    tokens_in: sub.tokens_in || 0,
+    tokens_out: sub.tokens_out || 0,
+    cost_usd: sub.cost_usd || 0,
     created_at: sub.created_at || new Date().toISOString(),
   });
 }

@@ -1,0 +1,27 @@
+{
+  "id": "mocha-pr5647",
+  "repo": "mochajs/mocha",
+  "repoUrl": "https://github.com/mochajs/mocha",
+  "issue": {
+    "number": 5647,
+    "title": "fix: import() fallback prevention",
+    "body": ""
+  },
+  "pr": {
+    "number": 5647,
+    "url": "https://github.com/mochajs/mocha/pull/5647"
+  },
+  "buggyCommit": "5525da60cf8d2596e14ff5441ea518d47bd732da",
+  "fixCommit": "6a78fa39576ffb42700811661a94c9ac996707f2",
+  "fixDiff": "diff --git a/lib/nodejs/esm-utils.js b/lib/nodejs/esm-utils.js\nindex 7c5c95b81f..5b41473ca2 100644\n--- a/lib/nodejs/esm-utils.js\n+++ b/lib/nodejs/esm-utils.js\n@@ -1,6 +1,7 @@\n const path = require(\"node:path\");\n const url = require(\"node:url\");\n const debug = require(\"debug\")(\"mocha:esm-utils\");\n+const { isMochaError } = require(\"../errors\");\n \n const forward = (x) => x;\n \n@@ -98,7 +99,7 @@ const requireModule = async (file, esmDecorator) => {\n     return require(file);\n   } catch (requireErr) {\n     debug(\"requireModule caught err: %O\", requireErr.message);\n-    if (requireErr.name === \"TSError\") {\n+    if (requireErr.name === \"TSError\" || isMochaError(requireErr)) {\n       throw requireErr;\n     }\n     try {\ndiff --git a/test/node-unit/esm-utils.spec.js b/test/node-unit/esm-utils.spec.js\nindex c86af8a665..4ed8205e37 100644\n--- a/test/node-unit/esm-utils.spec.js\n+++ b/test/node-unit/esm-utils.spec.js\n@@ -48,6 +48,20 @@ describe(\"esm-utils\", function () {\n         },\n       );\n     });\n+\n+    it(\"should surface Mocha errors rather than falling back to `import(...)`\", async function () {\n+      return expect(\n+        () =>\n+          esmUtils.requireOrImport(\n+            \"../../test/node-unit/fixtures/mock-mocha-forbidden-exclusivity-err.ts\",\n+          ),\n+        \"to be rejected with error satisfying\",\n+        {\n+          code: \"ERR_MOCHA_FORBIDDEN_EXCLUSIVITY\",\n+          message: /`\\.only` is not supported in parallel mode/,\n+        },\n+      );\n+    });\n   });\n \n   describe(\"loadFilesAsync()\", function () {\ndiff --git a/test/node-unit/fixtures/mock-mocha-forbidden-exclusivity-err.ts b/test/node-unit/fixtures/mock-mocha-forbidden-exclusivity-err.ts\nnew file mode 100644\nindex 0000000000..e174dfb027\n--- /dev/null\n+++ b/test/node-unit/fixtures/mock-mocha-forbidden-exclusivity-err.ts\n@@ -0,0 +1,10 @@\n+/*\n+ Mock file that simulates a Mocha FORBIDDEN_EXCLUSIVITY error\n+ This error is thrown when .only is used in parallel mode\n+ */\n+const { createForbiddenExclusivityError } = require('../../../lib/errors');\n+\n+// Simulate a mocha instance in worker mode\n+const mockMocha = { isWorker: true };\n+\n+throw createForbiddenExclusivityError(mockMocha);\n",
+  "testCommand": "npm test",
+  "baseline_passing": 354,
+  "fix_passing": 357,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 26,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T04:17:14.384Z"
+}

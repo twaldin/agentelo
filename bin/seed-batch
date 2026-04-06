@@ -8,82 +8,107 @@ const os = require('os');
 
 const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
 const RESULTS_DIR = path.resolve(__dirname, '..', 'results');
-const LOGS_DIR = path.resolve(__dirname, '..', 'results');
 const AGENTELO = path.resolve(__dirname, 'agentelo');
-const MAX_CONCURRENT = parseInt(process.env.AGENTELO_CONCURRENCY || '3', 10);
+const MAX_CONCURRENT = parseInt(process.env.AGENTELO_CONCURRENCY || '5', 10);
 const SEED_KEYS_FILE = path.join(os.homedir(), '.agentelo', '.seed-keys.json');
+const ANOMALY_LOG = path.resolve(__dirname, '..', 'anomalies.log');
+
+// Load OpenRouter key
+try {
+  const envFile = path.join(os.homedir(), '.agentelo', '.env');
+  if (fs.existsSync(envFile)) {
+    for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
+      const [k, ...v] = line.split('=');
+      if (k && v.length) process.env[k.trim()] = v.join('=').trim();
+    }
+  }
+} catch {}
 
 function loadSeedKeys() {
-  try { return JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) { return {}; }
+  try { return JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch { return {}; }
 }
 
 function slugify(str) {
   return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
 }
 
-// Models to seed — free/unlimited first, then paid, then local
-const MODELS = [
-  // Free remote models — DISABLED (hang due to empty tool_calls bug in opencode #4255)
-  // { harness: 'opencode', model: 'opencode/minimax-m2.5-free', local: false },
-  // { harness: 'opencode', model: 'opencode/qwen3.6-plus-free', local: false },
-  // { harness: 'opencode', model: 'opencode/nemotron-3-super-free', local: false },
-  // { harness: 'opencode', model: 'opencode/gpt-5-nano', local: false },
-  // { harness: 'opencode', model: 'opencode/big-pickle', local: false },
-  // Paid remote — DISABLED (ChatGPT weekly limit hit, resets Apr 8)
-  // { harness: "opencode", model: "openai/gpt-5.4-mini", local: false },
-  // { harness: "opencode", model: "openai/gpt-5.4", local: false },
-  // Codex GPT-5.4 — DISABLED (ChatGPT weekly limit hit, resets Apr 8)
-  // Codex Spark has its own quota
-  { harness: "codex", model: "gpt-5.3-codex-spark", local: false },
-  // { harness: "codex", model: "gpt-5.4", local: false },
-  // { harness: "codex", model: "gpt-5.4-mini", local: false },
-  // o4-mini: not supported on ChatGPT accounts, needs API key
-  // Claude (rate-limited)
-  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001', local: false },
-  { harness: 'claude-code', model: 'claude-sonnet-4-6', local: false },
-  { harness: 'claude-code', model: 'claude-opus-4-6', local: false },
-  // Local models via ollama (sequential — model loading is exclusive)
-  { harness: 'opencode', model: 'ollama/qwen2.5-coder:32b-instruct-q8_0', local: true },
-  { harness: 'opencode', model: 'ollama/qwen2.5-coder:32b', local: true },
-  { harness: 'opencode', model: 'ollama/qwen2.5-coder:14b', local: true },
-  { harness: 'opencode', model: 'ollama/codestral', local: true },
-  { harness: 'opencode', model: 'ollama/deepseek-coder-v2:16b', local: true },
-  { harness: 'opencode', model: 'ollama/qwen2.5:7b', local: true },
+// --- Phase system ---
+// Phase 1: test grading (haiku vs spark vs 1 free)
+// Phase 2: round-robin (all models, one challenge at a time)
+const PHASE = process.env.SEED_PHASE || 'round-robin';
+
+// --- Model roster ---
+const MODELS_PHASE1 = [
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'codex', model: 'gpt-5.3-codex-spark' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder:free' },
 ];
 
+const MODELS_ALL = [
+  // === SUBSCRIPTIONS (free) ===
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'claude-code', model: 'claude-sonnet-4-6' },
+  { harness: 'claude-code', model: 'claude-opus-4-6' },
+  { harness: 'codex', model: 'gpt-5.3-codex-spark' },
+  // GPT-5.4 — DISABLED until Apr 8
+  // { harness: 'opencode', model: 'openai/gpt-5.4-mini' },
+  // { harness: 'opencode', model: 'openai/gpt-5.4' },
+
+  // === OPENROUTER FREE ===
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder:free' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3.6-plus:free' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-next-80b-a3b-instruct:free' },
+  { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2:free' },
+  { harness: 'opencode', model: 'openrouter/z-ai/glm-4.5-air:free' },
+  { harness: 'opencode', model: 'openrouter/meta-llama/llama-3.3-70b-instruct:free' },
+  { harness: 'opencode', model: 'openrouter/nvidia/nemotron-3-super-120b-a12b:free' },
+  { harness: 'opencode', model: 'openrouter/google/gemma-3-27b-it:free' },
+  { harness: 'opencode', model: 'openrouter/openai/gpt-oss-120b:free' },
+  { harness: 'opencode', model: 'openrouter/nousresearch/hermes-3-llama-3.1-405b:free' },
+
+  // === OPENROUTER CHEAP (< $0.10/challenge) ===
+  { harness: 'opencode', model: 'openrouter/deepseek/deepseek-v3.2' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder-flash' },
+  { harness: 'opencode', model: 'openrouter/minimax/minimax-m2.5' },
+  { harness: 'opencode', model: 'openrouter/mistralai/devstral-small-2507' },
+  { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2.5' },
+];
+
+const MODELS = PHASE === 'test' ? MODELS_PHASE1 : MODELS_ALL;
+
+// --- Challenge loading ---
 const challenges = fs.readdirSync(CHALLENGES_DIR)
   .filter(f => f.endsWith('.json'))
   .map(f => f.replace('.json', ''))
-  // Priority: fast+working repos first, slow/broken last
   .sort((a, b) => {
-    const priority = { 'fastify': 0, 'koa': 0, 'svelte': 1, 'next.js': 2, 'angular': 3, 'fastapi': 4 };
-    const aP = Object.entries(priority).find(([k]) => a.startsWith(k))?.[1] ?? 5;
-    const bP = Object.entries(priority).find(([k]) => b.startsWith(k))?.[1] ?? 5;
+    // Priority: small repos first (faster tests)
+    const priority = { 'qs': 0, 'koa': 1, 'fastify': 2, 'path': 2, 'node-fetch': 2, 'svelte': 3 };
+    const aP = Object.entries(priority).find(([k]) => a.startsWith(k))?.[1] ?? 4;
+    const bP = Object.entries(priority).find(([k]) => b.startsWith(k))?.[1] ?? 4;
     return aP - bP;
   });
 
-console.log(`Seeding ${challenges.length} challenges × ${MODELS.length} models`);
-console.log(`Max concurrent (remote): ${MAX_CONCURRENT}, local: 1`);
+console.log(`AgentElo Seed Batch — Phase: ${PHASE}`);
+console.log(`${challenges.length} challenges × ${MODELS.length} models`);
+console.log(`Concurrency: ${MAX_CONCURRENT}`);
 
-// Build job queues — skip challenges that can't run
+// --- Build jobs (round-robin: for each challenge, run all models) ---
 function buildJobs() {
-  const remoteJobs = [];
-  const localJobs = [];
+  const jobs = [];
   for (const c of challenges) {
     const cFile = path.join(CHALLENGES_DIR, `${c}.json`);
     try {
       const cData = JSON.parse(fs.readFileSync(cFile, 'utf8'));
-      if (!cData.testCommand) { console.log(`Skipping ${c} — no test command`); continue; }
-      if (cData.testCommand === 'cargo test') { console.log(`Skipping ${c} — cargo/rust`); continue; }
-      if (c.startsWith('ui-') || c.startsWith('jq-')) { console.log(`Skipping ${c} — pnpm/no-test repos`); continue; }
+      if (!cData.testCommand) { console.log(`Skip ${c} — no test command`); continue; }
     } catch { continue; }
+
     for (const m of MODELS) {
-      // Check if result already exists (any result for this challenge+harness+model combo)
+      // Skip if result already exists for this challenge+model
       try {
         const existing = fs.readdirSync(RESULTS_DIR).filter(f =>
-          f.startsWith(`${c}-${m.harness}`) && f.endsWith('.json')
+          f.startsWith(`${c}-`) && f.endsWith('.json')
         );
-        // Check if any existing result is from this model
         const hasResult = existing.some(f => {
           try {
             const r = JSON.parse(fs.readFileSync(path.join(RESULTS_DIR, f), 'utf8'));
@@ -92,21 +117,53 @@ function buildJobs() {
         });
         if (hasResult) continue;
       } catch {}
-      if (m.local) {
-        localJobs.push({ ...m, challenge: c });
-      } else {
-        remoteJobs.push({ ...m, challenge: c });
-      }
+
+      jobs.push({ ...m, challenge: c, local: false });
     }
   }
-  return { remoteJobs, localJobs };
+  return jobs;
 }
 
-let passed = 0;
-let failed = 0;
-let errored = 0;
-let totalJobs = 0;
-let completedJobs = 0;
+// --- Anomaly detection ---
+const anomalies = [];
+
+function checkAnomaly(job, output, resultFile) {
+  const issues = [];
+
+  // Check result file
+  let result;
+  try { result = JSON.parse(fs.readFileSync(resultFile, 'utf8')); } catch { return; }
+
+  // 0/0 tests — parser failed or tests didn't run
+  if (result.tests_ok === 0 && result.tests_total === 0) {
+    issues.push('0/0 tests — parser or test runner failure');
+  }
+
+  // 0/N tests — agent produced nothing useful
+  if (result.tests_ok === 0 && result.tests_total > 0) {
+    issues.push(`0/${result.tests_total} tests — agent may have broken everything`);
+  }
+
+  // <60s solve — suspiciously fast (likely errored out)
+  if (result.agent_time_seconds < 60 && result.tests_ok > 0) {
+    issues.push(`${Math.round(result.agent_time_seconds)}s solve — suspiciously fast`);
+  }
+
+  // Tampered files
+  if (result.tampered) {
+    issues.push(`tampered: ${(result.tampered_files || []).join(', ')}`);
+  }
+
+  if (issues.length > 0) {
+    const entry = `[${new Date().toISOString()}] ${job.challenge} × ${job.model}: ${issues.join('; ')}`;
+    anomalies.push(entry);
+    console.log(`  ⚠ ANOMALY: ${issues.join('; ')}`);
+    fs.appendFileSync(ANOMALY_LOG, entry + '\n');
+  }
+}
+
+// --- Job runner ---
+let passed = 0, failed = 0, errored = 0, totalJobs = 0, completedJobs = 0;
 
 function spawnJob(job) {
   const agentId = slugify(job.harness + '-' + job.model);
@@ -115,10 +172,9 @@ function spawnJob(job) {
 
   completedJobs++;
   const jobNum = completedJobs;
-  console.log(`[${jobNum}/${totalJobs}] Starting: ${job.challenge} × ${job.model}`);
+  console.log(`[${jobNum}/${totalJobs}] ${job.challenge} × ${job.model}`);
 
-  // Save child output to a log file for debugging
-  const childLogFile = path.join(LOGS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
+  const childLogFile = path.join(RESULTS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
   const childLogStream = fs.createWriteStream(childLogFile);
 
   const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
@@ -133,20 +189,35 @@ function spawnJob(job) {
   return new Promise((resolve) => {
     child.on('close', (code) => {
       childLogStream.end();
-      if (code === 0 && output.includes('Tests passed: YES')) {
-        passed++;
-        console.log(`  ✓ ${job.challenge} × ${job.model} — PASSED`);
+
+      // Find result file
+      const resultMatch = output.match(/Result saved: (.+\.json)/);
+      const resultFile = resultMatch ? path.resolve(__dirname, '..', resultMatch[1]) : null;
+
+      // Parse tests_ok from output
+      const fixedMatch = output.match(/Tests fixed: (\d+)\/(\d+)/);
+      const testsOkMatch = output.match(/tests_ok=(\d+)/);
+
+      if (code === 0 && fixedMatch) {
+        const [, fixed, broken] = fixedMatch;
+        const color = parseInt(fixed) >= parseInt(broken) ? '✓' : '◐';
+        console.log(`  ${color} ${job.challenge} × ${job.model} — ${fixed}/${broken} fixed`);
+        if (parseInt(fixed) >= parseInt(broken)) passed++; else failed++;
       } else if (code === 0) {
         failed++;
-        console.log(`  ✗ ${job.challenge} × ${job.model} — completed but tests failed`);
+        console.log(`  ✗ ${job.challenge} × ${job.model} — completed, check result`);
       } else {
         errored++;
-        // Extract the last meaningful error line for visibility
-        const lines = output.split('\n').filter(l => l.includes('Error') || l.includes('error') || l.includes('FAIL'));
+        const lines = output.split('\n').filter(l => l.includes('Error') || l.includes('error'));
         const hint = lines.length > 0 ? ` (${lines[lines.length - 1].trim().slice(0, 80)})` : '';
         console.log(`  ✗ ${job.challenge} × ${job.model} — error (exit ${code})${hint}`);
-        console.log(`    Log: ${childLogFile}`);
       }
+
+      // Anomaly detection
+      if (resultFile && fs.existsSync(resultFile)) {
+        checkAnomaly(job, output, resultFile);
+      }
+
       resolve();
     });
   });
@@ -155,37 +226,40 @@ function spawnJob(job) {
 function runJobQueue(jobs, concurrency) {
   if (jobs.length === 0) return Promise.resolve();
   return new Promise((resolve) => {
-    let idx = 0;
-    let running = 0;
-
+    let idx = 0, running = 0;
     function next() {
       if (idx >= jobs.length && running === 0) { resolve(); return; }
       while (running < concurrency && idx < jobs.length) {
         running++;
         const job = jobs[idx++];
-        spawnJob(job).then(() => {
-          running--;
-          next();
-        });
+        spawnJob(job).then(() => { running--; next(); });
       }
     }
-
     next();
   });
 }
 
-// Ensure results dir
+// --- Main ---
 try { fs.mkdirSync(RESULTS_DIR, { recursive: true }); } catch {}
 
-const { remoteJobs, localJobs } = buildJobs();
-totalJobs = remoteJobs.length + localJobs.length;
+const jobs = buildJobs();
+totalJobs = jobs.length;
 
 console.log(`${totalJobs} jobs remaining (skipping existing results)`);
-console.log(`  Remote: ${remoteJobs.length}, Local: ${localJobs.length}`);
 if (totalJobs === 0) { console.log('Nothing to do.'); process.exit(0); }
 
 (async () => {
-  await runJobQueue(remoteJobs, MAX_CONCURRENT);
-  await runJobQueue(localJobs, 1);
+  await runJobQueue(jobs, MAX_CONCURRENT);
   console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
+  if (anomalies.length > 0) {
+    console.log(`\n⚠ ${anomalies.length} anomalies detected — check ${ANOMALY_LOG}`);
+  }
+  // Rebuild ratings from scratch — live incremental scoring can diverge
+  console.log('\nRebuilding ratings...');
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync('node ' + path.resolve(__dirname, 'rebuild-ratings'), { encoding: 'utf8', timeout: 60000 });
+    const lb = out.split('--- REBUILT LEADERBOARD ---')[1] || '';
+    console.log('--- REBUILT LEADERBOARD ---' + lb);
+  } catch (e) { console.error('Rebuild failed:', e.message); }
 })();

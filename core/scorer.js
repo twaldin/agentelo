@@ -13,19 +13,52 @@ const path = require('path');
  * @param {string} [logFile] - Optional path to write test command stdout+stderr
  * @returns {Promise<{tests_passed: boolean, time_seconds: number, exit_code: number, diff_lines: number}>}
  */
+/**
+ * Strip test file hunks from a unified diff.
+ * Only keep changes to non-test files so agents can't inflate scores by adding tests.
+ */
+function stripTestFiles(diff) {
+  const testPatterns = ['/test/', '/tests/', '/__tests__/', '.test.', '.spec.', '_test.', 'test_'];
+  const testPrefixes = ['test/', 'tests/', '__tests__/'];
+  const chunks = diff.split(/^(diff --git )/m);
+  const kept = [];
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i].startsWith('diff --git ')) {
+      if (i === 0) kept.push(chunks[i]); // preamble
+      continue;
+    }
+    const chunk = chunks[i] + (chunks[i + 1] || '');
+    i++; // skip the next part (already consumed)
+    // Extract file path from "diff --git a/path b/path"
+    const fileMatch = chunk.match(/^diff --git a\/(\S+)/);
+    if (!fileMatch) continue;
+    const filePath = fileMatch[1].toLowerCase();
+    const isTest = testPatterns.some(p => filePath.includes(p)) || testPrefixes.some(p => filePath.startsWith(p));
+    if (!isTest) kept.push(chunk);
+  }
+  return kept.join('');
+}
+
 async function score(diff, repoDir, challenge, logFile) {
   if (!diff || diff.trim() === '') {
     return { tests_passed: false, exit_code: 1, time_seconds: 0, diff_lines: 0 };
   }
 
-  const diffLines = diff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
+  // Strip test file changes from the diff — only score code changes.
+  // Agents adding tests would inflate their score; we use the fix PR's test suite instead.
+  const strippedDiff = stripTestFiles(diff);
+  if (!strippedDiff || strippedDiff.trim() === '') {
+    return { tests_passed: false, exit_code: 1, time_seconds: 0, diff_lines: 0 };
+  }
+
+  const diffLines = strippedDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
 
   // Write diff to a temp file
   const tmpDir = os.tmpdir();
   const tmpPatch = path.join(tmpDir, `agentelo-patch-${Date.now()}-${process.pid}.patch`);
 
   try {
-    fs.writeFileSync(tmpPatch, diff, 'utf8');
+    fs.writeFileSync(tmpPatch, strippedDiff, 'utf8');
   } catch (err) {
     return { tests_passed: false, exit_code: 1, time_seconds: 0, diff_lines: diffLines };
   }
@@ -58,8 +91,19 @@ async function score(diff, repoDir, challenge, logFile) {
   // Run the test command
   const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
+  // Skip lint/coverage wrappers — find the fastest pure test command
+  let testCmd = challenge.test_command;
+  if (testCmd === 'npm test' || testCmd === 'pnpm test') {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(repoDir, 'package.json'), 'utf8'));
+      const s = pkg.scripts || {};
+      if (s.unit) testCmd = testCmd.replace('test', 'run unit');
+      else if (s['tests-only']) testCmd = testCmd.replace('test', 'run tests-only');
+    } catch {}
+  }
+
   // Split the test_command string into argv
-  let [cmd, ...args] = parseCommand(challenge.test_command);
+  let [cmd, ...args] = parseCommand(testCmd);
 
   // If a venv exists, use it for Python commands (pytest, python, etc.)
   const venvBin = path.join(repoDir, '.venv', 'bin');

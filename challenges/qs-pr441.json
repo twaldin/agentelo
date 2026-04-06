@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr441",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 441,
+    "title": "[Fix] `stringify`: with `arrayFormat: comma`, include an explicit `[]` on a single-item array",
+    "body": ""
+  },
+  "pr": {
+    "number": 441,
+    "url": "https://github.com/ljharb/qs/pull/441"
+  },
+  "buggyCommit": "113b990ed23ae8d6f670eb879e16ed105cd9081b",
+  "fixCommit": "4e440195c7647f21c20bb76340774cb3a0cb6eac",
+  "fixDiff": "diff --git a/lib/stringify.js b/lib/stringify.js\nindex 47ea4b15..5ace512e 100644\n--- a/lib/stringify.js\n+++ b/lib/stringify.js\n@@ -126,7 +126,7 @@ var stringify = function stringify(\n                 for (var i = 0; i < valuesArray.length; ++i) {\n                     valuesJoined += (i === 0 ? '' : ',') + formatter(encoder(valuesArray[i], defaults.encoder, charset, 'value', format));\n                 }\n-                return [formatter(keyValue) + '=' + valuesJoined];\n+                return [formatter(keyValue) + (i === 1 ? '[]' : '') + '=' + valuesJoined];\n             }\n             return [formatter(keyValue) + '=' + formatter(encoder(obj, defaults.encoder, charset, 'value', format))];\n         }\ndiff --git a/test/parse.js b/test/parse.js\nindex 9734f428..7d7b4dd8 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -410,6 +410,16 @@ test('parse()', function (t) {\n         st.deepEqual(qs.parse('foo=', { comma: true }), { foo: '' });\n         st.deepEqual(qs.parse('foo', { comma: true }), { foo: '' });\n         st.deepEqual(qs.parse('foo', { comma: true, strictNullHandling: true }), { foo: null });\n+\n+        // test cases inversed from from stringify tests\n+        st.deepEqual(qs.parse('a[0]=c'), { a: ['c'] });\n+        st.deepEqual(qs.parse('a[]=c'), { a: ['c'] });\n+        st.deepEqual(qs.parse('a[]=c', { comma: true }), { a: ['c'] });\n+\n+        st.deepEqual(qs.parse('a[0]=c&a[1]=d'), { a: ['c', 'd'] });\n+        st.deepEqual(qs.parse('a[]=c&a[]=d'), { a: ['c', 'd'] });\n+        st.deepEqual(qs.parse('a=c,d', { comma: true }), { a: ['c', 'd'] });\n+\n         st.end();\n     });\n \ndiff --git a/test/stringify.js b/test/stringify.js\nindex 4c3ee0e8..f1ff112e 100644\n--- a/test/stringify.js\n+++ b/test/stringify.js\n@@ -131,6 +131,20 @@ test('stringify()', function (t) {\n         st.end();\n     });\n \n+    t.test('stringifies an array value with one item vs multiple items', function (st) {\n+        st.equal(qs.stringify({ a: ['c'] }, { encodeValuesOnly: true, arrayFormat: 'indices' }), 'a[0]=c');\n+        st.equal(qs.stringify({ a: ['c'] }, { encodeValuesOnly: true, arrayFormat: 'brackets' }), 'a[]=c');\n+        st.equal(qs.stringify({ a: ['c'] }, { encodeValuesOnly: true, arrayFormat: 'comma' }), 'a[]=c'); // so it parses back as an array\n+        st.equal(qs.stringify({ a: ['c'] }, { encodeValuesOnly: true }), 'a[0]=c');\n+\n+        st.equal(qs.stringify({ a: ['c', 'd'] }, { encodeValuesOnly: true, arrayFormat: 'indices' }), 'a[0]=c&a[1]=d');\n+        st.equal(qs.stringify({ a: ['c', 'd'] }, { encodeValuesOnly: true, arrayFormat: 'brackets' }), 'a[]=c&a[]=d');\n+        st.equal(qs.stringify({ a: ['c', 'd'] }, { encodeValuesOnly: true, arrayFormat: 'comma' }), 'a=c,d');\n+        st.equal(qs.stringify({ a: ['c', 'd'] }, { encodeValuesOnly: true }), 'a[0]=c&a[1]=d');\n+\n+        st.end();\n+    });\n+\n     t.test('stringifies a nested array value', function (st) {\n         st.equal(qs.stringify({ a: { b: ['c', 'd'] } }, { encodeValuesOnly: true, arrayFormat: 'indices' }), 'a[b][0]=c&a[b][1]=d');\n         st.equal(qs.stringify({ a: { b: ['c', 'd'] } }, { encodeValuesOnly: true, arrayFormat: 'brackets' }), 'a[b][]=c&a[b][]=d');\n",
+  "testCommand": "npm test",
+  "baseline_passing": 462,
+  "fix_passing": 476,
+  "broken_by_bug": 14,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 25,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T03:48:01.979Z"
+}

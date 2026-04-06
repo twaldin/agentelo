@@ -1,0 +1,27 @@
+{
+  "id": "path-to-regexp-pr149",
+  "repo": "pillarjs/path-to-regexp",
+  "repoUrl": "https://github.com/pillarjs/path-to-regexp",
+  "issue": {
+    "number": 149,
+    "title": "Fix matching empty string with `end: false`",
+    "body": ""
+  },
+  "pr": {
+    "number": 149,
+    "url": "https://github.com/pillarjs/path-to-regexp/pull/149"
+  },
+  "buggyCommit": "761c721f9516d2739f87af3d303f5c096d1159d9",
+  "fixCommit": "28d2934b8ffecd70c590382ed22513112c873ca4",
+  "fixDiff": "diff --git a/index.js b/index.js\nindex 5f1c9ae..11b477b 100644\n--- a/index.js\n+++ b/index.js\n@@ -305,7 +305,7 @@ function tokensToRegExp (tokens, keys, options) {\n   var delimiters = options.delimiters || DEFAULT_DELIMITERS\n   var endsWith = [].concat(options.endsWith || []).map(escapeString).concat('$').join('|')\n   var route = ''\n-  var isEndDelimited = false\n+  var isEndDelimited = tokens.length === 0\n \n   // Iterate over the tokens and create our regexp string.\n   for (var i = 0; i < tokens.length; i++) {\ndiff --git a/test.ts b/test.ts\nindex 83ab069..43a718d 100644\n--- a/test.ts\n+++ b/test.ts\n@@ -237,6 +237,23 @@ var TESTS: Test[] = [\n       [{ test: 'abc' }, '/abc/']\n     ]\n   ],\n+  [\n+    '',\n+    {\n+      end: false\n+    },\n+    [],\n+    [\n+      ['', ['']],\n+      ['/', ['/']],\n+      ['route', ['']],\n+      ['/route', ['']],\n+      ['/route/', ['']]\n+    ],\n+    [\n+      [null, '']\n+    ]\n+  ],\n \n   /**\n    * Combine modes.\n",
+  "testCommand": "npm test",
+  "baseline_passing": 479,
+  "fix_passing": 486,
+  "broken_by_bug": 7,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 18,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T03:55:00.265Z"
+}

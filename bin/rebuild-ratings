@@ -27,19 +27,13 @@ for (const s of allSubs) {
 
 // Helper: compute score between two submissions
 function computeScore(a, b) {
-  const aP = a.tests_passed ? 1 : 0, bP = b.tests_passed ? 1 : 0;
-  if (aP > bP) return 1;
-  if (aP < bP) return 0;
-  if (aP === 1) {
-    if ((a.agent_time_seconds||0) < (b.agent_time_seconds||0)) return 1;
-    if ((a.agent_time_seconds||0) > (b.agent_time_seconds||0)) return 0;
-    return 0.5;
-  }
+  // Score by tests_ok count — more passing tests = better, tiebreak on time
   const aOk = a.tests_ok||0, bOk = b.tests_ok||0;
   if (aOk > bOk) return 1;
   if (aOk < bOk) return 0;
-  if (aOk > 0 && (a.agent_time_seconds||0) < (b.agent_time_seconds||0)) return 1;
-  if (aOk > 0 && (a.agent_time_seconds||0) > (b.agent_time_seconds||0)) return 0;
+  // Same test count — faster wins
+  if ((a.agent_time_seconds||0) < (b.agent_time_seconds||0)) return 1;
+  if ((a.agent_time_seconds||0) > (b.agent_time_seconds||0)) return 0;
   return 0.5;
 }
 

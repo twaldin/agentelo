@@ -1,0 +1,27 @@
+{
+  "id": "koa-pr1375",
+  "repo": "koajs/koa",
+  "repoUrl": "https://github.com/koajs/koa",
+  "issue": {
+    "number": 1375,
+    "title": "test: fix body test",
+    "body": ""
+  },
+  "pr": {
+    "number": 1375,
+    "url": "https://github.com/koajs/koa/pull/1375"
+  },
+  "buggyCommit": "f75d4455359ecdf30eeb676e2c7f31d4cf7b42ed",
+  "fixCommit": "817b49830571b45a8aec6b1fc1525434f5798c58",
+  "fixDiff": "diff --git a/test/application/respond.js b/test/application/respond.js\nindex 71d5c515e..516dd839e 100644\n--- a/test/application/respond.js\n+++ b/test/application/respond.js\n@@ -20,6 +20,7 @@ describe('app.respond', () => {\n         res.statusCode = 200;\n         setImmediate(() => {\n           res.setHeader('Content-Type', 'text/plain');\n+          res.setHeader('Content-Length', '3');\n           res.end('lol');\n         });\n       });\n@@ -41,6 +42,7 @@ describe('app.respond', () => {\n         const res = ctx.res;\n         res.statusCode = 200;\n         res.setHeader('Content-Type', 'text/plain');\n+        res.setHeader('Content-Length', '3');\n         res.end('lol');\n         ctx.set('foo', 'bar');\n       });\n@@ -65,6 +67,7 @@ describe('app.respond', () => {\n         const res = ctx.res;\n         res.statusCode = 200;\n         res.setHeader('Content-Type', 'text/plain');\n+        res.setHeader('Content-Length', '3');\n         res.end('lol');\n         ctx.status = 201;\n       });\n",
+  "testCommand": "npm test",
+  "baseline_passing": 333,
+  "fix_passing": 336,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 1,
+    "linesAdded": 3,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T03:58:50.277Z"
+}
