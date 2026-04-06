@@ -904,6 +904,20 @@ function renderLB() {
 }
 
 // AGENT PROFILE
+function fmtTestScore(testsOk, testsTotal, baselinePassing, brokenByBug) {
+  if (brokenByBug != null && brokenByBug > 0 && baselinePassing != null && testsOk >= baselinePassing) {
+    var fixed = testsOk - baselinePassing;
+    var color = fixed >= brokenByBug ? 'var(--green)' : fixed > 0 ? 'var(--yellow)' : 'var(--red)';
+    var label = fixed > brokenByBug ? fixed + '/' + brokenByBug + ' fixed +' + (fixed - brokenByBug) : fixed + '/' + brokenByBug + ' fixed';
+    return { text: label, color: color };
+  }
+  if (testsTotal > 0) {
+    var color2 = testsOk === testsTotal ? 'var(--green)' : testsOk > 0 ? 'var(--yellow)' : 'var(--red)';
+    return { text: testsOk + '/' + testsTotal, color: color2 };
+  }
+  return { text: '—', color: 'var(--text-lo)' };
+}
+
 function fmtSecs(secs) {
   if (!secs) return '—';
   var m = Math.floor(secs / 60), s = Math.round(secs % 60);
@@ -941,8 +955,7 @@ async function openAgent(id) {
       var totalDelta = m.total_delta || 0;
       var deltaStr = totalDelta > 0 ? '+' + Math.round(totalDelta) : Math.round(totalDelta) + '';
       var deltaColor = totalDelta > 0 ? 'var(--green)' : totalDelta < 0 ? 'var(--red)' : 'var(--text-lo)';
-      var testColor = m.tests_ok === m.tests_total && m.tests_total > 0 ? 'var(--green)' : m.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
-      var testStr = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
+      var ts = fmtTestScore(m.tests_ok, m.tests_total, m.baseline_passing, m.broken_by_bug);
       var timeStr = fmtSecs(m.agent_time || 0);
       var dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
 
@@ -953,14 +966,14 @@ async function openAgent(id) {
           var gRes = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
           var gDelta = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
           var gDeltaColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
-          var myTests = m.tests_total > 0 ? m.tests_ok + '/' + m.tests_total : '—';
-          var theirTests = (g.opponent_tests_total || 0) > 0 ? (g.opponent_tests_ok || 0) + '/' + g.opponent_tests_total : '—';
+          var myTs = fmtTestScore(m.tests_ok, m.tests_total, m.baseline_passing, m.broken_by_bug);
+          var theirTs = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, null, null);
           var myTime = fmtSecs(m.agent_time || 0);
           var theirTime = fmtSecs(g.opponent_time || 0);
           return '<tr><td>' + gRes + '</td>' +
             '<td><span class="opp-link" onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')">' + g.opponent_id + '</span></td>' +
-            '<td style="color:' + testColor + '">' + myTests + '</td>' +
-            '<td>' + theirTests + '</td>' +
+            '<td style="color:' + myTs.color + '">' + myTs.text + '</td>' +
+            '<td style="color:' + theirTs.color + '">' + theirTs.text + '</td>' +
             '<td>' + myTime + '</td>' +
             '<td>' + theirTime + '</td>' +
             '<td style="color:' + gDeltaColor + '">' + gDelta + '</td>' +
@@ -973,7 +986,7 @@ async function openAgent(id) {
       return '<tr class="mh-row" onclick="toggleMatch(this, ' + mi + ')">' +
         '<td><span class="result-badge ' + resultClass + '">' + resultText + '</span></td>' +
         '<td><span style="cursor:pointer;color:var(--text)" onclick="event.stopPropagation();openSubmission(' + m.submission_id + ')">' + chLabel + '</span></td>' +
-        '<td style="color:' + testColor + '">' + testStr + '</td>' +
+        '<td style="color:' + ts.color + '">' + ts.text + '</td>' +
         '<td>' + timeStr + '</td>' +
         '<td style="color:var(--text-lo)">' + (m.diff_lines || 0) + 'L</td>' +
         '<td style="color:' + deltaColor + '">' + deltaStr + '</td>' +
@@ -1063,13 +1076,12 @@ async function openChallenge(id) {
     attHtml = c.attempts.map(function(a) {
       var st = a.passed ? 'pass' : 'fail';
       var icon = a.passed ? '&#x2713;' : '&#x2717;';
-      var tests = a.tests_total > 0 ? a.tests_ok + '/' + a.tests_total : '';
-      var testColor = a.tests_ok === a.tests_total && a.tests_total > 0 ? 'var(--green)' : a.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
+      var ats = fmtTestScore(a.tests_ok, a.tests_total, a.baseline_passing, a.broken_by_bug);
       var agentName = (a.agent_name || a.harness + '/' + a.model);
       return '<div class="ci" onclick="openSubmission(\'' + (a.run_id || '').replace(/'/g, '') + '\')" style="cursor:pointer">' +
         '<div class="cis ' + st + '"></div>' +
         '<div class="cin" style="flex:1">' + agentName + '</div>' +
-        (tests ? '<div class="citm" style="color:' + testColor + '">' + tests + '</div>' : '') +
+        (a.tests_total > 0 ? '<div class="citm" style="color:' + ats.color + '">' + ats.text + '</div>' : '') +
         '<div class="cisc" style="color:' + (a.passed ? 'var(--green)' : 'var(--red)') + '">' + icon + '</div>' +
         '<div class="citm">' + a.time + '</div>' +
       '</div>';
@@ -1307,7 +1319,7 @@ async function openSubmission(id) {
 
   var ch = CHALLENGES.find(function(c) { return c.id === s.challenge_id; });
   var chTitle = ch ? ch.title : s.challenge_id;
-  var testColor = s.tests_ok === s.tests_total && s.tests_total > 0 ? 'var(--green)' : s.tests_ok > 0 ? 'var(--yellow)' : 'var(--red)';
+  var sts = fmtTestScore(s.tests_ok, s.tests_total, s.baseline_passing, s.broken_by_bug);
   var timeStr = fmtSecs(s.agent_time_seconds || 0);
 
   // Fetch challenge detail to map opponent agent_id → their run_id (enables direct submission links)
@@ -1323,7 +1335,7 @@ async function openSubmission(id) {
       var res = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
       var dStr = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
       var dColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
-      var theirTests = (g.opponent_tests_total || 0) > 0 ? (g.opponent_tests_ok || 0) + '/' + g.opponent_tests_total : '—';
+      var gts = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, null, null);
       var theirTime = fmtSecs(g.opponent_time || 0);
       var safeOppId = g.opponent_id.replace(/'/g, '');
       var oppRid = oppRunIds[g.opponent_id];
@@ -1331,7 +1343,7 @@ async function openSubmission(id) {
       return '<tr><td>' + res + '</td>' +
         '<td><span class="opp-link" onclick="' + oppClick + '">' + g.opponent_id + '</span></td>' +
         '<td style="color:var(--text-lo)">' + (g.opponent_model || '—') + '</td>' +
-        '<td>' + theirTests + '</td>' +
+        '<td style="color:' + gts.color + '">' + gts.text + '</td>' +
         '<td>' + theirTime + '</td>' +
         '<td style="color:' + dColor + '">' + dStr + '</td>' +
       '</tr>';
@@ -1352,7 +1364,7 @@ async function openSubmission(id) {
       '</div>' +
     '</div>' +
     '<div style="display:flex;flex-wrap:wrap;gap:24px;padding:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:24px;font-size:.82rem">' +
-      '<div><span style="color:var(--text-lo)">TESTS FIXED</span> <span style="color:' + testColor + ';margin-left:8px">' + s.tests_ok + '/' + s.tests_total + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">TESTS FIXED</span> <span style="color:' + sts.color + ';margin-left:8px">' + sts.text + '</span></div>' +
       '<div><span style="color:var(--text-lo)">TIME</span> <span style="margin-left:8px">' + timeStr + '</span></div>' +
       '<div><span style="color:var(--text-lo)">DIFF</span> <span style="margin-left:8px">' + (s.diff_lines || 0) + 'L</span></div>' +
     '</div>' +
