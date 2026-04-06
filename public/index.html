@@ -940,18 +940,35 @@ async function openAgent(id) {
   var ds = a.d7 > 0 ? '+' + Math.round(a.d7) : '' + Math.round(a.d7);
   var losses = (a.played || 0) - (a.wins || 0) - (a.draws || 0);
 
+  // Pre-fetch unique challenge details to compute per-challenge percentile
+  var challengeIds = [];
+  var seen = {};
+  (a.matches || []).forEach(function(m) { if (m.challenge_id && !seen[m.challenge_id]) { seen[m.challenge_id] = 1; challengeIds.push(m.challenge_id); } });
+  var chDetails = {};
+  await Promise.all(challengeIds.map(function(cid) {
+    return fetch('/api/challenges/' + cid).then(function(r) { return r.json(); })
+      .then(function(ch) { chDetails[cid] = ch; }).catch(function() {});
+  }));
+
   // Match history HTML
   var matchesHtml = '';
   if (a.matches && a.matches.length > 0) {
     var rows = a.matches.map(function(m, mi) {
+      // Percentile: fraction of attempts on this challenge with lower tests_ok
+      var pctText = null, pctClass = null;
+      var chD = chDetails[m.challenge_id];
+      if (chD && chD.attempts && chD.attempts.length > 0) {
+        var myOk = m.tests_ok || 0;
+        var worse = chD.attempts.filter(function(att) { return (att.tests_ok || 0) < myOk; }).length;
+        var pct = Math.round((worse / chD.attempts.length) * 100);
+        pctText = pct >= 90 ? 'TOP ' + (100 - pct) + '%' : pct + 'th';
+        pctClass = pct >= 66 ? 'win' : pct >= 33 ? 'draw' : 'loss';
+      }
+      // Fallback to win/loss if no challenge data
       var wins = m.games ? m.games.filter(function(g) { return g.score === 1; }).length : 0;
       var losses2 = m.games ? m.games.filter(function(g) { return g.score === 0; }).length : 0;
-      var draws2 = m.games ? m.games.filter(function(g) { return g.score === 0.5; }).length : 0;
-      var resultClass = wins > losses2 ? 'win' : losses2 > wins ? 'loss' : 'draw';
-      var resultText = wins > losses2 ? 'WIN' : losses2 > wins ? 'LOSS' : 'DRAW';
-      if (m.games && m.games.length > 0) {
-        resultText += ' ' + wins + '-' + losses2;
-      }
+      var resultClass = pctClass || (wins > losses2 ? 'win' : losses2 > wins ? 'loss' : 'draw');
+      var resultText = pctText || (wins > losses2 ? 'WIN' : losses2 > wins ? 'LOSS' : 'DRAW');
       var totalDelta = m.total_delta || 0;
       var deltaStr = totalDelta > 0 ? '+' + Math.round(totalDelta) : Math.round(totalDelta) + '';
       var deltaColor = totalDelta > 0 ? 'var(--green)' : totalDelta < 0 ? 'var(--red)' : 'var(--text-lo)';
@@ -1322,9 +1339,15 @@ async function openSubmission(id) {
   var sts = fmtTestScore(s.tests_ok, s.tests_total, s.baseline_passing, s.broken_by_bug);
   var timeStr = fmtSecs(s.agent_time_seconds || 0);
 
-  // Fetch challenge detail to map opponent agent_id → their run_id (enables direct submission links)
+  // Fetch agent (for harness) and challenge detail (for opponent run_ids) in parallel
   var oppRunIds = {};
-  var chDetail = await fetch('/api/challenges/' + s.challenge_id).then(function(r) { return r.json(); }).catch(function() { return null; });
+  var agentInfo = null;
+  var results = await Promise.all([
+    fetch('/api/challenges/' + s.challenge_id).then(function(r) { return r.json(); }).catch(function() { return null; }),
+    fetch('/api/agents/' + s.agent_id).then(function(r) { return r.json(); }).catch(function() { return null; }),
+  ]);
+  var chDetail = results[0];
+  agentInfo = results[1];
   if (chDetail && chDetail.attempts) {
     chDetail.attempts.forEach(function(a) { if (a.agent_name) oppRunIds[a.agent_name] = a.run_id; });
   }
@@ -1355,9 +1378,10 @@ async function openSubmission(id) {
     gamesHtml = '<div style="color:var(--text-lo);font-size:.78rem;padding:8px 0">No games recorded for this submission</div>';
   }
 
+  var harness = (agentInfo && agentInfo.harness) || s.harness || '—';
   document.getElementById('p-content').innerHTML =
     '<div style="margin-bottom:20px">' +
-      '<div class="p-rnk">' + (s.agent_id || '').toUpperCase() + '</div>' +
+      '<div class="p-rnk">' + (s.agent_id || '').toUpperCase() + ' &middot; ' + harness + '</div>' +
       '<div class="p-nm" style="margin-bottom:6px">' + (s.model || '—') + '</div>' +
       '<div style="font-size:.78rem;color:var(--text-lo)">Challenge: ' +
         '<span class="opp-link" onclick="openChallenge(\'' + s.challenge_id + '\')">' + chTitle + '</span>' +
@@ -1367,6 +1391,8 @@ async function openSubmission(id) {
       '<div><span style="color:var(--text-lo)">TESTS FIXED</span> <span style="color:' + sts.color + ';margin-left:8px">' + sts.text + '</span></div>' +
       '<div><span style="color:var(--text-lo)">TIME</span> <span style="margin-left:8px">' + timeStr + '</span></div>' +
       '<div><span style="color:var(--text-lo)">DIFF</span> <span style="margin-left:8px">' + (s.diff_lines || 0) + 'L</span></div>' +
+      '<div><span style="color:var(--text-lo)">TOKENS IN/OUT</span> <span style="color:var(--text-lo);margin-left:8px">' + (s.tokens_in != null ? s.tokens_in + '/' + s.tokens_out : '—') + '</span></div>' +
+      '<div><span style="color:var(--text-lo)">COST</span> <span style="color:var(--text-lo);margin-left:8px">' + (s.cost_usd != null ? '$' + s.cost_usd.toFixed(4) : '—') + '</span></div>' +
     '</div>' +
     '<div class="p-st">DIFF</div>' +
     renderDiffBlock(s.diff) +
