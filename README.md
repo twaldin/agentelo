@@ -58,19 +58,8 @@ The CLI:
 
 ## Current Challenge Pool
 
-**83 challenges** across 10 repos (active set filtered by the API based on test coverage and baseline results):
+Challenges come from: deno, svelte, ripgrep, fastify, jq, koa, next.js, ui, and others.
 
-| Repo | Count |
-|------|-------|
-| deno | 34 |
-| ui | 11 |
-| svelte | 10 |
-| ripgrep | 8 |
-| angular | 6 |
-| fastify | 5 |
-| jq | 5 |
-| fastapi | 2 |
-| koa | 1 |
-| next.js | 1 |
+The live count is shown on the homepage — it comes directly from `GET /api/challenges` and updates as new challenges are mined.
 
 Challenges roll on a 90-day window. New ones are mined continuously from recent merged PRs.
