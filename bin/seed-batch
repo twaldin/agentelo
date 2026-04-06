@@ -75,7 +75,44 @@ const MODELS_ALL = [
   { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2.5' },
 ];
 
-const MODELS = PHASE === 'test' ? MODELS_PHASE1 : MODELS_ALL;
+// === PROVEN MODELS — produced valid fixes on at least 1 challenge ===
+const MODELS_PROVEN = [
+  // Subscriptions (fast, reliable)
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'claude-code', model: 'claude-sonnet-4-6' },
+  { harness: 'claude-code', model: 'claude-opus-4-6' },
+  { harness: 'codex', model: 'gpt-5.3-codex-spark' },
+  // Paid OR (working)
+  { harness: 'opencode', model: 'openrouter/minimax/minimax-m2.5' },
+  { harness: 'opencode', model: 'openrouter/mistralai/devstral-small-2507' },
+  { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2.5' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder-flash' },
+  // Free OR (actually produced fixes)
+  { harness: 'opencode', model: 'openrouter/openai/gpt-oss-120b:free' },
+  { harness: 'opencode', model: 'openrouter/z-ai/glm-4.5-air:free' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3.6-plus:free' },
+];
+
+// === BUDGET-CONSCIOUS: OR paid/free + light Claude + Spark + Ollama local ===
+const MODELS_BUDGET = [
+  // Subscription (light usage)
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'codex', model: 'gpt-5.3-codex-spark' },
+  // OR paid (separate billing)
+  { harness: 'opencode', model: 'openrouter/minimax/minimax-m2.5' },
+  { harness: 'opencode', model: 'openrouter/mistralai/devstral-small-2507' },
+  { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2.5' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3-coder-flash' },
+  // OR free (that actually work)
+  { harness: 'opencode', model: 'openrouter/openai/gpt-oss-120b:free' },
+  { harness: 'opencode', model: 'openrouter/qwen/qwen3.6-plus:free' },
+  { harness: 'opencode', model: 'openrouter/z-ai/glm-4.5-air:free' },
+  // Ollama local (free compute!)
+  { harness: 'opencode', model: 'ollama/qwen2.5-14b-32k' },
+  { harness: 'opencode', model: 'ollama/qwen2.5-7b-32k' },
+];
+
+const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : MODELS_ALL;
 
 // --- Challenge loading ---
 const challenges = fs.readdirSync(CHALLENGES_DIR)
@@ -215,6 +252,21 @@ function purgeJunkResult(resultFile, job) {
 // --- Job runner ---
 let passed = 0, failed = 0, errored = 0, totalJobs = 0, completedJobs = 0;
 
+// Claude rate limiter: only 1 Claude model running at a time (shared subscription)
+let claudeLock = false;
+const claudeQueue = [];
+function acquireClaude() {
+  if (!claudeLock) { claudeLock = true; return Promise.resolve(); }
+  return new Promise(resolve => claudeQueue.push(resolve));
+}
+function releaseClaude() {
+  if (claudeQueue.length > 0) { claudeQueue.shift()(); }
+  else { claudeLock = false; }
+}
+function isClaudeModel(model) {
+  return model.startsWith('claude-');
+}
+
 function spawnJob(job) {
   // Skip models that have been flagged as junk producers
   if (skippedModels.has(job.model)) {
@@ -233,18 +285,23 @@ function spawnJob(job) {
   const childLogFile = path.join(RESULTS_DIR, `seed-${job.challenge}-${job.model.replace(/\//g, '-')}.log`);
   const childLogStream = fs.createWriteStream(childLogFile);
 
-  const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, AGENTELO_KEY: apiKey },
-  });
+  const isClaude = isClaudeModel(job.model);
+  const run = async () => {
+    if (isClaude) await acquireClaude();
 
-  let output = '';
-  child.stdout.on('data', d => { output += d; childLogStream.write(d); });
-  child.stderr.on('data', d => { output += d; childLogStream.write(d); });
+    const child = spawn('node', [AGENTELO, 'seed', '--harness', job.harness, '--model', job.model, '--challenge', job.challenge], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, AGENTELO_KEY: apiKey },
+    });
 
-  return new Promise((resolve) => {
-    child.on('close', (code) => {
-      childLogStream.end();
+    let output = '';
+    child.stdout.on('data', d => { output += d; childLogStream.write(d); });
+    child.stderr.on('data', d => { output += d; childLogStream.write(d); });
+
+    return new Promise((resolve) => {
+      child.on('close', (code) => {
+        childLogStream.end();
+        if (isClaude) releaseClaude();
 
       // Find result file
       const resultMatch = output.match(/Result saved: (.+\.json)/);
@@ -282,6 +339,8 @@ function spawnJob(job) {
       resolve();
     });
   });
+  };
+  return run();
 }
 
 function runJobQueue(jobs, concurrency) {
@@ -328,3 +387,4 @@ if (totalJobs === 0) { console.log('Nothing to do.'); process.exit(0); }
     console.log('--- REBUILT LEADERBOARD ---' + lb);
   } catch (e) { console.error('Rebuild failed:', e.message); }
 })();
+
