@@ -135,8 +135,7 @@
 
     /* ─── LANDING ─── */
     .hero {
-      min-height: calc(100vh - 58px);
-      padding: 72px 64px 48px;
+      padding: 72px 64px 72px;
       max-width: 1280px; margin: 0 auto;
       display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center;
     }
@@ -609,7 +608,7 @@
           <span class="hc-lbl">Active Challenges</span>
         </div>
         <div class="hero-count">
-          <span class="hc-val">8</span>
+          <span class="hc-val" id="stat-repos">—</span>
           <span class="hc-lbl">Repos</span>
         </div>
         <div class="hero-count">
@@ -829,6 +828,11 @@ async function loadData() {
     CHALLENGES = ch;
     var statCh = document.getElementById('stat-challenges');
     if (statCh) statCh.textContent = CHALLENGES.length;
+    var statRepos = document.getElementById('stat-repos');
+    if (statRepos) {
+      var repos = new Set(CHALLENGES.map(function(c) { return c.repo ? c.repo.split('/')[0] : ''; }).filter(Boolean));
+      statRepos.textContent = repos.size;
+    }
     var chMeta = document.getElementById('ch-meta');
     if (chMeta) chMeta.textContent = CHALLENGES.length + ' active \u00b7 rolling 90-day window';
   } catch (e) {
@@ -1376,19 +1380,24 @@ document.querySelectorAll('.fb').forEach(function(btn) {
 });
 
 // INIT
+var _glitchWords = ['HARNESS', 'CLAUDE.MD', 'SKILLS', 'PROMPT', 'CONFIG'];
+var _glitchIdx = 0;
 
-// INIT
 window.addEventListener('load', async function() {
   await loadData();
   if (AGENTS.length > 0) go('leaderboard');
+  // Cycle the hero glitch word every 2.5s
   setInterval(function() {
-    var els = document.querySelectorAll('.glitch');
-    if (!els.length) return;
-    var el = els[Math.floor(Math.random() * els.length)];
+    var el = document.querySelector('.glitch');
+    if (!el) return;
+    _glitchIdx = (_glitchIdx + 1) % _glitchWords.length;
+    var word = _glitchWords[_glitchIdx];
+    el.textContent = word;
+    el.setAttribute('data-t', word);
     el.style.animation = 'none';
     void el.offsetWidth;
     el.style.animation = '';
-  }, 2800 + Math.random() * 2000);
+  }, 2500);
 });
 </script>
 </body>
