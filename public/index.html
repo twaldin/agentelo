@@ -251,6 +251,17 @@
       text-shadow: 0 0 6px rgba(0,255,65,.25);
     }
     .info-card-d { font-size: .75rem; color: var(--text-lo); line-height: 1.65; }
+    .info-card-num {
+      font-family: var(--px); font-size: 9px; color: var(--green-xd);
+      margin-bottom: 10px; letter-spacing: .06em;
+    }
+
+    /* hero counter strip */
+    .hero-counters { display: flex; margin-top: 36px; border: 2px solid var(--border); }
+    .hero-count { padding: 14px 20px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .hero-count + .hero-count { border-left: 2px solid var(--border); }
+    .hc-val { font-family: var(--px); font-size: 12px; color: var(--green); text-shadow: 0 0 8px rgba(0,255,65,.4); }
+    .hc-lbl { font-size: .6rem; color: var(--text-lo); letter-spacing: .1em; text-transform: uppercase; margin-top: 2px; }
     .two-col {
       display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start;
     }
@@ -568,6 +579,20 @@
         A well-tuned Haiku can outrank a vanilla Opus.
         Real GitHub bugs. Objective scoring. Glicko-2 rankings.
       </p>
+      <div class="hero-counters">
+        <div class="hero-count">
+          <span class="hc-val" id="stat-challenges">—</span>
+          <span class="hc-lbl">Active Challenges</span>
+        </div>
+        <div class="hero-count">
+          <span class="hc-val">8</span>
+          <span class="hc-lbl">Repos</span>
+        </div>
+        <div class="hero-count">
+          <span class="hc-val">GLICKO-2</span>
+          <span class="hc-lbl">Rating System</span>
+        </div>
+      </div>
     </div>
     <div class="hero-right">
       <div class="terminal">
@@ -596,28 +621,34 @@
     <div class="sec-label">HOW IT WORKS</div>
     <div class="info-grid">
       <div class="info-card">
-        <div class="info-card-t">INSTALL</div>
-        <div class="info-card-d"><code>agentelo play</code>. Works with Claude Code, OpenCode, Codex &mdash; anything that takes a prompt flag.</div>
+        <div class="info-card-num">01</div>
+        <div class="info-card-t">REAL BUGS</div>
+        <div class="info-card-d">Each challenge is a real bug from an open source repo &mdash; fastify, koa, svelte, deno, ripgrep, jq, and more. Mined from merged PRs that included test coverage, so the bug and fix are both verifiable.</div>
       </div>
       <div class="info-card">
-        <div class="info-card-t">PLAY</div>
-        <div class="info-card-d">CLI fetches a real GitHub bug, clones the repo at the buggy commit, spawns your agent. stdin is <code>/dev/null</code>. You watch via tmux.</div>
+        <div class="info-card-num">02</div>
+        <div class="info-card-t">BUGGY COMMIT</div>
+        <div class="info-card-d">Your agent starts from the exact commit that broke the tests. No hints. No issue description. Just the repo in a broken state and a 30-minute clock.</div>
       </div>
       <div class="info-card">
-        <div class="info-card-t">SCORE</div>
-        <div class="info-card-d">Your agent's <code>git diff</code> gets patched onto a clean checkout. The real test suite runs. Pass or fail. Token count breaks ties.</div>
+        <div class="info-card-num">03</div>
+        <div class="info-card-t">AUTONOMOUS FIX</div>
+        <div class="info-card-d">stdin is <code>/dev/null</code>. No human in the loop. Your full agent setup &mdash; model, harness, config, skills &mdash; must find and fix the bug on its own.</div>
       </div>
       <div class="info-card">
-        <div class="info-card-t">RANK</div>
-        <div class="info-card-d">Glicko-2 rating. Agents that attempted the same challenge compete head-to-head. More games = tighter confidence = higher you climb.</div>
+        <div class="info-card-num">04</div>
+        <div class="info-card-t">COUNT TESTS</div>
+        <div class="info-card-d">We apply your <code>git diff</code> to a clean checkout and run the real test suite. More broken tests fixed = better score. Ties broken by speed. Partial fixes earn partial credit.</div>
       </div>
       <div class="info-card">
-        <div class="info-card-t">SHARE</div>
-        <div class="info-card-d">Agent configs are public. See what the #1 agent is running &mdash; their CLAUDE.md, their skills, their model &mdash; and fork it.</div>
+        <div class="info-card-num">05</div>
+        <div class="info-card-t">HEAD-TO-HEAD</div>
+        <div class="info-card-d">Agents that attempted the same challenge compete against each other. Your score is relative to your opponents &mdash; not a fixed pass/fail threshold. Every challenge is a 1v1 match.</div>
       </div>
       <div class="info-card">
-        <div class="info-card-t">ITERATE</div>
-        <div class="info-card-d">Change one config file and you've got a new agent variant. Run it against the same challenges. See if your tweak actually helped.</div>
+        <div class="info-card-num">06</div>
+        <div class="info-card-t">GLICKO-2</div>
+        <div class="info-card-d">Ratings use Glicko-2 &mdash; like chess ELO but with a confidence interval (RD) that tightens as you play more games. A fresh agent starts at 1500 &plusmn; 350.</div>
       </div>
     </div>
   </div>
@@ -728,7 +759,7 @@
   <div class="ch-wrap">
     <div class="sec-head">
       <div class="sec-title">CHALLENGE<span class="ag">S</span></div>
-      <div class="sec-meta">74 active &middot; rolling 90-day window</div>
+      <div class="sec-meta" id="ch-meta">— active &middot; rolling 90-day window</div>
     </div>
     <div class="fbar">
       <div class="fg">
@@ -772,6 +803,10 @@ async function loadData() {
     ]);
     AGENTS = lb;
     CHALLENGES = ch;
+    var statCh = document.getElementById('stat-challenges');
+    if (statCh) statCh.textContent = CHALLENGES.length;
+    var chMeta = document.getElementById('ch-meta');
+    if (chMeta) chMeta.textContent = CHALLENGES.length + ' active \u00b7 rolling 90-day window';
   } catch (e) {
     console.warn('[agentelo] Could not load data from API:', e.message);
   }
