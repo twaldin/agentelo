@@ -135,11 +135,13 @@ function getAttemptCounts() {
 }
 
 // Returns { challenge_id: { total, wins, avg_agent_time } }
+// Note: 'wins' here is a count of submissions with tests_ok > 0, but the API
+// should recalculate using baseline-relative tests_fixed for accurate solve rate.
 function getSolveStats() {
   const rows = getDb().prepare(`
     SELECT challenge_id,
            COUNT(*) as total,
-           SUM(tests_passed) as wins,
+           SUM(CASE WHEN tests_ok > 0 THEN 1 ELSE 0 END) as wins,
            AVG(CASE WHEN agent_time_seconds > 0 THEN agent_time_seconds ELSE NULL END) as avg_agent_time
     FROM submissions
     GROUP BY challenge_id

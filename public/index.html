@@ -914,7 +914,7 @@ function fmtTestScore(testsOk, testsTotal, baselinePassing, brokenByBug) {
     var color2 = testsOk === testsTotal ? 'var(--green)' : testsOk > 0 ? 'var(--yellow)' : 'var(--red)';
     return { text: testsOk + '/' + testsTotal, color: color2 };
   }
-  return { text: '—', color: 'var(--text-lo)' };
+  return { text: 'no fix', color: 'var(--text-lo)' };
 }
 
 function fmtSecs(secs) {
@@ -983,7 +983,7 @@ async function openAgent(id) {
           var gDelta = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
           var gDeltaColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
           var myTs = fmtTestScore(m.tests_ok, m.tests_total, m.baseline_passing, m.broken_by_bug);
-          var theirTs = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, null, null);
+          var theirTs = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, m.baseline_passing, m.broken_by_bug);
           var myTime = fmtSecs(m.agent_time || 0);
           var theirTime = fmtSecs(g.opponent_time || 0);
           return '<tr><td>' + gRes + '</td>' +
@@ -1357,7 +1357,7 @@ async function openSubmission(id) {
       var res = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
       var dStr = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
       var dColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
-      var gts = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, null, null);
+      var gts = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, s.baseline_passing, s.broken_by_bug);
       var theirTime = fmtSecs(g.opponent_time || 0);
       var safeOppId = g.opponent_id.replace(/'/g, '');
       var oppRid = oppRunIds[g.opponent_id];

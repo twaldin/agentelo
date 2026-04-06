@@ -162,10 +162,66 @@ function checkAnomaly(job, output, resultFile) {
   }
 }
 
+// --- Junk detection: 0-diff + <60s = rate limit or crash, not a real attempt ---
+const JUNK_THRESHOLD = 3; // after N junk results, skip remaining jobs for this model
+const junkCounts = {}; // model -> count
+const skippedModels = new Set();
+
+function isJunkResult(resultFile) {
+  try {
+    const r = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+    // Junk = no diff at all (agent crashed, rate limited, or timed out without producing code)
+    // Regardless of time — a 30min timeout with 0 diff is just as useless as a 2s crash
+    return (r.diff_lines || 0) === 0;
+  } catch { return false; }
+}
+
+function purgeJunkResult(resultFile, job) {
+  const model = job.model;
+  junkCounts[model] = (junkCounts[model] || 0) + 1;
+
+  // Delete the result file so seed-batch doesn't skip this job on restart
+  try { fs.unlinkSync(resultFile); } catch {}
+
+  // Delete submission from DB (agentelo CLI already submitted it)
+  try {
+    const db = require('../core/db');
+    const subs = db.getSubmissionsByChallenge(job.challenge)
+      .filter(s => s.model === model && s.diff_lines === 0 && s.agent_time_seconds < 60);
+    for (const s of subs) {
+      db.getDb().prepare('DELETE FROM games WHERE submission_id = ? OR opponent_submission_id = ?').run(s.id, s.id);
+      db.getDb().prepare('DELETE FROM submissions WHERE id = ?').run(s.id);
+    }
+  } catch (e) { console.error(`  [junk] DB cleanup failed: ${e.message}`); }
+
+  const entry = `[${new Date().toISOString()}] JUNK: ${job.challenge} × ${model} — 0 diff, <60s (${junkCounts[model]}/${JUNK_THRESHOLD})`;
+  console.log(`  🗑 ${entry}`);
+  fs.appendFileSync(ANOMALY_LOG, entry + '\n');
+
+  if (junkCounts[model] >= JUNK_THRESHOLD) {
+    skippedModels.add(model);
+    const skip = `[${new Date().toISOString()}] SKIPPED: ${model} — ${JUNK_THRESHOLD} junk results, skipping remaining jobs`;
+    console.log(`  ⛔ ${skip}`);
+    fs.appendFileSync(ANOMALY_LOG, skip + '\n');
+  }
+
+  // Rebuild ratings to undo live scoring damage from the purged submission
+  try {
+    const { execSync } = require('child_process');
+    execSync('node ' + path.resolve(__dirname, 'rebuild-ratings'), { stdio: 'pipe', timeout: 30000 });
+  } catch {}
+}
+
 // --- Job runner ---
 let passed = 0, failed = 0, errored = 0, totalJobs = 0, completedJobs = 0;
 
 function spawnJob(job) {
+  // Skip models that have been flagged as junk producers
+  if (skippedModels.has(job.model)) {
+    completedJobs++;
+    return Promise.resolve();
+  }
+
   const agentId = slugify(job.harness + '-' + job.model);
   const seedKeys = loadSeedKeys();
   const apiKey = seedKeys[agentId] || '';
@@ -216,6 +272,11 @@ function spawnJob(job) {
       // Anomaly detection
       if (resultFile && fs.existsSync(resultFile)) {
         checkAnomaly(job, output, resultFile);
+
+        // Junk detection: 0-diff + <60s = rate limit or crash, purge it
+        if (isJunkResult(resultFile)) {
+          purgeJunkResult(resultFile, job);
+        }
       }
 
       resolve();
@@ -251,6 +312,10 @@ if (totalJobs === 0) { console.log('Nothing to do.'); process.exit(0); }
 (async () => {
   await runJobQueue(jobs, MAX_CONCURRENT);
   console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
+  if (skippedModels.size > 0) {
+    console.log(`\n⛔ Skipped models (${JUNK_THRESHOLD}+ junk results — 0 diff, <60s):`);
+    for (const m of skippedModels) console.log(`  - ${m} (${junkCounts[m]} junk)`);
+  }
   if (anomalies.length > 0) {
     console.log(`\n⚠ ${anomalies.length} anomalies detected — check ${ANOMALY_LOG}`);
   }

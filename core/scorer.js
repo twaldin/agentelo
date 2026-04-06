@@ -194,23 +194,75 @@ function parseTestCounts(output) {
 }
 
 /**
- * Clone the fix commit and copy test files into the agent's working dir.
+ * Extract test-file hunks from the fix diff and apply them to the scoring dir.
+ * This is more reliable than checking out the fix commit (which fails with partial clones).
  * Non-fatal: if anything fails, scoring falls back to the existing tests.
  */
 async function injectFixTests(repoDir, challenge) {
   const { execFileSync } = require('child_process');
-  // Use the repo that's already cloned in repoDir — just check out fix commit in a temp copy
-  const fixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-fix-'));
-  try {
-    // Copy the .git dir from repoDir so we don't need to re-clone
-    execFileSync('cp', ['-r', path.join(repoDir, '.git'), path.join(fixDir, '.git')], { stdio: 'pipe' });
-    execFileSync('git', ['checkout', '-f', challenge.fixCommit], { cwd: fixDir, stdio: 'pipe' });
-    copyTestFiles(fixDir, fixDir, repoDir);
-  } catch (err) {
-    console.warn('[scorer] Warning: could not inject fix-commit tests:', err.message);
-  } finally {
-    try { fs.rmSync(fixDir, { recursive: true, force: true }); } catch (_) {}
+
+  // Prefer fixDiff (stored in challenge JSON) — no git checkout needed
+  if (challenge.fixDiff) {
+    const testDiff = extractTestHunks(challenge.fixDiff);
+    if (testDiff) {
+      const tmpPatch = path.join(os.tmpdir(), `agentelo-testpatch-${Date.now()}-${process.pid}.patch`);
+      try {
+        fs.writeFileSync(tmpPatch, testDiff, 'utf8');
+        execFileSync('git', ['apply', '--whitespace=fix', tmpPatch], { cwd: repoDir, stdio: 'pipe' });
+        console.log('[scorer] Injected fix-PR test hunks from fixDiff');
+        return;
+      } catch (err) {
+        // Try --3way fallback
+        try {
+          execFileSync('git', ['apply', '--3way', tmpPatch], { cwd: repoDir, stdio: 'pipe' });
+          console.log('[scorer] Injected fix-PR test hunks from fixDiff (--3way)');
+          return;
+        } catch (err2) {
+          console.warn('[scorer] Warning: could not apply fixDiff test hunks:', err2.message?.slice(0, 200));
+        }
+      } finally {
+        try { fs.unlinkSync(tmpPatch); } catch (_) {}
+      }
+    }
   }
+
+  // Fallback: checkout fix commit and copy test files (original method)
+  if (challenge.fixCommit) {
+    const fixDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-fix-'));
+    try {
+      execFileSync('cp', ['-r', path.join(repoDir, '.git'), path.join(fixDir, '.git')], { stdio: 'pipe' });
+      execFileSync('git', ['checkout', '-f', challenge.fixCommit], { cwd: fixDir, stdio: 'pipe' });
+      copyTestFiles(fixDir, fixDir, repoDir);
+      console.log('[scorer] Injected fix-commit test files (fallback method)');
+    } catch (err) {
+      console.warn('[scorer] Warning: could not inject fix-commit tests:', err.message?.slice(0, 200));
+    } finally {
+      try { fs.rmSync(fixDir, { recursive: true, force: true }); } catch (_) {}
+    }
+  }
+}
+
+/**
+ * Extract only test-file hunks from a unified diff.
+ * Returns a new diff containing only changes to test files, or null if none found.
+ */
+function extractTestHunks(diff) {
+  if (!diff) return null;
+  const chunks = diff.split(/^(diff --git )/m);
+  const kept = [];
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i].startsWith('diff --git ')) continue;
+    const chunk = chunks[i] + (chunks[i + 1] || '');
+    i++;
+    const fileMatch = chunk.match(/^diff --git a\/(\S+)/);
+    if (!fileMatch) continue;
+    const filePath = fileMatch[1].toLowerCase();
+    const testPatterns = ['/test/', '/tests/', '/__tests__/', '.test.', '.spec.', '_test.', 'test_'];
+    const testPrefixes = ['test/', 'tests/', '__tests__/'];
+    const isTest = testPatterns.some(p => filePath.includes(p)) || testPrefixes.some(p => filePath.startsWith(p));
+    if (isTest) kept.push(chunk);
+  }
+  return kept.length > 0 ? kept.join('') : null;
 }
 
 function isTestFile(relPath) {
@@ -398,4 +450,4 @@ function parseCommand(commandStr) {
   return tokens;
 }
 
-module.exports = { score };
+module.exports = { score, stripTestFiles };

@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Re-score all existing results using stored diffs.
+ * Reads each result JSON, applies the agent's diff to a clean buggy commit,
+ * injects fix-PR tests (using the fixed injectFixTests), runs tests, and
+ * updates the result JSON with corrected test counts.
+ *
+ * Usage: node bin/rescore-all [--dry-run]
+ */
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { execFileSync, execSync } = require('child_process');
+const { score } = require('../core/scorer');
+
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const RESULTS_DIR = path.join(PROJECT_ROOT, 'results');
+const CHALLENGES_DIR = path.join(PROJECT_ROOT, 'challenges');
+const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'repos');
+
+const DRY_RUN = process.argv.includes('--dry-run');
+
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+function normalizeChallenge(raw) {
+  return {
+    id:               raw.id,
+    repo:             raw.repoUrl || raw.repo,
+    commit:           raw.buggyCommit || raw.commit,
+    fixCommit:        raw.fixCommit,
+    fixDiff:          raw.fixDiff,
+    title:            raw.issue?.title || raw.title || raw.id,
+    body:             raw.issue?.body  || raw.body  || '',
+    test_command:     raw.testCommand  || raw.test_command || 'npm test',
+    difficulty:       raw.difficulty,
+    baseline_passing: raw.baseline_passing || 0,
+    broken_by_bug:    raw.broken_by_bug || 0,
+  };
+}
+
+async function rescoreResult(resultFile) {
+  const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+  const challengeId = result.challenge_id;
+  const model = result.model;
+  const diff = result.diff;
+
+  if (!diff || !diff.trim()) {
+    console.log(`  SKIP ${challengeId} × ${model} — no diff`);
+    return null;
+  }
+
+  // Load challenge
+  const challengeFile = path.join(CHALLENGES_DIR, `${challengeId}.json`);
+  if (!fs.existsSync(challengeFile)) {
+    console.log(`  SKIP ${challengeId} × ${model} — challenge file missing`);
+    return null;
+  }
+  const challenge = normalizeChallenge(JSON.parse(fs.readFileSync(challengeFile, 'utf8')));
+
+  // Find cached repo
+  const repoSlug = slugify(challenge.repo.replace('https://github.com/', ''));
+  const cacheDir = path.join(CACHE_DIR, repoSlug);
+  if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+    console.log(`  SKIP ${challengeId} × ${model} — repo cache missing`);
+    return null;
+  }
+
+  // Create clean scoring dir
+  const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-rescore-'));
+  try {
+    execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+
+    // Install deps
+    try {
+      execFileSync('npm', ['install', '--ignore-scripts'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
+    } catch (_) {
+      try {
+        execFileSync('npm', ['install'], { cwd: cleanDir, stdio: 'pipe', timeout: 120000 });
+      } catch (_) {}
+    }
+
+    // Re-score using the stored diff
+    const scoreResult = await score(diff, cleanDir, challenge, null);
+
+    const oldOk = result.tests_ok || 0;
+    const newOk = scoreResult.tests_ok || 0;
+    const baseline = challenge.baseline_passing || 0;
+    const oldFixed = oldOk - baseline;
+    const newFixed = newOk - baseline;
+
+    console.log(`  ${challengeId} × ${model}: tests_ok ${oldOk}→${newOk} (fixed: ${oldFixed}→${newFixed})`);
+
+    if (!DRY_RUN) {
+      // Update result JSON
+      result.tests_ok = scoreResult.tests_ok || 0;
+      result.tests_total = scoreResult.tests_total || 0;
+      result.tests_failed = scoreResult.tests_failed || 0;
+      result.tests_passed = scoreResult.tests_passed;
+      result.exit_code = scoreResult.exit_code;
+      result.rescored_at = new Date().toISOString();
+      fs.writeFileSync(resultFile, JSON.stringify(result, null, 2));
+    }
+
+    return { challengeId, model, oldOk, newOk, baseline, oldFixed, newFixed };
+  } finally {
+    try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+async function main() {
+  console.log(`AgentElo Rescore — ${DRY_RUN ? 'DRY RUN' : 'LIVE'}`);
+
+  const resultFiles = fs.readdirSync(RESULTS_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => path.join(RESULTS_DIR, f))
+    .sort();
+
+  console.log(`Found ${resultFiles.length} results to rescore\n`);
+
+  const changes = [];
+  for (const f of resultFiles) {
+    try {
+      const change = await rescoreResult(f);
+      if (change) changes.push(change);
+    } catch (err) {
+      console.error(`  ERROR rescoring ${path.basename(f)}:`, err.message?.slice(0, 200));
+    }
+  }
+
+  console.log(`\n--- Summary ---`);
+  console.log(`Rescored: ${changes.length}`);
+  const improved = changes.filter(c => c.newFixed > c.oldFixed);
+  console.log(`Improved: ${improved.length}`);
+  for (const c of improved) {
+    console.log(`  ${c.model} on ${c.challengeId}: ${c.oldFixed}→${c.newFixed} fixed`);
+  }
+
+  if (!DRY_RUN && changes.length > 0) {
+    console.log('\nRebuilding ratings...');
+    try {
+      execFileSync('node', [path.join(PROJECT_ROOT, 'bin', 'rebuild-ratings')], {
+        cwd: PROJECT_ROOT,
+        stdio: 'inherit',
+        timeout: 60000,
+      });
+      console.log('Ratings rebuilt.');
+    } catch (err) {
+      console.error('Rating rebuild failed:', err.message);
+    }
+  }
+}
+
+main().catch(err => { console.error('Fatal:', err); process.exit(1); });

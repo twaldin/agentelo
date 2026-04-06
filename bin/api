@@ -7,6 +7,7 @@ const path   = require('path');
 const crypto = require('crypto');
 const db     = require('../core/db');
 const { updateRating, defaultRating } = require('../core/glicko2');
+const { stripTestFiles } = require('../core/scorer');
 
 const PORT       = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -61,13 +62,30 @@ function detectLang(repo) {
 
 function buildChallengeEntry(row, stats) {
   const s = stats || { total: 0, wins: 0, avg_time: 0, avg_agent_time: 0 };
+
+  // Compute baseline-relative solve rate (how many agents actually fixed tests)
+  let sr = 0;
+  if (s.total > 0) {
+    const chFile = path.join(__dirname, '..', 'challenges', `${row.id}.json`);
+    let bl = 0;
+    try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
+    if (bl > 0) {
+      // Count submissions that fixed at least 1 test beyond baseline
+      const subs = db.getSubmissionsByChallenge(row.id);
+      const solved = subs.filter(sub => (sub.tests_ok || 0) > bl).length;
+      sr = solved / s.total;
+    } else {
+      sr = s.wins / s.total;
+    }
+  }
+
   return {
     id:           row.id,
     repo:         (row.repo || '').replace('https://github.com/', ''),
     title:        row.title || row.id,
     diff:         diffLabel(row),
     lang:         detectLang(row.repo),
-    sr:           s.total > 0 ? s.wins / s.total : 0,
+    sr,
     att:          s.total || 0,
     avgt:         fmtTime(s.avg_agent_time || s.avg_time),
     test_command: row.test_command,
@@ -88,10 +106,15 @@ function buildAgentEntry(agent, rank, allAgents) {
   const subs   = db.getSubmissionsByAgent(agent.id).slice(0, 3);
   const recent = subs.map(s => {
     const ch = db.getChallenge(s.challenge_id);
+    // Use tests_fixed (not raw tests_ok) for pass/fail status
+    const chFile = path.join(__dirname, '..', 'challenges', `${s.challenge_id}.json`);
+    let bl = 0;
+    try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
+    const fixed = Math.max(0, (s.tests_ok || 0) - bl);
     return {
       n:  ch ? ch.repo.replace('https://github.com/', '').split('/')[1] + '/' + s.challenge_id : s.challenge_id,
-      st: s.tests_ok > 0 ? 'pass' : 'fail',
-      sc: s.tests_ok > 0 ? '✓' : '✗',
+      st: fixed > 0 ? 'pass' : 'fail',
+      sc: fixed > 0 ? '✓' : '✗',
       t:  fmtTime(s.agent_time_seconds),
     };
   });
@@ -219,22 +242,36 @@ async function processSubmission(body) {
   let curVol       = agent.volatility;
   let totalWins    = 0;
 
+  // Load baseline for tests_fixed scoring
+  const basePass = (challengeMeta && challengeMeta.baseline_passing != null) ? challengeMeta.baseline_passing : 0;
+
   for (const { oSub, oppAgent } of sortedOpponents) {
     let myScore;
-    // Score by tests_ok count (not binary tests_passed which is unreliable)
-    // More tests passing = better, tiebreak on time
-    const myOk  = body.tests_ok || 0;
-    const oppOk = oSub.tests_ok || 0;
+    // Score by tests_fixed (tests_ok - baseline_passing), NOT raw tests_ok.
+    // Negative = agent made things worse. Speed tiebreak only when both fixed >0.
+    const myFixed  = (body.tests_ok || 0) - basePass;
+    const oppFixed = (oSub.tests_ok || 0) - basePass;
 
-    if (myOk > oppOk) {
+    if (myFixed > oppFixed) {
       myScore = 1;
-    } else if (myOk < oppOk) {
+    } else if (myFixed < oppFixed) {
       myScore = 0;
+    } else if (myFixed <= 0 && oppFixed <= 0) {
+      // Both failed to fix anything (or made it worse) — draw
+      myScore = 0.5;
     } else {
-      // Same test count — faster wins
-      if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
-      else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
-      else                                                                        myScore = 0.5;
+      // Same positive fix count — cheaper wins (cost tiebreak), fall back to faster
+      const myCost = body.cost_usd || 0;
+      const oppCost = oSub.cost_usd || 0;
+      if (myCost > 0 && oppCost > 0) {
+        if (myCost < oppCost) myScore = 1;
+        else if (myCost > oppCost) myScore = 0;
+        else myScore = 0.5;
+      } else {
+        if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
+        else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
+        else                                                                        myScore = 0.5;
+      }
     }
 
     // Use opponent's frozen rating at their submission time
@@ -296,17 +333,28 @@ async function processSubmission(body) {
     const freshOpp = db.getAgent(oSub.agent_id);
     if (!freshOpp) continue;
 
-    // Compute score from earlier submitter's perspective using tests_ok count
+    // Compute score from earlier submitter's perspective using tests_fixed
     let oppScore;
-    const oppOk2 = oSub.tests_ok || 0;
-    const myOk2  = body.tests_ok || 0;
-    if (oppOk2 > myOk2) oppScore = 1;
-    else if (oppOk2 < myOk2) oppScore = 0;
-    else {
-      // Same test count — faster wins
-      if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
-      else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
-      else oppScore = 0.5;
+    const oppFixed2 = (oSub.tests_ok || 0) - basePass;
+    const myFixed2  = (body.tests_ok || 0) - basePass;
+    if (oppFixed2 > myFixed2) oppScore = 1;
+    else if (oppFixed2 < myFixed2) oppScore = 0;
+    else if (oppFixed2 <= 0 && myFixed2 <= 0) {
+      // Both failed to fix anything — draw
+      oppScore = 0.5;
+    } else {
+      // Same positive fix count — cheaper wins (cost tiebreak), fall back to faster
+      const oppCost2 = oSub.cost_usd || 0;
+      const myCost2 = body.cost_usd || 0;
+      if (oppCost2 > 0 && myCost2 > 0) {
+        if (oppCost2 < myCost2) oppScore = 1;
+        else if (oppCost2 > myCost2) oppScore = 0;
+        else oppScore = 0.5;
+      } else {
+        if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
+        else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
+        else oppScore = 0.5;
+      }
     }
 
     // Use the new agent's rating at submission time as the opponent rating
@@ -444,11 +492,13 @@ async function handleRequest(req, res) {
     const subs = db.getSubmissionsByChallenge(chMatch[1]);
     entry.attempts = subs.map(s => {
       const agent = db.getAgent(s.agent_id);
+      // Use tests_fixed for passed flag, not raw tests_ok
+      const fixed = (baseline_passing != null) ? Math.max(0, (s.tests_ok || 0) - baseline_passing) : (s.tests_ok || 0);
       return {
         run_id:       s.run_id,
         model:        s.model,
         harness:      s.harness,
-        passed:       (s.tests_ok || 0) > 0,
+        passed:       fixed > 0,
         time:         fmtTime(s.agent_time_seconds),
         test_time:    fmtTime(s.test_time_seconds || 0),
         diff_lines:   s.diff_lines,
@@ -540,7 +590,7 @@ async function handleRequest(req, res) {
       agent_time_seconds: sub.agent_time_seconds,
       test_time_seconds:  sub.test_time_seconds,
       diff_lines:         sub.diff_lines,
-      diff:               sub.diff,
+      diff:               stripTestFiles(sub.diff || ''),
       exit_code:          sub.exit_code,
       tampered:           !!sub.tampered,
       tokens_in:          sub.tokens_in || 0,
@@ -623,7 +673,7 @@ async function handleRequest(req, res) {
         challenge_id:  sub.challenge_id,
         tests_ok:      sub.tests_ok,
         tests_total:   sub.tests_total,
-        tests_passed:  (sub.tests_ok || 0) > 0,
+        tests_passed:  (bl.baseline_passing != null) ? Math.max(0, (sub.tests_ok || 0) - bl.baseline_passing) > 0 : (sub.tests_ok || 0) > 0,
         baseline_passing: bl.baseline_passing,
         broken_by_bug:    bl.broken_by_bug,
         agent_time:    sub.agent_time_seconds,

@@ -1,8 +1,28 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const db = require('../core/db');
 const { updateRating } = require('../core/glicko2');
+
+const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+
+// Load baseline data from challenge JSON files
+const baselineCache = {};
+function getBaseline(challengeId) {
+  if (baselineCache[challengeId] !== undefined) return baselineCache[challengeId];
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(CHALLENGES_DIR, `${challengeId}.json`), 'utf8'));
+    baselineCache[challengeId] = {
+      baseline_passing: meta.baseline_passing != null ? meta.baseline_passing : null,
+      broken_by_bug: meta.broken_by_bug != null ? meta.broken_by_bug : null,
+    };
+  } catch {
+    baselineCache[challengeId] = { baseline_passing: null, broken_by_bug: null };
+  }
+  return baselineCache[challengeId];
+}
 
 console.log('[rebuild] Starting full pairwise rating rebuild...');
 
@@ -26,12 +46,30 @@ for (const s of allSubs) {
 }
 
 // Helper: compute score between two submissions
-function computeScore(a, b) {
-  // Score by tests_ok count — more passing tests = better, tiebreak on time
-  const aOk = a.tests_ok||0, bOk = b.tests_ok||0;
-  if (aOk > bOk) return 1;
-  if (aOk < bOk) return 0;
-  // Same test count — faster wins
+// Uses tests_fixed (tests_ok - baseline_passing) NOT raw tests_ok.
+// When both agents fixed 0 tests, it's a draw — no ELO for "failing faster".
+function computeScore(a, b, challengeId) {
+  const bl = getBaseline(challengeId);
+  const base = (bl.baseline_passing != null) ? bl.baseline_passing : 0;
+  // No clamp — negative means agent made things worse, which should lose to 0
+  const aFixed = (a.tests_ok || 0) - base;
+  const bFixed = (b.tests_ok || 0) - base;
+
+  if (aFixed > bFixed) return 1;
+  if (aFixed < bFixed) return 0;
+
+  // Both fixed the same number — tiebreak only when both actually fixed something (>0)
+  if (aFixed <= 0 && bFixed <= 0) return 0.5;
+
+  // Both fixed >0 same count — cheaper wins (cost tiebreak), fall back to faster if cost unavailable
+  const aCost = a.cost_usd || 0;
+  const bCost = b.cost_usd || 0;
+  if (aCost > 0 && bCost > 0) {
+    if (aCost < bCost) return 1;
+    if (aCost > bCost) return 0;
+    return 0.5;
+  }
+  // Fallback: faster wins when cost data unavailable
   if ((a.agent_time_seconds||0) < (b.agent_time_seconds||0)) return 1;
   if ((a.agent_time_seconds||0) > (b.agent_time_seconds||0)) return 0;
   return 0.5;
@@ -55,7 +93,7 @@ for (const [challengeId, subs] of Object.entries(byChallenge)) {
       const agentB = db.getAgent(subB.agent_id);
       if (!agentA || !agentB) continue;
 
-      const scoreA = computeScore(subA, subB);
+      const scoreA = computeScore(subA, subB, challengeId);
       const scoreB = scoreA === 1 ? 0 : scoreA === 0 ? 1 : 0.5;
 
       // Update A
