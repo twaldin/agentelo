@@ -910,9 +910,17 @@ function escapeHtml(value) {
 function fmtTestScore(testsOk, testsTotal, baselinePassing, brokenByBug) {
   if (brokenByBug != null && brokenByBug > 0 && baselinePassing != null) {
     var fixed = (testsOk || 0) - baselinePassing;
-    if (fixed < 0) fixed = 0; // agent broke tests — show 0 fixed, not negative
-    var color = fixed >= brokenByBug ? 'var(--green)' : fixed > 0 ? 'var(--yellow)' : 'var(--red)';
-    var label = fixed > brokenByBug ? fixed + '/' + brokenByBug + ' fixed +' + (fixed - brokenByBug) : fixed + '/' + brokenByBug + ' fixed';
+    var color, label;
+    if (fixed < 0) {
+      color = 'var(--red)';
+      label = fixed + '/' + brokenByBug + ' fixed';
+    } else if (fixed > brokenByBug) {
+      color = 'var(--green)';
+      label = fixed + '/' + brokenByBug + ' fixed +' + (fixed - brokenByBug);
+    } else {
+      color = fixed >= brokenByBug ? 'var(--green)' : fixed > 0 ? 'var(--yellow)' : 'var(--red)';
+      label = fixed + '/' + brokenByBug + ' fixed';
+    }
     return { text: label, color: color };
   }
   if (testsOk > 0 && testsTotal > 0) {
