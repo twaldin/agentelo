@@ -362,6 +362,12 @@ function mineRepo(repo) {
     const outPath = path.join(CHALLENGES_DIR, `${id}.json`);
     if (fs.existsSync(outPath)) continue;
 
+    // Skip squash-merged PRs (no merge commit metadata)
+    if (!pr.mergeCommit || !pr.mergeCommit.oid) {
+      console.log(`    SKIP — no merge commit metadata for #${pr.number} (likely squash merge)`);
+      continue;
+    }
+
     // Get parent commit
     const commitRes = run('gh', ['api', `repos/${owner}/${name}/commits/${pr.mergeCommit.oid}`, '--jq', '.parents[0].sha'], { allowFail: true });
     if (commitRes.status !== 0 || !commitRes.stdout.trim()) continue;
