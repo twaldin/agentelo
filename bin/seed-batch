@@ -220,9 +220,19 @@ const skippedModels = new Set();
 function isJunkResult(resultFile) {
   try {
     const r = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
-    // Junk = no diff at all (agent crashed, rate limited, or timed out without producing code)
-    // Regardless of time — a 30min timeout with 0 diff is just as useless as a 2s crash
-    return (r.diff_lines || 0) === 0;
+    // Junk = no diff at all
+    if ((r.diff_lines || 0) === 0) return true;
+    // Also check for rate-limited runs — agent log contains rate limit message
+    // but still produced a diff (from retry against wrong state)
+    const logFile = r.log_file || resultFile.replace('.json', '.log');
+    if (fs.existsSync(logFile)) {
+      const logStart = fs.readFileSync(logFile, 'utf8').slice(0, 500);
+      if (/hit your (usage )?limit|rate.?limit|resets \d+am/i.test(logStart)) {
+        console.log(`  ⚠ Rate-limited run detected — treating as junk`);
+        return true;
+      }
+    }
+    return false;
   } catch { return false; }
 }
 
