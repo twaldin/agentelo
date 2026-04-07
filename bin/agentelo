@@ -468,7 +468,7 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
         break;
       case 'codex':
         cmd = 'codex';
-        cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '-C', tmpdir, prompt];
+        cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '--json', '-C', tmpdir, prompt];
         break;
       default:
         throw new Error(`Unsupported harness: ${harness}`);
@@ -674,25 +674,36 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     try {
       const logContent = fs.readFileSync(logFile, 'utf8');
       transcript = logContent;
-      // Claude Code with --output-format json: parse JSON lines for result type
+      // Parse JSON lines for token usage (Claude Code, Codex, OpenCode)
       for (const line of logContent.split('\n')) {
         try {
           const parsed = JSON.parse(line);
+          // Claude Code: --output-format json → result type with usage
           if (parsed.type === 'result' && parsed.usage) {
-            tokensIn = parsed.usage.input_tokens || 0;
-            tokensOut = parsed.usage.output_tokens || 0;
+            tokensIn += parsed.usage.input_tokens || 0;
+            tokensOut += parsed.usage.output_tokens || 0;
             if (parsed.total_cost_usd) costUsd = parsed.total_cost_usd;
-            break;
+          }
+          // Codex: --json → turn.completed with usage (sum all turns)
+          if (parsed.type === 'turn.completed' && parsed.usage) {
+            tokensIn += parsed.usage.input_tokens || 0;
+            tokensOut += parsed.usage.output_tokens || 0;
           }
         } catch {}
       }
-      // Fallback: OpenCode/OpenRouter usage patterns
-      if (tokensIn === 0) {
-        const orTokens = logContent.match(/usage.*?prompt.*?(\d+).*?completion.*?(\d+)/i);
-        if (orTokens) {
-          tokensIn = parseInt(orTokens[1]);
-          tokensOut = parseInt(orTokens[2]);
-        }
+      // Fallback: OpenCode session DB — query by session ID if available
+      if (tokensIn === 0 && harness === 'opencode') {
+        try {
+          const ocDb = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+          if (fs.existsSync(ocDb)) {
+            const { execSync: ex } = require('child_process');
+            // Get the most recent session that touched this workdir
+            const result = ex(`sqlite3 "${ocDb}" "SELECT SUM(json_extract(data, '$.tokens.input')), SUM(json_extract(data, '$.tokens.output')) FROM message WHERE session_id IN (SELECT id FROM session ORDER BY time_updated DESC LIMIT 1)"`, { encoding: 'utf8', timeout: 5000 }).trim();
+            const [tIn, tOut] = result.split('|').map(Number);
+            if (tIn > 0) tokensIn = tIn;
+            if (tOut > 0) tokensOut = tOut;
+          }
+        } catch {}
       }
     } catch {}
 
