@@ -131,7 +131,17 @@ const MODELS_MINIMAL = [
   { harness: 'gemini', model: 'gemini-2.5-flash' },
 ];
 
-const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : PHASE === 'claude' ? MODELS_CLAUDE : PHASE === 'minimal' ? MODELS_MINIMAL : MODELS_ALL;
+// === GEMINI: all 6 models via Gemini CLI ($300 API credit) ===
+const MODELS_GEMINI = [
+  { harness: 'gemini', model: 'gemini-3.1-pro-preview' },
+  { harness: 'gemini', model: 'gemini-3-flash-preview' },
+  { harness: 'gemini', model: 'gemini-3.1-flash-lite-preview' },
+  { harness: 'gemini', model: 'gemini-2.5-pro' },
+  { harness: 'gemini', model: 'gemini-2.5-flash' },
+  { harness: 'gemini', model: 'gemini-2.5-flash-lite' },
+];
+
+const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : PHASE === 'claude' ? MODELS_CLAUDE : PHASE === 'minimal' ? MODELS_MINIMAL : PHASE === 'gemini' ? MODELS_GEMINI : MODELS_ALL;
 
 // --- Challenge loading ---
 const challenges = fs.readdirSync(CHALLENGES_DIR)
