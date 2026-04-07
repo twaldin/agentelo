@@ -390,6 +390,9 @@ function spawnJob(job) {
   return run();
 }
 
+const REBUILD_EVERY = 25; // rebuild ratings every N completed jobs
+let jobsSinceRebuild = 0;
+
 function runJobQueue(jobs, concurrency) {
   if (jobs.length === 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -399,7 +402,19 @@ function runJobQueue(jobs, concurrency) {
       while (running < concurrency && idx < jobs.length) {
         running++;
         const job = jobs[idx++];
-        spawnJob(job).then(() => { running--; next(); });
+        spawnJob(job).then(() => {
+          running--;
+          jobsSinceRebuild++;
+          if (jobsSinceRebuild >= REBUILD_EVERY) {
+            jobsSinceRebuild = 0;
+            try {
+              const { execSync } = require('child_process');
+              execSync('node ' + path.resolve(__dirname, 'rebuild-ratings'), { stdio: 'pipe', timeout: 30000 });
+              console.log(`  [rebuild] Periodic rating rebuild (every ${REBUILD_EVERY} jobs)`);
+            } catch {}
+          }
+          next();
+        });
       }
     }
     next();
