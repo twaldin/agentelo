@@ -58,10 +58,14 @@ function computeScore(a, b, challengeId) {
   if (aFixed > bFixed) return 1;
   if (aFixed < bFixed) return 0;
 
-  // Both fixed the same number — tiebreak only when both actually fixed something (>0)
+  // Both fixed the same number — tiebreak ONLY when both solved ALL broken tests
   if (aFixed <= 0 && bFixed <= 0) return 0.5;
 
-  // Both fixed >0 same count — cheaper wins (cost tiebreak), fall back to faster if cost unavailable
+  const broken = (bl.broken_by_bug != null) ? bl.broken_by_bug : 0;
+  const bothPerfect = broken > 0 && aFixed >= broken && bFixed >= broken;
+  if (!bothPerfect) return 0.5; // same partial fix = draw
+
+  // Both solved all — cheaper wins (cost tiebreak), fall back to faster
   const aCost = a.cost_usd || 0;
   const bCost = b.cost_usd || 0;
   if (aCost > 0 && bCost > 0) {
@@ -69,7 +73,6 @@ function computeScore(a, b, challengeId) {
     if (aCost > bCost) return 0;
     return 0.5;
   }
-  // Fallback: faster wins when cost data unavailable
   if ((a.agent_time_seconds||0) < (b.agent_time_seconds||0)) return 1;
   if ((a.agent_time_seconds||0) > (b.agent_time_seconds||0)) return 0;
   return 0.5;

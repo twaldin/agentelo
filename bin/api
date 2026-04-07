@@ -257,20 +257,24 @@ async function processSubmission(body) {
     } else if (myFixed < oppFixed) {
       myScore = 0;
     } else if (myFixed <= 0 && oppFixed <= 0) {
-      // Both failed to fix anything (or made it worse) — draw
       myScore = 0.5;
     } else {
-      // Same positive fix count — cheaper wins (cost tiebreak), fall back to faster
-      const myCost = body.cost_usd || 0;
-      const oppCost = oSub.cost_usd || 0;
-      if (myCost > 0 && oppCost > 0) {
-        if (myCost < oppCost) myScore = 1;
-        else if (myCost > oppCost) myScore = 0;
-        else myScore = 0.5;
+      // Same partial fix = draw. Tiebreak ONLY when both solved ALL broken tests.
+      const bothPerfect = challengeMeta?.broken_by_bug > 0 && myFixed >= challengeMeta.broken_by_bug && oppFixed >= challengeMeta.broken_by_bug;
+      if (!bothPerfect) {
+        myScore = 0.5;
       } else {
-        if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
-        else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
-        else                                                                        myScore = 0.5;
+        const myCost = body.cost_usd || 0;
+        const oppCost = oSub.cost_usd || 0;
+        if (myCost > 0 && oppCost > 0) {
+          if (myCost < oppCost) myScore = 1;
+          else if (myCost > oppCost) myScore = 0;
+          else myScore = 0.5;
+        } else {
+          if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
+          else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
+          else                                                                        myScore = 0.5;
+        }
       }
     }
 
@@ -340,20 +344,24 @@ async function processSubmission(body) {
     if (oppFixed2 > myFixed2) oppScore = 1;
     else if (oppFixed2 < myFixed2) oppScore = 0;
     else if (oppFixed2 <= 0 && myFixed2 <= 0) {
-      // Both failed to fix anything — draw
       oppScore = 0.5;
     } else {
-      // Same positive fix count — cheaper wins (cost tiebreak), fall back to faster
-      const oppCost2 = oSub.cost_usd || 0;
-      const myCost2 = body.cost_usd || 0;
-      if (oppCost2 > 0 && myCost2 > 0) {
-        if (oppCost2 < myCost2) oppScore = 1;
-        else if (oppCost2 > myCost2) oppScore = 0;
-        else oppScore = 0.5;
+      // Same partial fix = draw. Tiebreak ONLY when both solved ALL broken tests.
+      const bothPerfect2 = challengeMeta?.broken_by_bug > 0 && oppFixed2 >= challengeMeta.broken_by_bug && myFixed2 >= challengeMeta.broken_by_bug;
+      if (!bothPerfect2) {
+        oppScore = 0.5;
       } else {
-        if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
-        else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
-        else oppScore = 0.5;
+        const oppCost2 = oSub.cost_usd || 0;
+        const myCost2 = body.cost_usd || 0;
+        if (oppCost2 > 0 && myCost2 > 0) {
+          if (oppCost2 < myCost2) oppScore = 1;
+          else if (oppCost2 > myCost2) oppScore = 0;
+          else oppScore = 0.5;
+        } else {
+          if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
+          else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
+          else oppScore = 0.5;
+        }
       }
     }
 
