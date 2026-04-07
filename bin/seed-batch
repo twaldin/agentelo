@@ -410,6 +410,39 @@ async function runWithHotReload() {
   if (anomalies.length > 0) {
     console.log(`\n⚠ ${anomalies.length} anomalies detected — check ${ANOMALY_LOG}`);
   }
+  // Check for models that completed all challenges but have submissions with no cost data
+  // Re-run those to get real token/cost numbers
+  console.log('\nChecking for cost-data backfill...');
+  try {
+    const totalChallenges = fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json')).length;
+    const agentSubs = {};
+    const allSubs = db.getDb().prepare('SELECT agent_id, challenge_id, cost_usd, id, run_id FROM submissions').all();
+    for (const s of allSubs) {
+      if (!agentSubs[s.agent_id]) agentSubs[s.agent_id] = [];
+      agentSubs[s.agent_id].push(s);
+    }
+    for (const [agentId, subs] of Object.entries(agentSubs)) {
+      const uniqueChallenges = new Set(subs.map(s => s.challenge_id)).size;
+      if (uniqueChallenges < totalChallenges) continue; // not done with all challenges yet
+      const noCost = subs.filter(s => !s.cost_usd || s.cost_usd === 0);
+      if (noCost.length === 0) continue;
+      // Find the model config for this agent
+      const modelConfig = MODELS.find(m => agentId.includes(m.model.replace(/[\/.:]/g, '-')));
+      if (!modelConfig) continue;
+      console.log(`  ${agentId}: ${noCost.length}/${subs.length} subs missing cost data — re-seeding for cost`);
+      for (const s of noCost) {
+        // Delete old result file and DB entry so buildJobs picks it up
+        const resultFiles = fs.readdirSync(RESULTS_DIR).filter(f => f.includes(s.challenge_id) && f.includes(modelConfig.model.replace(/[\/.:]/g, '-')) && f.endsWith('.json'));
+        for (const rf of resultFiles) {
+          try { fs.unlinkSync(path.join(RESULTS_DIR, rf)); } catch {}
+        }
+        db.getDb().prepare('DELETE FROM games WHERE submission_id = ? OR opponent_submission_id = ?').run(s.id, s.id);
+        db.getDb().prepare('DELETE FROM submissions WHERE id = ?').run(s.id);
+      }
+      console.log(`    Cleared ${noCost.length} submissions for re-seeding`);
+    }
+  } catch (e) { console.error('Cost backfill check failed:', e.message); }
+
   // Rebuild ratings from scratch — live incremental scoring can diverge
   console.log('\nRebuilding ratings...');
   try {
