@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const CHALLENGES_DIR = path.resolve(__dirname, '..', process.env.CHALLENGES_DIR || 'challenges-active');
 const RESULTS_DIR = path.resolve(__dirname, '..', 'results');
 const AGENTELO = path.resolve(__dirname, 'agentelo');
 const MAX_CONCURRENT = parseInt(process.env.AGENTELO_CONCURRENCY || '5', 10);
@@ -112,7 +112,20 @@ const MODELS_BUDGET = [
   { harness: 'opencode', model: 'ollama/qwen2.5-7b-32k' },
 ];
 
-const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : MODELS_ALL;
+// === CLAUDE-PRIORITY: all 3 Claude + OR (no Spark, save GPT quota) ===
+const MODELS_CLAUDE = [
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'claude-code', model: 'claude-sonnet-4-6' },
+  { harness: 'claude-code', model: 'claude-opus-4-6' },
+  // OR paid (separate billing)
+  { harness: 'opencode', model: 'openrouter/minimax/minimax-m2.5' },
+  { harness: 'opencode', model: 'openrouter/mistralai/devstral-small-2507' },
+  { harness: 'opencode', model: 'openrouter/moonshotai/kimi-k2.5' },
+  { harness: 'opencode', model: 'openrouter/openai/gpt-oss-120b:free' },
+  { harness: 'opencode', model: 'openrouter/z-ai/glm-4.5-air:free' },
+];
+
+const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : PHASE === 'claude' ? MODELS_CLAUDE : MODELS_ALL;
 
 // --- Challenge loading ---
 const challenges = fs.readdirSync(CHALLENGES_DIR)
@@ -362,14 +375,33 @@ function runJobQueue(jobs, concurrency) {
 // --- Main ---
 try { fs.mkdirSync(RESULTS_DIR, { recursive: true }); } catch {}
 
-const jobs = buildJobs();
+let jobs = buildJobs();
 totalJobs = jobs.length;
 
 console.log(`${totalJobs} jobs remaining (skipping existing results)`);
-if (totalJobs === 0) { console.log('Nothing to do.'); process.exit(0); }
+
+// Hot reload: after finishing current batch, check for new challenges
+async function runWithHotReload() {
+  while (true) {
+    if (jobs.length === 0) {
+      // Check for new challenges
+      console.log('\nChecking for new challenges...');
+      jobs = buildJobs();
+      totalJobs += jobs.length;
+      if (jobs.length === 0) {
+        console.log('No new jobs. Waiting 60s before next check...');
+        await new Promise(r => setTimeout(r, 60000));
+        continue;
+      }
+      console.log(`Hot-reloaded ${jobs.length} new jobs from challenges-active/`);
+    }
+    await runJobQueue(jobs, MAX_CONCURRENT);
+    jobs = []; // clear completed batch, will check for new in next iteration
+  }
+}
 
 (async () => {
-  await runJobQueue(jobs, MAX_CONCURRENT);
+  await runWithHotReload();
   console.log(`\nDone. Passed: ${passed}, Failed: ${failed}, Errored: ${errored}`);
   if (skippedModels.size > 0) {
     console.log(`\n⛔ Skipped models (${JUNK_THRESHOLD}+ junk results — 0 diff, <60s):`);

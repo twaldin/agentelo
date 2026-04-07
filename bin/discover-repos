@@ -1,0 +1,77 @@
+#!/usr/bin/env node
+'use strict';
+
+// Auto-discover popular repos with good test coverage for challenge mining.
+// Searches GitHub for repos by language, stars, and recent fix PRs.
+// Output: list of repos suitable for mine-prs.
+
+const { execSync } = require('child_process');
+
+const LANGUAGES = ['javascript', 'typescript', 'python', 'go', 'rust'];
+const MIN_STARS = 1000;
+const MAX_RESULTS = parseInt(process.env.MAX_RESULTS || '20', 10);
+const LANG_FILTER = process.argv[2] || null; // optional: only one language
+
+function gh(args) {
+  try {
+    return execSync(`gh ${args}`, { encoding: 'utf8', stdio: 'pipe', timeout: 30000 }).trim();
+  } catch { return ''; }
+}
+
+function discoverRepos(language) {
+  // Search for repos with recent "fix" PRs, good star count, and test files
+  const query = `language:${language} stars:>${MIN_STARS} sort:stars`;
+  const repos = gh(`search repos "${query}" --limit ${MAX_RESULTS} --json fullName,stargazersCount,description --jq '.[] | "\\(.fullName)\\t\\(.stargazersCount)\\t\\(.description)"'`);
+
+  if (!repos) return [];
+
+  return repos.split('\n').filter(Boolean).map(line => {
+    const [name, stars, desc] = line.split('\t');
+    return { name, stars: parseInt(stars), desc: (desc || '').slice(0, 80), language };
+  });
+}
+
+function hasFixPRs(repo) {
+  // Check if repo has recent merged fix PRs
+  const count = gh(`pr list -R ${repo} --search "fix" --state merged --limit 5 --json number --jq 'length'`);
+  return parseInt(count || '0') > 0;
+}
+
+function hasTestFiles(repo) {
+  // Quick check for test directory
+  const tree = gh(`api repos/${repo}/git/trees/HEAD --jq '.tree[].path'`);
+  return /\b(test|tests|__tests__|spec)\b/i.test(tree);
+}
+
+console.log('AgentElo Repo Discovery');
+console.log('=======================\n');
+
+const languages = LANG_FILTER ? [LANG_FILTER] : LANGUAGES;
+const candidates = [];
+
+for (const lang of languages) {
+  console.log(`Searching ${lang} repos (>${MIN_STARS} stars)...`);
+  const repos = discoverRepos(lang);
+
+  for (const repo of repos) {
+    // Quick validation
+    const hasTests = hasTestFiles(repo.name);
+    const hasFixes = hasFixPRs(repo.name);
+
+    if (hasTests && hasFixes) {
+      candidates.push(repo);
+      console.log(`  ✓ ${repo.name} (${repo.stars}★) — ${repo.desc}`);
+    }
+  }
+}
+
+console.log(`\n${candidates.length} candidate repos found.\n`);
+console.log('To mine challenges from these repos:');
+for (const c of candidates) {
+  console.log(`  node bin/mine-prs --repo ${c.name} --max 10`);
+}
+
+// Save to file for batch processing
+const outFile = require('path').resolve(__dirname, '..', 'discovered-repos.json');
+require('fs').writeFileSync(outFile, JSON.stringify(candidates, null, 2));
+console.log(`\nSaved to ${outFile}`);

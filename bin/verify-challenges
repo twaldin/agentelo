@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+'use strict';
+
+// Verify challenges are actually scorable: apply the known fix diff,
+// inject test hunks, run tests, confirm tests_ok > baseline.
+// This catches Node v24 issues, broken test runners, bad test injection.
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
+const os = require('os');
+const { score } = require('../core/scorer');
+
+const CHALLENGES_DIR = path.resolve(__dirname, '..', process.argv[2] || 'challenges-active');
+const CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'repos');
+
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+function normalizeChallenge(raw) {
+  return {
+    id: raw.id, repo: raw.repoUrl || raw.repo,
+    commit: raw.buggyCommit || raw.commit, fixCommit: raw.fixCommit,
+    fixDiff: raw.fixDiff, title: raw.issue?.title || raw.title || raw.id,
+    test_command: raw.testCommand || raw.test_command || 'npm test',
+    baseline_passing: raw.baseline_passing || 0, broken_by_bug: raw.broken_by_bug || 0,
+  };
+}
+
+function installDeps(dir) {
+  try {
+    if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'setup.py'))) {
+      if (!fs.existsSync(path.join(dir, '.venv')))
+        spawnSync('python3', ['-m', 'venv', '.venv'], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+      const pip = path.join(dir, '.venv', 'bin', 'pip');
+      spawnSync(pip, ['install', '-e', '.[dev,test]'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      spawnSync(pip, ['install', 'pytest'], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      spawnSync('npm', ['install', '--ignore-scripts'], { cwd: dir, stdio: 'pipe', timeout: 120000 });
+    }
+  } catch {}
+}
+
+async function verifyChallenge(challengeFile) {
+  const raw = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+  const ch = normalizeChallenge(raw);
+
+  if (!ch.fixDiff || !ch.commit) return { id: ch.id, status: 'SKIP', reason: 'no fixDiff or commit' };
+
+  const repoSlug = slugify((ch.repo || '').replace('https://github.com/', ''));
+  const cacheDir = path.join(CACHE_DIR, repoSlug);
+  if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD')))
+    return { id: ch.id, status: 'SKIP', reason: 'no cached repo' };
+
+  const cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-'));
+  try {
+    execFileSync('cp', ['-r', cacheDir + '/', cleanDir + '/'], { stdio: 'pipe' });
+    execFileSync('git', ['checkout', '-f', ch.commit], { cwd: cleanDir, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+    installDeps(cleanDir);
+
+    // Apply the KNOWN FIX (code-only, strip tests)
+    const result = await score(ch.fixDiff, cleanDir, ch, null);
+
+    const fixed = (result.tests_ok || 0) - ch.baseline_passing;
+    if (result.tests_ok === 0 && result.tests_total === 0) {
+      return { id: ch.id, status: 'FAIL', reason: `test runner broken (0/0 tests)`, tests_ok: 0 };
+    }
+    if (fixed < ch.broken_by_bug) {
+      return { id: ch.id, status: 'WARN', reason: `fix only gets ${fixed}/${ch.broken_by_bug}`, tests_ok: result.tests_ok };
+    }
+    return { id: ch.id, status: 'PASS', tests_ok: result.tests_ok, fixed, broken: ch.broken_by_bug };
+  } catch (err) {
+    return { id: ch.id, status: 'ERROR', reason: err.message?.slice(0, 100) };
+  } finally {
+    try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+async function main() {
+  const files = fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json')).sort();
+  console.log(`Verifying ${files.length} challenges from ${CHALLENGES_DIR}\n`);
+
+  const results = { pass: [], fail: [], warn: [], skip: [], error: [] };
+  for (const f of files) {
+    const r = await verifyChallenge(path.join(CHALLENGES_DIR, f));
+    results[r.status.toLowerCase()].push(r);
+    const icon = { PASS: '✓', FAIL: '✗', WARN: '⚠', SKIP: '○', ERROR: '!' }[r.status];
+    const detail = r.reason || `${r.fixed}/${r.broken} fixed (tests_ok=${r.tests_ok})`;
+    console.log(`  ${icon} ${r.id}: ${detail}`);
+  }
+
+  console.log(`\n--- Summary ---`);
+  console.log(`Pass: ${results.pass.length}, Fail: ${results.fail.length}, Warn: ${results.warn.length}, Skip: ${results.skip.length}, Error: ${results.error.length}`);
+
+  if (results.fail.length > 0) {
+    console.log(`\nFailing challenges (should remove):`);
+    for (const r of results.fail) console.log(`  ${r.id}: ${r.reason}`);
+  }
+}
+
+main().catch(err => { console.error('Fatal:', err); process.exit(1); });

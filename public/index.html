@@ -924,6 +924,13 @@ function fmtSecs(secs) {
   return m > 0 ? m + 'm ' + s + 's' : s + 's';
 }
 
+function fmtTokenCost(tokIn, tokOut, cost) {
+  if (!tokIn && !tokOut && !cost) return '<span style="color:var(--text-lo)">—</span>';
+  var tokStr = (tokIn || 0).toLocaleString() + '+' + (tokOut || 0).toLocaleString();
+  var costStr = cost ? '<span style="color:var(--yellow)">($' + cost.toFixed(cost < 0.01 ? 4 : 2) + ')</span>' : '';
+  return '<span style="font-size:.68rem">' + tokStr + ' ' + costStr + '</span>';
+}
+
 function toggleMatch(row, idx) {
   var detail = document.getElementById('gd-' + idx);
   var exp = document.getElementById('exp-' + idx);
@@ -976,49 +983,53 @@ async function openAgent(id) {
       var timeStr = fmtSecs(m.agent_time || 0);
       var dateStr = m.created_at ? new Date(m.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
 
-      // Game detail rows
+      // Game detail rows — show OPPONENT stats, not ours (ours are in parent)
       var gameRows = '';
       if (m.games && m.games.length > 0) {
         gameRows = m.games.map(function(g) {
           var gRes = g.score === 1 ? '<span style="color:var(--green)">WIN</span>' : g.score === 0 ? '<span style="color:var(--red)">LOSS</span>' : '<span style="color:var(--yellow)">DRAW</span>';
           var gDelta = g.delta > 0 ? '+' + Math.round(g.delta) : Math.round(g.delta) + '';
           var gDeltaColor = g.delta > 0 ? 'var(--green)' : g.delta < 0 ? 'var(--red)' : 'var(--text-lo)';
-          var myTs = fmtTestScore(m.tests_ok, m.tests_total, m.baseline_passing, m.broken_by_bug);
           var theirTs = fmtTestScore(g.opponent_tests_ok, g.opponent_tests_total, m.baseline_passing, m.broken_by_bug);
-          var myTime = fmtSecs(m.agent_time || 0);
           var theirTime = fmtSecs(g.opponent_time || 0);
-          return '<tr><td>' + gRes + '</td>' +
-            '<td><span class="opp-link" onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')">' + g.opponent_id + '</span></td>' +
-            '<td style="color:' + myTs.color + '">' + myTs.text + '</td>' +
+          var oppShort = (g.opponent_id || '').replace('claude-code-','').replace('codex-','').replace('opencode-openrouter-','').replace('opencode-ollama-','');
+          return '<tr>' +
+            '<td>' + gRes + '</td>' +
+            '<td><span class="opp-link" onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')" style="cursor:pointer;color:var(--green);text-decoration:underline">' + oppShort + '</span></td>' +
             '<td style="color:' + theirTs.color + '">' + theirTs.text + '</td>' +
-            '<td>' + myTime + '</td>' +
             '<td>' + theirTime + '</td>' +
             '<td style="color:' + gDeltaColor + '">' + gDelta + '</td>' +
+            '<td><span onclick="event.stopPropagation();openAgent(\'' + g.opponent_id + '\')" style="cursor:pointer;color:var(--text-lo)">&#8594;</span></td>' +
           '</tr>';
         }).join('');
       }
 
       var chLabel = m.challenge_id || '—';
+      var tokenCost = fmtTokenCost(m.tokens_in, m.tokens_out, m.cost_usd);
 
+      // Parent row: challenge name + MY stats (not opponent)
       return '<tr class="mh-row" onclick="toggleMatch(this, ' + mi + ')">' +
         '<td><span class="result-badge ' + resultClass + '">' + resultText + '</span></td>' +
-        '<td><span style="cursor:pointer;color:var(--text)" onclick="event.stopPropagation();openSubmission(' + m.submission_id + ')">' + chLabel + '</span></td>' +
+        '<td><span style="cursor:pointer;color:var(--text)" onclick="event.stopPropagation();openChallenge(\'' + m.challenge_id + '\')">' + chLabel + '</span></td>' +
         '<td style="color:' + ts.color + '">' + ts.text + '</td>' +
         '<td>' + timeStr + '</td>' +
-        '<td style="color:var(--text-lo)">' + (m.diff_lines || 0) + 'L</td>' +
+        '<td>' + tokenCost + '</td>' +
         '<td style="color:' + deltaColor + '">' + deltaStr + '</td>' +
         '<td style="color:var(--text-lo);font-size:.68rem">' + dateStr + '</td>' +
-        '<td><span class="mh-expand" id="exp-' + mi + '">&#9660;</span></td>' +
+        '<td style="display:flex;align-items:center;gap:8px">' +
+          '<span class="mh-expand" id="exp-' + mi + '">&#9660;</span>' +
+          '<span onclick="event.stopPropagation();openSubmission(' + m.submission_id + ')" style="cursor:pointer;color:var(--text-lo)">&#8594;</span>' +
+        '</td>' +
       '</tr>' +
       '<tr class="game-detail" id="gd-' + mi + '">' +
         '<td colspan="8"><div class="gd-inner">' +
-          (gameRows ? '<table class="gd-tbl"><thead><tr><th>RESULT</th><th>VS</th><th>MY TESTS</th><th>THEIR TESTS</th><th>MY TIME</th><th>THEIR TIME</th><th>ELO</th></tr></thead><tbody>' + gameRows + '</tbody></table>' : '<div style="color:var(--text-lo);font-size:.72rem;padding:4px 0">No head-to-head games recorded</div>') +
+          (gameRows ? '<table class="gd-tbl"><thead><tr><th>RESULT</th><th>OPPONENT</th><th>THEIR TESTS</th><th>THEIR TIME</th><th>ELO</th><th></th></tr></thead><tbody>' + gameRows + '</tbody></table>' : '<div style="color:var(--text-lo);font-size:.72rem;padding:4px 0">No games</div>') +
         '</div></td>' +
       '</tr>';
     }).join('');
 
     matchesHtml = '<table class="mh-tbl"><thead><tr>' +
-      '<th>RESULT</th><th>CHALLENGE</th><th>TESTS</th><th>TIME</th><th>DIFF</th><th>ELO</th><th>DATE</th><th></th>' +
+      '<th>RESULT</th><th>CHALLENGE</th><th>TESTS</th><th>TIME</th><th>TOKENS</th><th>ELO</th><th>DATE</th><th></th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table>';
   } else {
     matchesHtml = '<div style="color:var(--text-lo);padding:10px 0;font-size:.78rem">No matches yet</div>';
@@ -1050,7 +1061,7 @@ async function openAgent(id) {
     '</div>' +
     '<div class="p-st">RATING HISTORY</div>' +
     '<div class="chart-box" style="height:180px"><canvas id="rChart"></canvas></div>' +
-    '<div class="p-st">MATCH HISTORY (' + (a.matches ? a.matches.length : 0) + ')</div>' +
+    '<div class="p-st">CHALLENGES (' + (a.matches ? a.matches.length : 0) + ')</div>' +
     matchesHtml;
 
   document.getElementById('panel').classList.add('open');
@@ -1071,13 +1082,26 @@ function closePanel() {
 
 function renderDiff(diff) {
   if (!diff) return '';
-  return diff.split('\n').map(function(l) {
-    var el = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    if (/^\+/.test(l) && !/^\+\+\+/.test(l)) return '<span style="color:var(--green)">' + el + '</span>';
-    if (/^-/.test(l) && !/^---/.test(l))  return '<span style="color:var(--red)">' + el + '</span>';
-    if (/^@@/.test(l)) return '<span style="color:var(--purple)">' + el + '</span>';
-    return el;
-  }).join('\n');
+  // Parse into file sections
+  var files = diff.split(/^diff --git /m).filter(Boolean);
+  return files.map(function(section) {
+    var lines = section.split('\n');
+    // Extract filename from "a/path b/path"
+    var fileMatch = lines[0].match(/a\/(\S+)/);
+    var filename = fileMatch ? fileMatch[1] : 'unknown';
+    // Skip git headers (index, ---, +++ lines)
+    var codeLines = lines.filter(function(l) {
+      return !/^(diff|index |--- |\\+\\+\\+ |[a-f0-9]+\.\.)/.test(l) && l.trim() !== '';
+    });
+    var body = codeLines.map(function(l) {
+      var el = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (/^\+/.test(l)) return '<span style="color:var(--green)">' + el + '</span>';
+      if (/^-/.test(l)) return '<span style="color:var(--red)">' + el + '</span>';
+      if (/^@@/.test(l)) return '<span style="color:var(--yellow);opacity:.7">' + el + '</span>';
+      return '<span style="color:var(--text-lo)">' + el + '</span>';
+    }).join('\n');
+    return '<div style="margin-bottom:12px"><div style="color:var(--green);font-size:.75rem;padding:6px 8px;background:rgba(0,255,65,.08);border:1px solid var(--border);border-bottom:none;font-family:monospace">' + filename + '</div><pre style="margin:0;padding:8px;border:1px solid var(--border);overflow-x:auto;font-size:.7rem;line-height:1.5">' + body + '</pre></div>';
+  }).join('');
 }
 
 async function openChallenge(id) {

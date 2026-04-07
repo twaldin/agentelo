@@ -11,12 +11,22 @@ const path = require('path');
 const os = require('os');
 
 const DEFAULT_REPOS = [
+  // JavaScript/TypeScript
   'fastify/fastify', 'koajs/koa', 'expressjs/express', 'honojs/hono',
   'sveltejs/svelte', 'mochajs/mocha', 'chalk/chalk', 'sindresorhus/execa',
   'yargs/yargs', 'hapijs/hapi', 'hapijs/joi', 'debug-js/debug',
   'ljharb/qs', 'tj/commander.js', 'expressjs/body-parser', 'socketio/socket.io',
   'typeorm/typeorm', 'sequelize/sequelize', 'jestjs/jest',
   'pnpm/pnpm', 'date-fns/date-fns', 'colinhacks/zod',
+  // Python
+  'psf/requests', 'pallets/flask', 'pallets/click', 'encode/httpx',
+  'pydantic/pydantic', 'tiangolo/fastapi', 'marshmallow-code/marshmallow',
+  'python-attrs/attrs', 'jazzband/pip-tools', 'tox-dev/tox',
+  // Go
+  'gin-gonic/gin', 'labstack/echo', 'go-chi/chi', 'gofiber/fiber',
+  'stretchr/testify',
+  // Rust
+  'serde-rs/serde', 'tokio-rs/tokio', 'clap-rs/clap',
 ];
 
 const cliArgs = process.argv.slice(2);
@@ -27,7 +37,7 @@ for (let i = 0; i < cliArgs.length; i++) {
 const ACTIVE_REPOS = cliRepos.length > 0 ? cliRepos : DEFAULT_REPOS;
 const MIN_BROKEN = parseInt(process.env.MIN_BROKEN || '3', 10);
 
-const CHALLENGES_DIR = path.resolve(__dirname, '..', 'challenges');
+const CHALLENGES_DIR = path.resolve(__dirname, '..', process.env.MINE_OUTPUT || 'challenges-pending');
 const CACHE_DIR = path.resolve(__dirname, '..', '.cache', 'repos');
 fs.mkdirSync(CHALLENGES_DIR, { recursive: true });
 fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -94,8 +104,43 @@ function ensureRepoCache(repo) {
   return dir;
 }
 
-function detectTestCommand(repo) {
+function detectLanguage(repo) {
   const [owner, name] = repo.split('/');
+  // Check for language-specific files
+  const checks = [
+    { file: 'package.json', lang: 'javascript' },
+    { file: 'setup.py', lang: 'python' }, { file: 'pyproject.toml', lang: 'python' },
+    { file: 'go.mod', lang: 'go' },
+    { file: 'Cargo.toml', lang: 'rust' },
+    { file: 'Gemfile', lang: 'ruby' },
+  ];
+  for (const c of checks) {
+    const r = run('gh', ['api', `repos/${owner}/${name}/contents/${c.file}`, '--jq', '.name'], { allowFail: true });
+    if (r.status === 0 && (r.stdout || '').trim()) return c.lang;
+  }
+  // Fallback: check GitHub language API
+  const langRes = run('gh', ['api', `repos/${owner}/${name}`, '--jq', '.language'], { allowFail: true });
+  const lang = (langRes.stdout || '').trim().toLowerCase();
+  if (lang === 'python') return 'python';
+  if (lang === 'go' || lang === 'golang') return 'go';
+  if (lang === 'rust') return 'rust';
+  if (lang === 'ruby') return 'ruby';
+  return 'javascript';
+}
+
+function detectTestCommand(repo) {
+  const lang = detectLanguage(repo);
+  const [owner, name] = repo.split('/');
+
+  if (lang === 'python') {
+    // Check for pytest in pyproject.toml or setup.cfg
+    return 'python -m pytest';
+  }
+  if (lang === 'go') return 'go test ./...';
+  if (lang === 'rust') return 'cargo test';
+  if (lang === 'ruby') return 'bundle exec rake test';
+
+  // JavaScript/TypeScript
   const bunCheck = run('gh', ['api', `repos/${owner}/${name}/contents/bun.lock`, '--jq', '.name'], { allowFail: true });
   if (bunCheck.status === 0 && (bunCheck.stdout || '').trim()) return 'bun test';
   const pnpmCheck = run('gh', ['api', `repos/${owner}/${name}/contents/pnpm-lock.yaml`, '--jq', '.name'], { allowFail: true });
@@ -130,6 +175,13 @@ function parseTestCounts(output) {
   // mocha
   const mp = output.match(/(\d+)\s+passing/);
   if (mp) { const p = parseInt(mp[1]); const mf = output.match(/(\d+)\s+failing/); return { pass: p, total: p + (mf ? parseInt(mf[1]) : 0) }; }
+  // go test: "ok ... (0.5s)" per package, "FAIL" for failures, "--- PASS:" / "--- FAIL:" per test
+  const goPasses = (output.match(/--- PASS:/g) || []).length;
+  const goFails = (output.match(/--- FAIL:/g) || []).length;
+  if (goPasses + goFails > 0) return { pass: goPasses, total: goPasses + goFails };
+  // rust/cargo: "test result: ok. N passed; M failed"
+  const rustMatch = output.match(/test result:.*?(\d+)\s+passed.*?(\d+)\s+failed/);
+  if (rustMatch) return { pass: parseInt(rustMatch[1]), total: parseInt(rustMatch[1]) + parseInt(rustMatch[2]) };
   // pytest
   const pp = output.match(/(\d+)\s+passed/);
   if (pp) { const p = parseInt(pp[1]); const pf = output.match(/(\d+)\s+failed/); return { pass: p, total: p + (pf ? parseInt(pf[1]) : 0) }; }
@@ -138,6 +190,27 @@ function parseTestCounts(output) {
 
 function installDeps(dir, testCommand) {
   try {
+    // Python
+    if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'setup.py'))) {
+      // Create venv and install
+      if (!fs.existsSync(path.join(dir, '.venv'))) {
+        spawnSync('python3', ['-m', 'venv', '.venv'], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+      }
+      const pip = path.join(dir, '.venv', 'bin', 'pip');
+      if (fs.existsSync(path.join(dir, 'pyproject.toml'))) {
+        spawnSync(pip, ['install', '-e', '.[dev,test]'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      } else {
+        spawnSync(pip, ['install', '-e', '.[test]'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+      }
+      // Also install pytest if not already
+      spawnSync(pip, ['install', 'pytest'], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+      return;
+    }
+    // Go — no install step needed (go test fetches deps automatically)
+    if (fs.existsSync(path.join(dir, 'go.mod'))) return;
+    // Rust — cargo handles deps automatically
+    if (fs.existsSync(path.join(dir, 'Cargo.toml'))) return;
+    // JavaScript
     if (fs.existsSync(path.join(dir, 'bun.lock')) || fs.existsSync(path.join(dir, 'bun.lockb')))
       spawnSync('bun', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
     else if (testCommand?.startsWith('pnpm') || fs.existsSync(path.join(dir, 'pnpm-lock.yaml')))
@@ -156,7 +229,14 @@ function runTests(dir, testCommand) {
       else if (pkg.scripts?.['tests-only']) cmd = cmd.replace('test', 'run tests-only');
     } catch {}
   }
-  try { return execSync(cmd, { cwd: dir, stdio: 'pipe', timeout: 600000, encoding: 'utf8' }); }
+  // Python: use venv if available
+  if (cmd.startsWith('python') && fs.existsSync(path.join(dir, '.venv', 'bin', 'python'))) {
+    cmd = cmd.replace(/^python3?/, path.join(dir, '.venv', 'bin', 'python'));
+  }
+  const env = { ...process.env };
+  // Go: ensure module mode
+  if (cmd.startsWith('go test')) env.GO111MODULE = 'on';
+  try { return execSync(cmd, { cwd: dir, stdio: 'pipe', timeout: 600000, encoding: 'utf8', env }); }
   catch (err) { return (err.stdout || '') + (err.stderr || ''); }
 }
 
@@ -172,7 +252,10 @@ function copyTestFiles(srcDir, dstDir) {
         walk(full);
       } else if (entry.isFile()) {
         const p = rel.toLowerCase();
-        if (p.includes('/test/') || p.includes('/tests/') || p.includes('/__tests__/') || p.includes('.test.') || p.includes('.spec.')) {
+        if (p.includes('/test/') || p.includes('/tests/') || p.includes('/__tests__/') ||
+            p.includes('.test.') || p.includes('.spec.') ||
+            p.endsWith('_test.go') || p.endsWith('_test.py') || p.startsWith('test_') ||
+            p.endsWith('_test.rs')) {
           const dst = path.join(dstDir, rel);
           try { fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.copyFileSync(full, dst); } catch {}
         }
@@ -182,19 +265,55 @@ function copyTestFiles(srcDir, dstDir) {
   walk(srcDir);
 }
 
-function computeBaseline(cacheDir, beforeCommit, afterCommit, testCommand) {
+function extractTestHunks(diff) {
+  if (!diff) return null;
+  const testPatterns = ['/test/', '/tests/', '/__tests__/', '.test.', '.spec.', '_test.', 'test_'];
+  const testPrefixes = ['test/', 'tests/', '__tests__/'];
+  const chunks = diff.split(/^(diff --git )/m);
+  const kept = [];
+  for (let i = 0; i < chunks.length; i++) {
+    if (!chunks[i].startsWith('diff --git ')) continue;
+    const chunk = chunks[i] + (chunks[i + 1] || '');
+    i++;
+    const fileMatch = chunk.match(/^diff --git a\/(\S+)/);
+    if (!fileMatch) continue;
+    const filePath = fileMatch[1].toLowerCase();
+    const isTest = testPatterns.some(p => filePath.includes(p)) || testPrefixes.some(p => filePath.startsWith(p));
+    if (isTest) kept.push(chunk);
+  }
+  return kept.length > 0 ? kept.join('') : null;
+}
+
+function computeBaseline(cacheDir, beforeCommit, afterCommit, testCommand, prDiff) {
   const tmpBefore = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-buggy-'));
   const tmpAfter = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-fix-'));
-  const tmpFixSrc = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-fixsrc-'));
   try {
-    // Before (buggy) + after's test files injected
+    // Before (buggy) + test hunks from fix diff injected
     spawnSync('cp', ['-r', cacheDir + '/', tmpBefore + '/'], { stdio: 'pipe' });
     spawnSync('git', ['checkout', '-f', beforeCommit], { cwd: tmpBefore, stdio: 'pipe' });
     spawnSync('git', ['clean', '-fd'], { cwd: tmpBefore, stdio: 'pipe' });
     installDeps(tmpBefore, testCommand);
-    spawnSync('cp', ['-r', path.join(cacheDir, '.git'), path.join(tmpFixSrc, '.git')], { stdio: 'pipe' });
-    spawnSync('git', ['checkout', '-f', afterCommit], { cwd: tmpFixSrc, stdio: 'pipe' });
-    copyTestFiles(tmpFixSrc, tmpBefore);
+
+    // Inject test hunks from the PR diff (not whole files — preserves existing tests)
+    const testDiff = prDiff ? extractTestHunks(prDiff) : null;
+    if (testDiff) {
+      const patchFile = path.join(os.tmpdir(), `mine-testpatch-${Date.now()}.patch`);
+      fs.writeFileSync(patchFile, testDiff);
+      try {
+        spawnSync('git', ['apply', '--whitespace=fix', patchFile], { cwd: tmpBefore, stdio: 'pipe' });
+      } catch {
+        try { spawnSync('git', ['apply', '--3way', patchFile], { cwd: tmpBefore, stdio: 'pipe' }); } catch {}
+      }
+      try { fs.unlinkSync(patchFile); } catch {}
+    } else {
+      // Fallback: copy whole test files from fix commit
+      const tmpFixSrc = fs.mkdtempSync(path.join(os.tmpdir(), 'mine-fixsrc-'));
+      try {
+        spawnSync('cp', ['-r', path.join(cacheDir, '.git'), path.join(tmpFixSrc, '.git')], { stdio: 'pipe' });
+        spawnSync('git', ['checkout', '-f', afterCommit], { cwd: tmpFixSrc, stdio: 'pipe' });
+        copyTestFiles(tmpFixSrc, tmpBefore);
+      } finally { try { fs.rmSync(tmpFixSrc, { recursive: true, force: true }); } catch {} }
+    }
     const beforeResult = parseTestCounts(runTests(tmpBefore, testCommand));
 
     // After (fixed)
@@ -250,7 +369,9 @@ function mineRepo(repo) {
 
     console.log(`  ${id}: "${(pr.title||'').slice(0,60)}" — computing baseline...`);
     try {
-      const bl = computeBaseline(cacheDir, beforeCommit, pr.mergeCommit.oid, testCommand);
+      // Fetch PR diff FIRST so we can use diff-based test injection
+      const diff = fetchPRDiff(repo, pr.number);
+      const bl = computeBaseline(cacheDir, beforeCommit, pr.mergeCommit.oid, testCommand, diff);
       if (bl.broken_by_bug < MIN_BROKEN) {
         console.log(`    SKIP — broken_by_bug=${bl.broken_by_bug}`);
         continue;
@@ -260,8 +381,6 @@ function mineRepo(repo) {
         console.log(`    SKIP — suspicious baseline (${bl.baseline_passing} → ${bl.fix_passing})`);
         continue;
       }
-
-      const diff = fetchPRDiff(repo, pr.number);
       const challenge = {
         id, repo, repoUrl: `https://github.com/${repo}`,
         issue: { number: pr.number, title: pr.title, body: '' },
