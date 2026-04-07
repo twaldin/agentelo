@@ -459,8 +459,8 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     switch (harness) {
       case 'claude-code':
         cmd = 'claude';
-        // Don't use --bare for baselines — need keychain auth. Fake HOME hides user configs.
-        cmdArgs = ['-p', prompt, '--dangerously-skip-permissions', '--model', model];
+        // Use --output-format json to capture token usage and cost
+        cmdArgs = ['-p', prompt, '--dangerously-skip-permissions', '--model', model, '--output-format', 'json'];
         break;
       case 'opencode':
         cmd = 'opencode';
@@ -674,19 +674,25 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
     try {
       const logContent = fs.readFileSync(logFile, 'utf8');
       transcript = logContent;
-      // Claude Code: "Total tokens: 1234 input, 5678 output" or "Cost: $0.12"
-      const claudeTokens = logContent.match(/(\d[\d,]+)\s*input.*?(\d[\d,]+)\s*output/i);
-      if (claudeTokens) {
-        tokensIn = parseInt(claudeTokens[1].replace(/,/g, ''));
-        tokensOut = parseInt(claudeTokens[2].replace(/,/g, ''));
+      // Claude Code with --output-format json: parse JSON lines for result type
+      for (const line of logContent.split('\n')) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.type === 'result' && parsed.usage) {
+            tokensIn = parsed.usage.input_tokens || 0;
+            tokensOut = parsed.usage.output_tokens || 0;
+            if (parsed.total_cost_usd) costUsd = parsed.total_cost_usd;
+            break;
+          }
+        } catch {}
       }
-      const claudeCost = logContent.match(/(?:cost|total).*?\$(\d+\.?\d*)/i);
-      if (claudeCost) costUsd = parseFloat(claudeCost[1]);
-      // OpenCode/OpenRouter: look for usage patterns
-      const orTokens = logContent.match(/usage.*?prompt.*?(\d+).*?completion.*?(\d+)/i);
-      if (orTokens) {
-        tokensIn = parseInt(orTokens[1]);
-        tokensOut = parseInt(orTokens[2]);
+      // Fallback: OpenCode/OpenRouter usage patterns
+      if (tokensIn === 0) {
+        const orTokens = logContent.match(/usage.*?prompt.*?(\d+).*?completion.*?(\d+)/i);
+        if (orTokens) {
+          tokensIn = parseInt(orTokens[1]);
+          tokensOut = parseInt(orTokens[2]);
+        }
       }
     } catch {}
 
