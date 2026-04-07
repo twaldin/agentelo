@@ -125,7 +125,13 @@ const MODELS_CLAUDE = [
   { harness: 'opencode', model: 'openrouter/z-ai/glm-4.5-air:free' },
 ];
 
-const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : PHASE === 'claude' ? MODELS_CLAUDE : MODELS_ALL;
+// === MINIMAL: only Claude (light) + Gemini Flash (no OR, no Spark) ===
+const MODELS_MINIMAL = [
+  { harness: 'claude-code', model: 'claude-haiku-4-5-20251001' },
+  { harness: 'gemini', model: 'gemini-2.5-flash' },
+];
+
+const MODELS = PHASE === 'test' ? MODELS_PHASE1 : PHASE === 'proven' ? MODELS_PROVEN : PHASE === 'budget' ? MODELS_BUDGET : PHASE === 'claude' ? MODELS_CLAUDE : PHASE === 'minimal' ? MODELS_MINIMAL : MODELS_ALL;
 
 // --- Challenge loading ---
 const challenges = fs.readdirSync(CHALLENGES_DIR)
@@ -227,7 +233,7 @@ function isJunkResult(resultFile) {
     const logFile = r.log_file || resultFile.replace('.json', '.log');
     if (fs.existsSync(logFile)) {
       const logStart = fs.readFileSync(logFile, 'utf8').slice(0, 500);
-      if (/hit your (usage )?limit|rate.?limit|resets \d+am/i.test(logStart)) {
+      if (/hit your (usage )?limit|rate.?limit|resets \d+am|exhausted your capacity|RESOURCE_EXHAUSTED/i.test(logStart)) {
         console.log(`  ⚠ Rate-limited run detected — treating as junk`);
         return true;
       }

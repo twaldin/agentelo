@@ -470,6 +470,10 @@ async function runAgentPlay(flags, { isBaseline = false } = {}) {
         cmd = 'codex';
         cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '--json', '-C', tmpdir, prompt];
         break;
+      case 'gemini':
+        cmd = 'gemini';
+        cmdArgs = ['-p', prompt, '-y', '-m', model];
+        break;
       default:
         throw new Error(`Unsupported harness: ${harness}`);
     }
