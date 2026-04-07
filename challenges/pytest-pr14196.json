@@ -1,0 +1,27 @@
+{
+  "id": "pytest-pr14196",
+  "repo": "pytest-dev/pytest",
+  "repoUrl": "https://github.com/pytest-dev/pytest",
+  "issue": {
+    "number": 14196,
+    "title": "subtests: fix inconcistent handling of non-string messages",
+    "body": ""
+  },
+  "pr": {
+    "number": 14196,
+    "url": "https://github.com/pytest-dev/pytest/pull/14196"
+  },
+  "buggyCommit": "7bc02cca0dd92ec505b4556c054b4e06e9cb8d4d",
+  "fixCommit": "8950ca3bc0988647dfc35b02f854347a1435bd36",
+  "fixDiff": "diff --git a/AUTHORS b/AUTHORS\nindex 81e08c07488..6885ec6e793 100644\n--- a/AUTHORS\n+++ b/AUTHORS\n@@ -384,6 +384,7 @@ Ralf Schmitt\n Ralph Giles\n Ram Rachum\n Ran Benita\n+Randy Döring\n Raphael Castaneda\n Raphael Pierzina\n Rafal Semik\ndiff --git a/changelog/14195.bugfix.rst b/changelog/14195.bugfix.rst\nnew file mode 100644\nindex 00000000000..29ae149dd98\n--- /dev/null\n+++ b/changelog/14195.bugfix.rst\n@@ -0,0 +1 @@\n+Fixed an issue where non-string messages passed to `unittest.TestCase.subTest()` were not printed.\ndiff --git a/src/_pytest/unittest.py b/src/_pytest/unittest.py\nindex 23b92724f5d..31be8847821 100644\n--- a/src/_pytest/unittest.py\n+++ b/src/_pytest/unittest.py\n@@ -409,6 +409,10 @@ def addSubTest(\n         | tuple[type[BaseException], BaseException, TracebackType]\n         | None,\n     ) -> None:\n+        # Importing this private symbol locally in case this symbol is renamed/removed in the future; importing\n+        # it globally would break pytest entirely, importing it locally only will break unittests using `addSubTest`.\n+        from unittest.case import _subtest_msg_sentinel  # type: ignore[attr-defined]\n+\n         exception_info: ExceptionInfo[BaseException] | None\n         match exc_info:\n             case tuple():\n@@ -427,7 +431,7 @@ def addSubTest(\n             when=\"call\",\n             _ispytest=True,\n         )\n-        msg = test._message if isinstance(test._message, str) else None  # type: ignore[attr-defined]\n+        msg = None if test._message is _subtest_msg_sentinel else str(test._message)  # type: ignore[attr-defined]\n         report = self.ihook.pytest_runtest_makereport(item=self, call=call_info)\n         sub_report = SubtestReport._new(\n             report,\ndiff --git a/testing/test_subtests.py b/testing/test_subtests.py\nindex c480bb01658..bc16c879fcb 100644\n--- a/testing/test_subtests.py\n+++ b/testing/test_subtests.py\n@@ -373,6 +373,36 @@ def test_foo(subtests):\n     )\n \n \n+def test_msg_not_a_string(\n+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch\n+) -> None:\n+    \"\"\"\n+    Using a non-string in subtests.test() should still show it in the terminal (#14195).\n+\n+    Note: this was not a problem originally with the subtests fixture, only with TestCase.subTest; this test\n+    was added for symmetry.\n+    \"\"\"\n+    monkeypatch.setenv(\"COLUMNS\", \"120\")\n+    pytester.makepyfile(\n+        \"\"\"\n+        def test_int_msg(subtests):\n+            with subtests.test(42):\n+                assert False, \"subtest failure\"\n+\n+        def test_no_msg(subtests):\n+            with subtests.test():\n+                assert False, \"subtest failure\"\n+        \"\"\"\n+    )\n+    result = pytester.runpytest()\n+    result.stdout.fnmatch_lines(\n+        [\n+            \"SUBFAILED[[]42[]] test_msg_not_a_string.py::test_int_msg - AssertionError: subtest failure\",\n+            \"SUBFAILED(<subtest>) test_msg_not_a_string.py::test_no_msg - AssertionError: subtest failure\",\n+        ]\n+    )\n+\n+\n @pytest.mark.parametrize(\"flag\", [\"--last-failed\", \"--stepwise\"])\n def test_subtests_last_failed_step_wise(pytester: pytest.Pytester, flag: str) -> None:\n     \"\"\"Check that --last-failed and --step-wise correctly rerun tests with failed subtests.\"\"\"\n@@ -622,6 +652,33 @@ def test_foo(self):\n             \"SUBSKIPPED[[]subtest 1[]] [[]1[]] *.py:*: skip subtest 1\"\n         )\n \n+    def test_msg_not_a_string(\n+        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch\n+    ) -> None:\n+        \"\"\"Using a non-string in TestCase.subTest should still show it in the terminal (#14195).\"\"\"\n+        monkeypatch.setenv(\"COLUMNS\", \"120\")\n+        pytester.makepyfile(\n+            \"\"\"\n+            from unittest import TestCase\n+\n+            class T(TestCase):\n+                def test_int_msg(self):\n+                    with self.subTest(42):\n+                        assert False, \"subtest failure\"\n+\n+                def test_no_msg(self):\n+                    with self.subTest():\n+                        assert False, \"subtest failure\"\n+            \"\"\"\n+        )\n+        result = pytester.runpytest()\n+        result.stdout.fnmatch_lines(\n+            [\n+                \"SUBFAILED[[]42[]] test_msg_not_a_string.py::T::test_int_msg - AssertionError: subtest failure\",\n+                \"SUBFAILED(<subtest>) test_msg_not_a_string.py::T::test_no_msg - AssertionError: subtest failure\",\n+            ]\n+        )\n+\n \n class TestCapture:\n     def create_file(self, pytester: pytest.Pytester) -> None:\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 0,
+  "fix_passing": 3965,
+  "broken_by_bug": 3965,
+  "difficulty": {
+    "filesChanged": 4,
+    "linesAdded": 64,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T23:18:26.428Z"
+}

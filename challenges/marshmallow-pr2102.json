@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2102",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2102,
+    "title": "fix: unhandled OSError and OverflowErrors from utils.from_timestamp",
+    "body": ""
+  },
+  "pr": {
+    "number": 2102,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2102"
+  },
+  "buggyCommit": "a782c52d84f9ac0556e2771f7af8c5e5e8e86cab",
+  "fixCommit": "5c2f7f99f35bc3b0fd9ececa8fcde75d1a895dc2",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex a4a64effc..dc6dd929d 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -172,3 +172,4 @@ Contributors (chronological)\n - Marco Satti `@marcosatti  <https://github.com/marcosatti>`_\n - Ivo Reumkens `@vanHoi <https://github.com/vanHoi>`_\n - Aditya Tewary `@aditkumar72 <https://github.com/aditkumar72>`_\n+- Sebastien Lovergne `@TheBigRoomXXL <https://github.com/TheBigRoomXXL>`_\ndiff --git a/src/marshmallow/utils.py b/src/marshmallow/utils.py\nindex 7a16ff6d1..757f4a8d3 100644\n--- a/src/marshmallow/utils.py\n+++ b/src/marshmallow/utils.py\n@@ -197,7 +197,12 @@ def from_timestamp(value: typing.Any) -> dt.datetime:\n \n     # Load a timestamp with utc as timezone to prevent using system timezone.\n     # Then set timezone to None, to let the Field handle adding timezone info.\n-    return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).replace(tzinfo=None)\n+    try:\n+        return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).replace(tzinfo=None)\n+    except OverflowError as exc:\n+        raise ValueError(\"Timestamp is too large\") from exc\n+    except OSError as exc:\n+        raise ValueError(\"Error converting value to datetime\") from exc\n \n \n def from_timestamp_ms(value: typing.Any) -> dt.datetime:\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex 213c4b417..6a2c7a87b 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -4,6 +4,8 @@\n import decimal\n import math\n \n+from unittest.mock import patch\n+\n import pytest\n \n from marshmallow import EXCLUDE, INCLUDE, RAISE, fields, Schema, validate\n@@ -21,6 +23,20 @@\n )\n \n \n+class MockDateTimeOverflowError(dt.datetime):\n+    \"\"\"Used to simulate the possible OverflowError of datetime.fromtimestamp\"\"\"\n+\n+    def fromtimestamp(self, *args, **kwargs):\n+        raise OverflowError()\n+\n+\n+class MockDateTimeOSError(dt.datetime):\n+    \"\"\"Used to simulate the possible OSError of datetime.fromtimestamp\"\"\"\n+\n+    def fromtimestamp(self, *args, **kwargs):\n+        raise OSError()\n+\n+\n class TestDeserializingNone:\n     @pytest.mark.parametrize(\"FieldClass\", ALL_FIELDS)\n     def test_fields_allow_none_deserialize_to_none(self, FieldClass):\n@@ -565,10 +581,21 @@ def test_timestamp_field_deserialization(self, fmt, value, expected):\n         [\"\", \"!@#\", 0, -1, dt.datetime(2013, 11, 10, 1, 23, 45)],\n     )\n     def test_invalid_timestamp_field_deserialization(self, fmt, in_value):\n-        field = fields.DateTime(format=\"timestamp\")\n+        field = fields.DateTime(format=fmt)\n         with pytest.raises(ValidationError, match=\"Not a valid datetime.\"):\n             field.deserialize(in_value)\n \n+    #  Regression test for https://github.com/marshmallow-code/marshmallow/pull/2102\n+    @pytest.mark.parametrize(\"fmt\", [\"timestamp\", \"timestamp_ms\"])\n+    @pytest.mark.parametrize(\n+        \"mock_fromtimestamp\", [MockDateTimeOSError, MockDateTimeOverflowError]\n+    )\n+    def test_oversized_timestamp_field_deserialization(self, fmt, mock_fromtimestamp):\n+        with patch(\"datetime.datetime\", mock_fromtimestamp):\n+            field = fields.DateTime(format=fmt)\n+            with pytest.raises(ValidationError, match=\"Not a valid datetime.\"):\n+                field.deserialize(99999999999999999)\n+\n     @pytest.mark.parametrize(\n         (\"fmt\", \"timezone\", \"value\", \"expected\"),\n         [\ndiff --git a/tests/test_utils.py b/tests/test_utils.py\nindex 0a134d1fe..e440ce262 100644\n--- a/tests/test_utils.py\n+++ b/tests/test_utils.py\n@@ -228,6 +228,31 @@ def test_from_iso_date():\n     assert_date_equal(result, d)\n \n \n+@pytest.mark.parametrize(\n+    (\"value\", \"expected\"),\n+    [\n+        (1676386740, dt.datetime(2023, 2, 14, 14, 59, 00)),\n+        (1676386740.58, dt.datetime(2023, 2, 14, 14, 59, 00, 580000)),\n+    ],\n+)\n+def test_from_timestamp(value, expected):\n+    result = utils.from_timestamp(value)\n+    assert type(result) == dt.datetime\n+    assert result == expected\n+\n+\n+def test_from_timestamp_with_negative_value():\n+    value = -10\n+    with pytest.raises(ValueError, match=r\"Not a valid POSIX timestamp\"):\n+        utils.from_timestamp(value)\n+\n+\n+def test_from_timestamp_with_overflow_value():\n+    value = 9223372036854775\n+    with pytest.raises(ValueError):\n+        utils.from_timestamp(value)\n+\n+\n def test_get_func_args():\n     def f1(foo, bar):\n         pass\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1207,
+  "fix_passing": 1215,
+  "broken_by_bug": 8,
+  "difficulty": {
+    "filesChanged": 4,
+    "linesAdded": 60,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:58:12.204Z"
+}

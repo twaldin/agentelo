@@ -1,0 +1,27 @@
+{
+  "id": "koa-pr1409",
+  "repo": "koajs/koa",
+  "repoUrl": "https://github.com/koajs/koa",
+  "issue": {
+    "number": 1409,
+    "title": "remove `error-inject` and fix error handling",
+    "body": ""
+  },
+  "pr": {
+    "number": 1409,
+    "url": "https://github.com/koajs/koa/pull/1409"
+  },
+  "buggyCommit": "f7c732fd06f724505e9090add4d977e667da55a8",
+  "fixCommit": "faeaff5c149a81a188ab8e5af0b994029e45acbb",
+  "fixDiff": "diff --git a/lib/response.js b/lib/response.js\nindex a7841c3d6..d14e86a11 100644\n--- a/lib/response.js\n+++ b/lib/response.js\n@@ -6,7 +6,6 @@\n  */\n \n const contentDisposition = require('content-disposition');\n-const ensureErrorHandler = require('error-inject');\n const getType = require('cache-content-type');\n const onFinish = require('on-finished');\n const escape = require('escape-html');\n@@ -167,12 +166,13 @@ module.exports = {\n     }\n \n     // stream\n-    if ('function' === typeof val.pipe) {\n+    if (val instanceof Stream) {\n       onFinish(this.res, destroy.bind(null, val));\n-      ensureErrorHandler(val, err => this.ctx.onerror(err));\n-\n-      // overwriting\n-      if (null != original && original !== val) this.remove('Content-Length');\n+      if (original != val) {\n+        val.once('error', err => this.ctx.onerror(err));\n+        // overwriting\n+        if (null != original) this.remove('Content-Length');\n+      }\n \n       if (setType) this.type = 'bin';\n       return;\ndiff --git a/package.json b/package.json\nindex 3091b9e9d..5fdeb5364 100644\n--- a/package.json\n+++ b/package.json\n@@ -32,7 +32,6 @@\n     \"depd\": \"^1.1.2\",\n     \"destroy\": \"^1.0.4\",\n     \"encodeurl\": \"^1.0.2\",\n-    \"error-inject\": \"^1.0.0\",\n     \"escape-html\": \"^1.0.3\",\n     \"fresh\": \"~0.5.2\",\n     \"http-assert\": \"^1.3.0\",\ndiff --git a/test/response/body.js b/test/response/body.js\nindex 1dfcac55e..9d5d57d9b 100644\n--- a/test/response/body.js\n+++ b/test/response/body.js\n@@ -4,6 +4,7 @@\n const response = require('../helpers/context').response;\n const assert = require('assert');\n const fs = require('fs');\n+const Stream = require('stream');\n \n describe('res.body=', () => {\n   describe('when Content-Type is set', () => {\n@@ -108,6 +109,16 @@ describe('res.body=', () => {\n       res.body = fs.createReadStream('LICENSE');\n       assert.equal('application/octet-stream', res.header['content-type']);\n     });\n+\n+    it('should add error handler to the stream, but only once', () => {\n+      const res = response();\n+      const body = new Stream.PassThrough();\n+      assert.strictEqual(body.listenerCount('error'), 0);\n+      res.body = body;\n+      assert.strictEqual(body.listenerCount('error'), 1);\n+      res.body = body;\n+      assert.strictEqual(body.listenerCount('error'), 1);\n+    });\n   });\n \n   describe('when a buffer is given', () => {\n",
+  "testCommand": "npm test",
+  "baseline_passing": 349,
+  "fix_passing": 350,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 17,
+    "linesRemoved": 7
+  },
+  "minedAt": "2026-04-06T22:47:46.786Z"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "requests-pr6028",
+  "repo": "psf/requests",
+  "repoUrl": "https://github.com/psf/requests",
+  "issue": {
+    "number": 6028,
+    "title": "Fix auth parsing for proxies",
+    "body": ""
+  },
+  "pr": {
+    "number": 6028,
+    "url": "https://github.com/psf/requests/pull/6028"
+  },
+  "buggyCommit": "0192aac24123735b3eaf9b08df46429bb770c283",
+  "fixCommit": "8fa9724398c4f44090997ff430a1dd3e935a9057",
+  "fixDiff": "diff --git a/requests/utils.py b/requests/utils.py\nindex 1c2ae4e0eb..153776c7f3 100644\n--- a/requests/utils.py\n+++ b/requests/utils.py\n@@ -974,6 +974,10 @@ def prepend_scheme_if_needed(url, new_scheme):\n     if not netloc:\n         netloc, path = path, netloc\n \n+    if auth:\n+        # parse_url doesn't provide the netloc with auth\n+        # so we'll add it ourselves.\n+        netloc = '@'.join([auth, netloc])\n     if scheme is None:\n         scheme = new_scheme\n     if path is None:\ndiff --git a/tests/test_utils.py b/tests/test_utils.py\nindex c2186b885f..8e98397204 100644\n--- a/tests/test_utils.py\n+++ b/tests/test_utils.py\n@@ -602,6 +602,14 @@ def test_parse_header_links(value, expected):\n         ('example.com/path', 'http://example.com/path'),\n         ('//example.com/path', 'http://example.com/path'),\n         ('example.com:80', 'http://example.com:80'),\n+        (\n+            'http://user:pass@example.com/path?query',\n+            'http://user:pass@example.com/path?query'\n+        ),\n+        (\n+            'http://user@example.com/path?query',\n+            'http://user@example.com/path?query'\n+        )\n     ))\n def test_prepend_scheme_if_needed(value, expected):\n     assert prepend_scheme_if_needed(value, 'http') == expected\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 381,
+  "fix_passing": 383,
+  "broken_by_bug": 2,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 12,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T23:06:36.860Z"
+}

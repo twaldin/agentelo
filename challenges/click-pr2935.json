@@ -1,0 +1,27 @@
+{
+  "id": "click-pr2935",
+  "repo": "pallets/click",
+  "repoUrl": "https://github.com/pallets/click",
+  "issue": {
+    "number": 2935,
+    "title": "fix shell completion for nested groups",
+    "body": ""
+  },
+  "pr": {
+    "number": 2935,
+    "url": "https://github.com/pallets/click/pull/2935"
+  },
+  "buggyCommit": "884af5c20fdc95c9c7352df35c37273391464fb9",
+  "fixCommit": "b7cf06970e40a3144eb963ff34ed7c38934afb40",
+  "fixDiff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex 6cdc25c5e4..45e3daccb5 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -5,6 +5,7 @@ Version 8.2.1\n \n -   Fix flag value handling for flag options with a provided type. :issue:`2894`\n     :issue:`2897` :pr:`2930`\n+-   Fix shell completion for nested groups. :issue:`2906` :pr:`2907`\n \n Version 8.2.0\n -------------\ndiff --git a/src/click/shell_completion.py b/src/click/shell_completion.py\nindex cdb58222c5..6c39d5eb38 100644\n--- a/src/click/shell_completion.py\n+++ b/src/click/shell_completion.py\n@@ -567,8 +567,8 @@ def _resolve_context(\n                     with cmd.make_context(\n                         name, args, parent=ctx, resilient_parsing=True\n                     ) as sub_ctx:\n-                        args = ctx._protected_args + ctx.args\n                         ctx = sub_ctx\n+                        args = ctx._protected_args + ctx.args\n                 else:\n                     sub_ctx = ctx\n \n@@ -586,8 +586,8 @@ def _resolve_context(\n                             allow_interspersed_args=False,\n                             resilient_parsing=True,\n                         ) as sub_sub_ctx:\n-                            args = sub_ctx.args\n                             sub_ctx = sub_sub_ctx\n+                            args = sub_ctx.args\n \n                     ctx = sub_ctx\n                     args = [*sub_ctx._protected_args, *sub_ctx.args]\ndiff --git a/tests/test_shell_completion.py b/tests/test_shell_completion.py\nindex 3511f0743a..fb39486dcc 100644\n--- a/tests/test_shell_completion.py\n+++ b/tests/test_shell_completion.py\n@@ -40,6 +40,36 @@ def test_group():\n     assert _get_words(cli, [], \"-\") == [\"-a\", \"--help\"]\n \n \n+@pytest.mark.parametrize(\n+    (\"args\", \"word\", \"expect\"),\n+    [\n+        ([], \"\", [\"get\"]),\n+        ([\"get\"], \"\", [\"full\"]),\n+        ([\"get\", \"full\"], \"\", [\"data\"]),\n+        ([\"get\", \"full\"], \"-\", [\"--verbose\", \"--help\"]),\n+        ([\"get\", \"full\", \"data\"], \"\", []),\n+        ([\"get\", \"full\", \"data\"], \"-\", [\"-a\", \"--help\"]),\n+    ],\n+)\n+def test_nested_group(args: list[str], word: str, expect: list[str]) -> None:\n+    cli = Group(\n+        \"cli\",\n+        commands=[\n+            Group(\n+                \"get\",\n+                commands=[\n+                    Group(\n+                        \"full\",\n+                        params=[Option([\"--verbose\"])],\n+                        commands=[Command(\"data\", params=[Option([\"-a\"])])],\n+                    )\n+                ],\n+            )\n+        ],\n+    )\n+    assert _get_words(cli, args, word) == expect\n+\n+\n def test_group_command_same_option():\n     cli = Group(\n         \"cli\", params=[Option([\"-a\"])], commands=[Command(\"x\", params=[Option([\"-a\"])])]\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 730,
+  "fix_passing": 736,
+  "broken_by_bug": 6,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 33,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:40:13.242Z"
+}

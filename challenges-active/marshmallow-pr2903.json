@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2903",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2903,
+    "title": "Fix nested partial to use attr_name instead of data_key for prefix",
+    "body": ""
+  },
+  "pr": {
+    "number": 2903,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2903"
+  },
+  "buggyCommit": "65374df0c31cdc45acc4435741779298201306a2",
+  "fixCommit": "252090c7c707166cf4fcfcdc73eb4376b7bbc4b7",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 9c954eca9..3249fc278 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -186,3 +186,4 @@ Contributors (chronological)\n - Emmanuel Ferdman  `@emmanuel-ferdman  <https://github.com/emmanuel-ferdman>`_\n - Fridayworks `@worksbyfriday  <https://github.com/worksbyfriday>`_\n - `@rstar327 <https://github.com/rstar327>`_\n+- Kadir Can Ozden  `@bysiber  <https://github.com/bysiber>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex b6d871b5d..427395ede 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -12,6 +12,8 @@ Bug fixes:\n   Thanks :user:`nosnickid` for the report and :user:`worksbyfriday` for the PR.\n - Fix `marshmallow.validate.OneOf` emitting extra pairs when labels outnumber choices (:issue:`2869`).\n   Thanks: user:`T90REAL` for the report and :user:`rstar327` for the PR.\n+- Fix behavior when passing a dot-delited attribute name to ``partial`` for a key with ``data_key`` set (:pr:`2903`).\n+  Thanks :user:`bysiber` for the PR.\n \n \n 4.2.2 (2026-02-04)\ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex d4a853b24..4288f0509 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -654,7 +654,7 @@ def _deserialize(\n                 d_kwargs = {}\n                 # Allow partial loading of nested schemas.\n                 if partial_is_collection:\n-                    prefix = field_name + \".\"\n+                    prefix = attr_name + \".\"\n                     len_prefix = len(prefix)\n                     sub_partial = [\n                         f[len_prefix:] for f in partial if f.startswith(prefix)\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex f09fbec47..d69ce14cf 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -2307,6 +2307,26 @@ class SchemaB(Schema):\n         with pytest.raises(ValidationError):\n             SchemaB().load({\"z\": {\"x\": 0}})\n \n+    def test_nested_partial_tuple_with_data_key(self):\n+        class AddressSchema(Schema):\n+            zip_code = fields.String(required=True)\n+            city = fields.String(required=True)\n+\n+        class PersonSchema(Schema):\n+            address = fields.Nested(\n+                AddressSchema, data_key=\"homeAddress\", required=True\n+            )\n+\n+        data = {\"homeAddress\": {\"city\": \"Springfield\"}}\n+        # partial uses attr_name (\"address.zip_code\"), not data_key\n+        result = PersonSchema().load(data, partial=(\"address.zip_code\",))\n+        assert result[\"address\"][\"city\"] == \"Springfield\"\n+        assert \"zip_code\" not in result[\"address\"]\n+        # Without partial, it should fail on the missing required field\n+        with pytest.raises(ValidationError) as excinfo:\n+            PersonSchema().load(data)\n+        assert \"zip_code\" in excinfo.value.messages[\"homeAddress\"]\n+\n \n @pytest.mark.parametrize(\"FieldClass\", ALL_FIELDS)\n def test_required_field_failure(FieldClass):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1137,
+  "fix_passing": 1138,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 4,
+    "linesAdded": 24,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:32:08.886Z"
+}

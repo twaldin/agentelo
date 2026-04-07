@@ -1,0 +1,27 @@
+{
+  "id": "jinja-pr1613",
+  "repo": "pallets/jinja",
+  "repoUrl": "https://github.com/pallets/jinja",
+  "issue": {
+    "number": 1613,
+    "title": "Fix pickleability of filters decorated with @async_variant",
+    "body": ""
+  },
+  "pr": {
+    "number": 1613,
+    "url": "https://github.com/pallets/jinja/pull/1613"
+  },
+  "buggyCommit": "09907ef37891be76ab0a1a3dc1a3f7df667db959",
+  "fixCommit": "d5b8f668f392710f80c3c62ad8b70ea7a8bbd44b",
+  "fixDiff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex 3a779d7b4..3e8b56e47 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -28,6 +28,8 @@ Unreleased\n     ``{% trans \"title\" %}``. :issue:`1430`\n -   Update valid identifier characters from Python 3.6 to 3.7.\n     :pr:`1571`\n+-   Filters and tests decorated with ``@async_variant`` are pickleable.\n+    :pr:`1612`\n \n \n Version 3.0.3\ndiff --git a/src/jinja2/async_utils.py b/src/jinja2/async_utils.py\nindex 35e6cb109..1a4f3892c 100644\n--- a/src/jinja2/async_utils.py\n+++ b/src/jinja2/async_utils.py\n@@ -1,5 +1,6 @@\n import inspect\n import typing as t\n+from functools import WRAPPER_ASSIGNMENTS\n from functools import wraps\n \n from .utils import _PassArg\n@@ -23,7 +24,15 @@ def is_async(args: t.Any) -> bool:\n             def is_async(args: t.Any) -> bool:\n                 return t.cast(bool, args[0].environment.is_async)\n \n-        @wraps(normal_func)\n+        # Take the doc and annotations from the sync function, but the\n+        # name from the async function. Pallets-Sphinx-Themes\n+        # build_function_directive expects __wrapped__ to point to the\n+        # sync function.\n+        async_func_attrs = (\"__module__\", \"__name__\", \"__qualname__\")\n+        normal_func_attrs = tuple(set(WRAPPER_ASSIGNMENTS).difference(async_func_attrs))\n+\n+        @wraps(normal_func, assigned=normal_func_attrs)\n+        @wraps(async_func, assigned=async_func_attrs, updated=())\n         def wrapper(*args, **kwargs):  # type: ignore\n             b = is_async(args)\n \ndiff --git a/tests/test_pickle.py b/tests/test_pickle.py\nnew file mode 100644\nindex 000000000..b0f6bcfe8\n--- /dev/null\n+++ b/tests/test_pickle.py\n@@ -0,0 +1,6 @@\n+import pickle\n+\n+\n+def test_environment(env):\n+    env = pickle.loads(pickle.dumps(env))\n+    assert env.from_string(\"x={{ x }}\").render(x=42) == \"x=42\"\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 826,
+  "fix_passing": 827,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 18,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:37:31.020Z"
+}

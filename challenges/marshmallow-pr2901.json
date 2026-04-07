@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2901",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2901,
+    "title": "Fix Constant field with required=True raising ValueError",
+    "body": ""
+  },
+  "pr": {
+    "number": 2901,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2901"
+  },
+  "buggyCommit": "fea5428567960f15be0c9a3a4b99c0d9bb63848c",
+  "fixCommit": "070dde08bad456e743a0d2e1842c142a799a9568",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 4f8538fb3..5f4d862cd 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -184,3 +184,5 @@ Contributors (chronological)\n - jfo `@jafournier <https://github.com/jafournier>`_\n - thanhlecongg `@thanhlecongg <https://github.com/thanhlecongg>`_\n - Emmanuel Ferdman  `@emmanuel-ferdman  <https://github.com/emmanuel-ferdman>`_\n+- Fridayworks  `@worksbyfriday  <https://github.com/worksbyfriday`_\n+\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 8b9036974..6723c9e43 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -8,6 +8,8 @@ Bug fixes:\n \n - Make `marshmallow.fields.Number` and `marshmallow.fields.Mapping` abstract base classes to\n   prevent using them within Schemas (:issue:`2924`). Thanks :user:`MartingaleCoda` for reporting.\n+- Allow `required` to be set on `marshmallow.fields.Contant` (:issue:`2900`).\n+  Thanks :user:`nosnickid` for the report and :user:`worksbyfriday` for the PR.\n \n \n 4.2.2 (2026-02-04)\ndiff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py\nindex b081b4ba0..1c2e72e06 100644\n--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -2074,10 +2074,20 @@ class Constant(Field[_ContantT]):\n     _CHECK_ATTRIBUTE = False\n \n     def __init__(self, constant: _ContantT, **kwargs: Unpack[_BaseFieldKwargs]):\n-        kwargs[\"load_default\"] = constant\n-        kwargs[\"dump_default\"] = constant\n         super().__init__(**kwargs)\n         self.constant = constant\n+        self.load_default = constant\n+        self.dump_default = constant\n+        # If allow_none was not explicitly provided and the constant is None,\n+        # None should be considered valid (mirrors Field.__init__ logic).\n+        if kwargs.get(\"allow_none\") is None and constant is None:\n+            self.allow_none = True\n+\n+    def _validate_missing(self, value):\n+        # Omit check for value is missing_\n+        # Below is just a paranoid check\n+        if value is None and not self.allow_none:\n+            raise self.make_error(\"null\")\n \n     def _serialize(self, value, *args, **kwargs) -> _ContantT:\n         return self.constant\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex 7cbe28e48..f09fbec47 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -1422,6 +1422,14 @@ class MySchema(Schema):\n         assert sch.load({})[\"foo\"] is None\n         assert sch.load({\"foo\": \"ignored\"})[\"foo\"] is None\n \n+    def test_constant_with_required(self):\n+        class MySchema(Schema):\n+            foo = fields.Constant(42, required=True)\n+\n+        sch = MySchema()\n+        assert sch.load({})[\"foo\"] == 42\n+        assert sch.load({\"foo\": 99})[\"foo\"] == 42\n+\n     def test_field_deserialization_with_user_validator_function(self):\n         field = fields.String(validate=predicate(lambda s: s.lower() == \"valid\"))\n         assert field.deserialize(\"Valid\") == \"Valid\"\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1136,
+  "fix_passing": 1137,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 4,
+    "linesAdded": 24,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:28:07.370Z"
+}

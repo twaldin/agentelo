@@ -1,0 +1,27 @@
+{
+  "id": "click-pr2846",
+  "repo": "pallets/click",
+  "repoUrl": "https://github.com/pallets/click",
+  "issue": {
+    "number": 2846,
+    "title": "Fix Zsh completions with colons",
+    "body": ""
+  },
+  "pr": {
+    "number": 2846,
+    "url": "https://github.com/pallets/click/pull/2846"
+  },
+  "buggyCommit": "565f36d5bc4a15d304337b749e113fb4477b1843",
+  "fixCommit": "a1235aacb1be55dc66ddcfefbf64dec44b6ab54d",
+  "fixDiff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex fbb3254d30..efa23d3431 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -8,6 +8,8 @@ Unreleased\n -   Fix reconciliation of `default`, `flag_value` and `type` parameters for\n     flag options, as well as parsing and normalization of environment variables.\n     :issue:`2952` :pr:`2956`\n+-   Fix completion for the Z shell (``zsh``) for completion items containing\n+    colons. :issue:`2703` :pr:`2846`\n \n Version 8.2.1\n -------------\ndiff --git a/src/click/shell_completion.py b/src/click/shell_completion.py\nindex 6c39d5eb38..4cb53b91a5 100644\n--- a/src/click/shell_completion.py\n+++ b/src/click/shell_completion.py\n@@ -124,6 +124,12 @@ def __getattr__(self, name: str) -> t.Any:\n %(complete_func)s_setup;\n \"\"\"\n \n+# See ZshComplete.format_completion below, and issue #2703, before\n+# changing this script.\n+#\n+# (TL;DR: _describe is picky about the format, but this Zsh script snippet\n+# is already widely deployed.  So freeze this script, and use clever-ish\n+# handling of colons in ZshComplet.format_completion.)\n _SOURCE_ZSH = \"\"\"\\\n #compdef %(prog_name)s\n \n@@ -373,7 +379,21 @@ def get_completion_args(self) -> tuple[list[str], str]:\n         return args, incomplete\n \n     def format_completion(self, item: CompletionItem) -> str:\n-        return f\"{item.type}\\n{item.value}\\n{item.help if item.help else '_'}\"\n+        help_ = item.help or \"_\"\n+        # The zsh completion script uses `_describe` on items with help\n+        # texts (which splits the item help from the item value at the\n+        # first unescaped colon) and `compadd` on items without help\n+        # text (which uses the item value as-is and does not support\n+        # colon escaping).  So escape colons in the item value if and\n+        # only if the item help is not the sentinel \"_\" value, as used\n+        # by the completion script.\n+        #\n+        # (The zsh completion script is potentially widely deployed, and\n+        # thus harder to fix than this method.)\n+        #\n+        # See issue #1812 and issue #2703 for further context.\n+        value = item.value.replace(\":\", r\"\\:\") if help_ != \"_\" else item.value\n+        return f\"{item.type}\\n{value}\\n{help_}\"\n \n \n class FishComplete(ShellComplete):\ndiff --git a/tests/test_shell_completion.py b/tests/test_shell_completion.py\nindex fb39486dcc..819ca8bd57 100644\n--- a/tests/test_shell_completion.py\n+++ b/tests/test_shell_completion.py\n@@ -1,4 +1,6 @@\n+import textwrap\n import warnings\n+from collections.abc import Mapping\n \n import pytest\n \n@@ -354,6 +356,79 @@ def test_full_complete(runner, shell, env, expect):\n     assert result.output == expect\n \n \n+@pytest.mark.parametrize(\n+    (\"env\", \"expect\"),\n+    [\n+        (\n+            {\"COMP_WORDS\": \"\", \"COMP_CWORD\": \"0\"},\n+            textwrap.dedent(\n+                \"\"\"\\\n+                    plain\n+                    a\n+                    _\n+                    plain\n+                    b\n+                    bee\n+                    plain\n+                    c\\\\:d\n+                    cee:dee\n+                    plain\n+                    c:e\n+                    _\n+                \"\"\"\n+            ),\n+        ),\n+        (\n+            {\"COMP_WORDS\": \"a c\", \"COMP_CWORD\": \"1\"},\n+            textwrap.dedent(\n+                \"\"\"\\\n+                    plain\n+                    c\\\\:d\n+                    cee:dee\n+                    plain\n+                    c:e\n+                    _\n+                \"\"\"\n+            ),\n+        ),\n+        (\n+            {\"COMP_WORDS\": \"a c:\", \"COMP_CWORD\": \"1\"},\n+            textwrap.dedent(\n+                \"\"\"\\\n+                    plain\n+                    c\\\\:d\n+                    cee:dee\n+                    plain\n+                    c:e\n+                    _\n+                \"\"\"\n+            ),\n+        ),\n+    ],\n+)\n+@pytest.mark.usefixtures(\"_patch_for_completion\")\n+def test_zsh_full_complete_with_colons(\n+    runner, env: Mapping[str, str], expect: str\n+) -> None:\n+    cli = Group(\n+        \"cli\",\n+        commands=[\n+            Command(\"a\"),\n+            Command(\"b\", help=\"bee\"),\n+            Command(\"c:d\", help=\"cee:dee\"),\n+            Command(\"c:e\"),\n+        ],\n+    )\n+    result = runner.invoke(\n+        cli,\n+        env={\n+            **env,\n+            \"_CLI_COMPLETE\": \"zsh_complete\",\n+        },\n+    )\n+    assert result.output == expect\n+\n+\n @pytest.mark.usefixtures(\"_patch_for_completion\")\n def test_context_settings(runner):\n     def complete(ctx, param, incomplete):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 870,
+  "fix_passing": 873,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 98,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:29:18.812Z"
+}

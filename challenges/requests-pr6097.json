@@ -1,0 +1,27 @@
+{
+  "id": "requests-pr6097",
+  "repo": "psf/requests",
+  "repoUrl": "https://github.com/psf/requests",
+  "issue": {
+    "number": 6097,
+    "title": "Fix inconsistent exception for JSONDecode error",
+    "body": ""
+  },
+  "pr": {
+    "number": 6097,
+    "url": "https://github.com/psf/requests/pull/6097"
+  },
+  "buggyCommit": "8bce583b9547c7b82d44c8e97f37cf9a16cbe758",
+  "fixCommit": "2d5517682b3b38547634d153cea43d48fbc8cdb5",
+  "fixDiff": "diff --git a/requests/models.py b/requests/models.py\nindex 539879feb3..df0f8b3e13 100644\n--- a/requests/models.py\n+++ b/requests/models.py\n@@ -900,6 +900,8 @@ def json(self, **kwargs):\n                     # and the server didn't bother to tell us what codec *was*\n                     # used.\n                     pass\n+                except JSONDecodeError as e:\n+                    raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)\n \n         try:\n             return complexjson.loads(self.text, **kwargs)\ndiff --git a/tests/test_lowlevel.py b/tests/test_lowlevel.py\nindex 7256eda943..1d8cbde64a 100644\n--- a/tests/test_lowlevel.py\n+++ b/tests/test_lowlevel.py\n@@ -6,6 +6,7 @@\n \n from tests.testserver.server import Server, consume_socket_content\n \n+from requests.compat import JSONDecodeError\n from .utils import override_environ\n \n \n@@ -403,3 +404,26 @@ def response_handler(sock):\n         assert r.url == 'http://{}:{}/final-url/#relevant-section'.format(host, port)\n \n         close_server.set()\n+\n+def test_json_decode_compatibility_for_alt_utf_encodings():\n+\n+    def response_handler(sock):\n+        consume_socket_content(sock, timeout=0.5)\n+        sock.send(\n+            b'HTTP/1.1 200 OK\\r\\n'\n+            b'Content-Length: 18\\r\\n\\r\\n'\n+            b'\\xff\\xfe{\\x00\"\\x00K0\"\\x00=\\x00\"\\x00\\xab0\"\\x00\\r\\n'\n+        )\n+\n+    close_server = threading.Event()\n+    server = Server(response_handler, wait_to_close_event=close_server)\n+\n+    with server as (host, port):\n+        url = 'http://{}:{}/'.format(host, port)\n+        r = requests.get(url)\n+    r.encoding = None\n+    with pytest.raises(requests.exceptions.JSONDecodeError) as excinfo:\n+        r.json()\n+    assert isinstance(excinfo.value, requests.exceptions.RequestException)\n+    assert isinstance(excinfo.value, JSONDecodeError)\n+    assert r.text not in str(excinfo.value)\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 383,
+  "fix_passing": 384,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 26,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T23:03:09.466Z"
+}

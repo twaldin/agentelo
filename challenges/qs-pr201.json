@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr201",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 201,
+    "title": "fix: follow allowPrototypes during merge",
+    "body": ""
+  },
+  "pr": {
+    "number": 201,
+    "url": "https://github.com/ljharb/qs/pull/201"
+  },
+  "buggyCommit": "556ee0a85d0055551496ca523437811c38c09ab3",
+  "fixCommit": "ec9e73654da35b205b0efacf750158d7b0b06413",
+  "fixDiff": "diff --git a/lib/utils.js b/lib/utils.js\nindex 0d410c6a..b2143323 100755\n--- a/lib/utils.js\n+++ b/lib/utils.js\n@@ -31,7 +31,9 @@ exports.merge = function (target, source, options) {\n         if (Array.isArray(target)) {\n             target.push(source);\n         } else if (typeof target === 'object') {\n-            target[source] = true;\n+            if (options.plainObjects || options.allowPrototypes || !has.call(Object.prototype, source)) {\n+                target[source] = true;\n+            }\n         } else {\n             return [target, source];\n         }\ndiff --git a/test/parse.js b/test/parse.js\nindex 84e06b61..2e1116ec 100755\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -152,8 +152,6 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n-    t.deepEqual(qs.parse('a[b]=c&a=d'), { a: { b: 'c', d: true } }, 'can add keys to objects');\n-\n     t.test('correctly prunes undefined values when converting an array to an object', function (st) {\n         st.deepEqual(qs.parse('a[2]=b&a[99999999]=c'), { a: { 2: 'b', 99999999: 'c' } });\n         st.end();\n@@ -444,6 +442,44 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('params starting with a starting bracket', function (st) {\n+        st.deepEqual(qs.parse('[=toString'), {});\n+        st.end();\n+    });\n+\n+    t.test('params starting with a starting bracket', function (st) {\n+        st.deepEqual(qs.parse('[=toString'), {});\n+        st.end();\n+    });\n+\n+    t.test('add keys to objects', function (st) {\n+        st.deepEqual(\n+            qs.parse('a[b]=c&a=d'),\n+            { a: { b: 'c', d: true } },\n+            'can add keys to objects'\n+        );\n+\n+        st.deepEqual(\n+            qs.parse('a[b]=c&a=toString'),\n+            { a: { b: 'c' } },\n+            'can not overwrite prototype'\n+        );\n+\n+        st.deepEqual(\n+            qs.parse('a[b]=c&a=toString', { allowPrototypes: true }),\n+            { a: { b: 'c', toString: true } },\n+            'can overwrite prototype with allowPrototypes true'\n+        );\n+\n+        st.deepEqual(\n+            qs.parse('a[b]=c&a=toString', { plainObjects: true }),\n+            { a: { b: 'c', toString: true } },\n+            'can overwrite prototype with plainObjects true'\n+        );\n+\n+        st.end();\n+    });\n+\n     t.test('can return null objects', { skip: !Object.create }, function (st) {\n         var expected = Object.create(null);\n         expected.a = Object.create(null);\n",
+  "testCommand": "npm test",
+  "baseline_passing": 260,
+  "fix_passing": 265,
+  "broken_by_bug": 5,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 41,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-06T22:40:05.288Z"
+}

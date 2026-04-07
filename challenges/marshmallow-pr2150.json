@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2150",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2150,
+    "title": "Default Nested Partial Fix",
+    "body": ""
+  },
+  "pr": {
+    "number": 2150,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2150"
+  },
+  "buggyCommit": "819749204b9a7271c189401e5f5aa00cab624514",
+  "fixCommit": "91147b2bfd2824383ec6dca8925dc038aad229ef",
+  "fixDiff": "diff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex cde8c080f..4e7fd828f 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -374,7 +374,7 @@ def __init__(\n         context: dict | None = None,\n         load_only: types.StrSequenceOrSet = (),\n         dump_only: types.StrSequenceOrSet = (),\n-        partial: bool | types.StrSequenceOrSet = False,\n+        partial: bool | types.StrSequenceOrSet | None = None,\n         unknown: str | None = None,\n     ):\n         # Raise error if only or exclude is passed as string, not list of strings\n@@ -590,7 +590,7 @@ def _deserialize(\n         *,\n         error_store: ErrorStore,\n         many: bool = False,\n-        partial=False,\n+        partial=None,\n         unknown=RAISE,\n         index=None,\n     ) -> _T | list[_T]:\n@@ -657,7 +657,7 @@ def _deserialize(\n                         f[len_prefix:] for f in partial if f.startswith(prefix)\n                     ]\n                     d_kwargs[\"partial\"] = sub_partial\n-                else:\n+                elif partial is not None:\n                     d_kwargs[\"partial\"] = partial\n \n                 def getter(\n@@ -1089,7 +1089,7 @@ def _invoke_load_processors(\n         *,\n         many: bool,\n         original_data,\n-        partial: bool | types.StrSequenceOrSet,\n+        partial: bool | types.StrSequenceOrSet | None,\n     ):\n         # This has to invert the order of the dump processors, so run the pass_many\n         # processors first.\n@@ -1166,7 +1166,7 @@ def _invoke_schema_validators(\n         data,\n         original_data,\n         many: bool,\n-        partial: bool | types.StrSequenceOrSet,\n+        partial: bool | types.StrSequenceOrSet | None,\n         field_errors: bool = False,\n     ):\n         for attr_name in self._hooks[(VALIDATES_SCHEMA, pass_many)]:\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex 6a2c7a87b..29cab67b7 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -2236,6 +2236,21 @@ class SchemaB(Schema):\n         with pytest.raises(ValidationError):\n             SchemaB().load(b_dict, partial=(\"z.y\",))\n \n+    def test_nested_partial_default(self):\n+        class SchemaA(Schema):\n+            x = fields.Integer(required=True)\n+            y = fields.Integer(required=True)\n+\n+        class SchemaB(Schema):\n+            z = fields.Nested(SchemaA(partial=(\"x\",)))\n+\n+        b_dict = {\"z\": {\"y\": 42}}\n+        # Nested partial args should be respected.\n+        result = SchemaB().load(b_dict)\n+        assert result[\"z\"][\"y\"] == 42\n+        with pytest.raises(ValidationError):\n+            SchemaB().load({\"z\": {\"x\": 0}})\n+\n \n @pytest.mark.parametrize(\"FieldClass\", ALL_FIELDS)\n def test_required_field_failure(FieldClass):  # noqa\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1215,
+  "fix_passing": 1216,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 20,
+    "linesRemoved": 5
+  },
+  "minedAt": "2026-04-06T23:00:05.539Z"
+}

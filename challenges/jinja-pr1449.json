@@ -1,0 +1,27 @@
+{
+  "id": "jinja-pr1449",
+  "repo": "pallets/jinja",
+  "repoUrl": "https://github.com/pallets/jinja",
+  "issue": {
+    "number": 1449,
+    "title": "fix loop scoping bug",
+    "body": ""
+  },
+  "pr": {
+    "number": 1449,
+    "url": "https://github.com/pallets/jinja/pull/1449"
+  },
+  "buggyCommit": "d4e5112550abd8949b8e787bbd8fd9e56f1bd09b",
+  "fixCommit": "02071b3e5933560f070e3a898f8aa82622d2001e",
+  "fixDiff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex fc540af5a..7bfebffcc 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -5,6 +5,9 @@ Version 3.0.2\n \n Unreleased\n \n+-   Fix a loop scoping bug that caused assignments in nested loops\n+    to still be referenced outside of it. :issue:`1427`\n+\n \n Version 3.0.1\n -------------\ndiff --git a/src/jinja2/compiler.py b/src/jinja2/compiler.py\nindex ef4c0a1f1..5fe934949 100644\n--- a/src/jinja2/compiler.py\n+++ b/src/jinja2/compiler.py\n@@ -1290,6 +1290,11 @@ def visit_For(self, node: nodes.For, frame: Frame) -> None:\n             self.write(\", loop)\")\n             self.end_write(frame)\n \n+        # at the end of the iteration, clear any assignments made in the\n+        # loop from the top level\n+        if self._assign_stack:\n+            self._assign_stack[-1].difference_update(loop_frame.symbols.stores)\n+\n     def visit_If(self, node: nodes.If, frame: Frame) -> None:\n         if_frame = frame.soft()\n         self.writeline(\"if \", node)\ndiff --git a/tests/test_regression.py b/tests/test_regression.py\nindex 4491dab2d..7e2336978 100644\n--- a/tests/test_regression.py\n+++ b/tests/test_regression.py\n@@ -746,6 +746,13 @@ def test_cached_extends(self, op):\n         tmpl = env.get_template(\"base\")\n         assert tmpl.render() == \"42 y\"\n \n+    def test_nested_loop_scoping(self, env):\n+        tmpl = env.from_string(\n+            \"{% set output %}{% for x in [1,2,3] %}hello{% endfor %}\"\n+            \"{% endset %}{{ output }}\"\n+        )\n+        assert tmpl.render() == \"hellohellohello\"\n+\n \n @pytest.mark.parametrize(\"unicode_char\", [\"\\N{FORM FEED}\", \"\\x85\"])\n def test_unicode_whitespace(env, unicode_char):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 810,
+  "fix_passing": 811,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 15,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T22:40:25.021Z"
+}

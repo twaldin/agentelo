@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr1903",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 1903,
+    "title": "fix: distutils deprecation warning in Python 3.10",
+    "body": ""
+  },
+  "pr": {
+    "number": 1903,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/1903"
+  },
+  "buggyCommit": "41afdefd93afd1b95f48f45fd284ff8add3e91b7",
+  "fixCommit": "a63c28edde1e3f1f522aab8a7de231230786ebc1",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 7161c0dbe..861a2324f 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -166,3 +166,4 @@ Contributors (chronological)\n - `@yourun-proger <https://github.com/yourun-proger>`_\n - Ryan Morehart '@traherom <https://github.com/traherom>`_\n - Ben Windsor  '@bwindsor <https://github.com/bwindsor>`_\n+- Kevin Kirsche  '@kkirsche <https://github.com/kkirsche>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 3a5b1e240..99314ad4c 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,12 @@\n Changelog\n ---------\n \n+3.15.0 (unreleased)\n+*******************\n+\n+* Address distutils deprecation warning in Python 3.10 (:pr:`1903`).\n+  Thanks :user:`kkirsche` for the PR.\n+\n 3.14.1 (2021-11-13)\n *******************\n \ndiff --git a/docs/install.rst b/docs/install.rst\nindex c4abce784..a7123c18b 100644\n--- a/docs/install.rst\n+++ b/docs/install.rst\n@@ -3,7 +3,7 @@\n Installation\n ============\n \n-**marshmallow** requires Python >= 3.6. It has no external dependencies.\n+**marshmallow** requires Python >= 3.6. It has no external dependencies other than the `packaging` library.\n \n Installing/Upgrading from the PyPI\n ----------------------------------\ndiff --git a/setup.py b/setup.py\nindex 18e150323..4837cb9de 100644\n--- a/setup.py\n+++ b/setup.py\n@@ -58,6 +58,7 @@ def read(fname):\n     package_dir={\"\": \"src\"},\n     package_data={\"marshmallow\": [\"py.typed\"]},\n     include_package_data=True,\n+    install_requires=[\"packaging\"],\n     extras_require=EXTRAS_REQUIRE,\n     license=\"MIT\",\n     zip_safe=False,\ndiff --git a/src/marshmallow/__init__.py b/src/marshmallow/__init__.py\nindex ad0bea65f..d54102e78 100644\n--- a/src/marshmallow/__init__.py\n+++ b/src/marshmallow/__init__.py\n@@ -11,10 +11,13 @@\n )\n from marshmallow.utils import EXCLUDE, INCLUDE, RAISE, pprint, missing\n from marshmallow.exceptions import ValidationError\n-from distutils.version import LooseVersion\n+from packaging.version import Version\n \n __version__ = \"3.14.1\"\n-__version_info__ = tuple(LooseVersion(__version__).version)\n+__parsed_version__ = Version(__version__)\n+__version_info__ = __parsed_version__.release\n+if __parsed_version__.pre:\n+    __version_info__ += __parsed_version__.pre\n __all__ = [\n     \"EXCLUDE\",\n     \"INCLUDE\",\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 0,
+  "fix_passing": 1114,
+  "broken_by_bug": 1114,
+  "difficulty": {
+    "filesChanged": 5,
+    "linesAdded": 14,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-06T23:01:45.604Z"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "click-pr2365",
+  "repo": "pallets/click",
+  "repoUrl": "https://github.com/pallets/click",
+  "issue": {
+    "number": 2365,
+    "title": "Fix metavar for Choice options when show_choices=False",
+    "body": ""
+  },
+  "pr": {
+    "number": 2365,
+    "url": "https://github.com/pallets/click/pull/2365"
+  },
+  "buggyCommit": "02046e7a19480f85fff7e4577486518abe47e401",
+  "fixCommit": "1a4d8c1bb1e8f8e214ede7223bd2c05dc2ce006a",
+  "fixDiff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex b5d970117d..097a79f756 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -31,6 +31,9 @@ Unreleased\n -   When generating a command's name from a decorated function's name, the\n     suffixes ``_command``, ``_cmd``, ``_group``, and ``_grp`` are removed.\n     :issue:`2322`\n+-   Show the ``types.ParamType.name`` for ``types.Choice`` options within\n+    ``--help`` message if ``show_choices=False`` is specified.\n+    :issue:`2356`\n \n \n Version 8.1.8\ndiff --git a/src/click/types.py b/src/click/types.py\nindex 8d9750b63c..595443b3fc 100644\n--- a/src/click/types.py\n+++ b/src/click/types.py\n@@ -259,7 +259,13 @@ def to_info_dict(self) -> dict[str, t.Any]:\n         return info_dict\n \n     def get_metavar(self, param: Parameter) -> str:\n-        choices_str = \"|\".join(self.choices)\n+        if param.param_type_name == \"option\" and not param.show_choices:  # type: ignore\n+            choice_metavars = [\n+                convert_type(type(choice)).name.upper() for choice in self.choices\n+            ]\n+            choices_str = \"|\".join([*dict.fromkeys(choice_metavars)])\n+        else:\n+            choices_str = \"|\".join([str(i) for i in self.choices])\n \n         # Use curly braces to indicate a required argument.\n         if param.required and param.param_type_name == \"argument\":\ndiff --git a/tests/test_options.py b/tests/test_options.py\nindex 7397f36676..49df83bbdc 100644\n--- a/tests/test_options.py\n+++ b/tests/test_options.py\n@@ -926,3 +926,39 @@ def test_invalid_flag_combinations(runner, kwargs, message):\n         click.Option([\"-a\"], **kwargs)\n \n     assert message in str(e.value)\n+\n+\n+@pytest.mark.parametrize(\n+    (\"choices\", \"metavars\"),\n+    [\n+        pytest.param([\"foo\", \"bar\"], \"[TEXT]\", id=\"text choices\"),\n+        pytest.param([1, 2], \"[INTEGER]\", id=\"int choices\"),\n+        pytest.param([1.0, 2.0], \"[FLOAT]\", id=\"float choices\"),\n+        pytest.param([True, False], \"[BOOLEAN]\", id=\"bool choices\"),\n+        pytest.param([\"foo\", 1], \"[TEXT|INTEGER]\", id=\"text/int choices\"),\n+    ],\n+)\n+def test_usage_show_choices(runner, choices, metavars):\n+    \"\"\"When show_choices=False is set, the --help output\n+    should print choice metavars instead of values.\n+    \"\"\"\n+\n+    @click.command()\n+    @click.option(\"-g\", type=click.Choice(choices))\n+    def cli_with_choices(g):\n+        pass\n+\n+    @click.command()\n+    @click.option(\n+        \"-g\",\n+        type=click.Choice(choices),\n+        show_choices=False,\n+    )\n+    def cli_without_choices(g):\n+        pass\n+\n+    result = runner.invoke(cli_with_choices, [\"--help\"])\n+    assert f\"[{'|'.join([str(i) for i in choices])}]\" in result.output\n+\n+    result = runner.invoke(cli_without_choices, [\"--help\"])\n+    assert metavars in result.output\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 596,
+  "fix_passing": 601,
+  "broken_by_bug": 5,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 46,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:49:46.039Z"
+}

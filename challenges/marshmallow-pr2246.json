@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2246",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2246,
+    "title": "Fix error message",
+    "body": ""
+  },
+  "pr": {
+    "number": 2246,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2246"
+  },
+  "buggyCommit": "cd976d5d2220a5e2f553fec2082a5d254a7019da",
+  "fixCommit": "8f493e66b38d71269a8388b120b537a7fbd60ca8",
+  "fixDiff": "diff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex a82001dab..fb0e3a4ee 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,14 @@\n Changelog\n ---------\n \n+3.21.1 (unreleased)\n+*******************\n+\n+Bug fixes:\n+\n+- Fix error message when field is declared as a class and not an instance (:issue:`2245`).\n+  Thanks :user:`travnick` for reporting.\n+\n 3.21.0 (2024-02-26)\n *******************\n \ndiff --git a/src/marshmallow/schema.py b/src/marshmallow/schema.py\nindex faa924af1..adb23f387 100644\n--- a/src/marshmallow/schema.py\n+++ b/src/marshmallow/schema.py\n@@ -1047,9 +1047,9 @@ def _bind_field(self, field_name: str, field_obj: ma_fields.Field) -> None:\n             # the type checker's perspective.\n             if isinstance(field_obj, type) and issubclass(field_obj, base.FieldABC):\n                 msg = (\n-                    'Field for \"{field_name}\" must be declared as a '\n+                    f'Field for \"{field_name}\" must be declared as a '\n                     \"Field instance, not a class. \"\n-                    'Did you mean \"fields.{field_obj.__name__}()\"?'\n+                    f'Did you mean \"fields.{field_obj.__name__}()\"?'  # type: ignore\n                 )\n                 raise TypeError(msg) from error\n             raise error\ndiff --git a/tests/test_schema.py b/tests/test_schema.py\nindex b9bc43d06..64d9144e2 100644\n--- a/tests/test_schema.py\n+++ b/tests/test_schema.py\n@@ -553,7 +553,9 @@ def test_fields_must_be_declared_as_instances(user):\n     class BadUserSchema(Schema):\n         name = fields.String\n \n-    with pytest.raises(TypeError, match=\"must be declared as a Field instance\"):\n+    with pytest.raises(\n+        TypeError, match='Field for \"name\" must be declared as a Field instance'\n+    ):\n         BadUserSchema().dump(user)\n \n \n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1227,
+  "fix_passing": 1228,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 13,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-06T22:58:45.043Z"
+}

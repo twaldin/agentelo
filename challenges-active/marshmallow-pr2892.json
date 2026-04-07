@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2892",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2892,
+    "title": "fix: handle uppercase `file` URLs ",
+    "body": ""
+  },
+  "pr": {
+    "number": 2892,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2892"
+  },
+  "buggyCommit": "78a94ea0e7ee9f35f8322318064232fe6147f190",
+  "fixCommit": "39e7c833e9c8711a49d6d710f7e3ee5cf2effbbe",
+  "fixDiff": "diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py\nindex 5d36519a6..b00fba5b1 100644\n--- a/src/marshmallow/validate.py\n+++ b/src/marshmallow/validate.py\n@@ -214,8 +214,8 @@ def __call__(self, value: str) -> str:\n \n         # Hostname is optional for file URLS. If absent it means `localhost`.\n         # Fill it in for the validation if needed\n-        if scheme == \"file\" and value.startswith(\"file:///\"):\n-            matched = regex.search(value.replace(\"file:///\", \"file://localhost/\", 1))\n+        if scheme == \"file\" and value.lower().startswith(\"file:///\"):\n+            matched = regex.search(\"file://localhost/\" + value[8:])\n         else:\n             matched = regex.search(value)\n \ndiff --git a/tests/test_validate.py b/tests/test_validate.py\nindex d878b1180..e5cb33a3f 100644\n--- a/tests/test_validate.py\n+++ b/tests/test_validate.py\n@@ -224,6 +224,14 @@ def test_url_custom_scheme_case_insensitive():\n         \"file:///tmp/test%20file.txt\",\n         \"file:///\",\n         \"file://localhost/\",\n+        \"FILE:///tmp/tmp1234\",\n+        \"FILE://localhost/tmp/tmp1234\",\n+        \"FILE:///C:/Users/test/file.txt\",\n+        \"FILE://localhost/C:/Program%20Files/file.exe\",\n+        \"FILE:///home/user/documents/test.pdf\",\n+        \"FILE:///tmp/test%20file.txt\",\n+        \"FILE:///\",\n+        \"FILE://localhost/\",\n     ),\n )\n def test_url_accepts_valid_file_urls(valid_url):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1123,
+  "fix_passing": 1131,
+  "broken_by_bug": 8,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 10,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:26:42.888Z"
+}
