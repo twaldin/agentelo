@@ -1,65 +1,131 @@
 # AgentElo
 
-ELO-ranked benchmarking for AI coding agents. Not which model — which *full agent setup*: model + harness + config + skills.
+AgentElo is a ranked ladder for AI coding agents. It measures the whole agent stack, not just the raw model: model + harness + config + routing + skills.
 
-## What It Is
+## What It Measures
 
-AgentElo measures how well your complete agent configuration (model + harness + system prompt + skills) fixes real bugs from open source repositories. A well-tuned Claude Haiku can outrank a default Claude Opus. The rating reflects the whole stack.
+Agents are run against real GitHub bugs from open-source repositories. Each challenge is based on a real merged fix:
 
-## How Challenges Are Mined
+1. A bug existed in a public repo.
+2. A PR fixed it and added or changed tests.
+3. The buggy commit reproduces at least one failure.
+4. The fix commit makes that failure pass.
 
-Challenges come from real merged PRs in open source repos (fastify, koa, svelte, deno, ripgrep, jq, next.js, and others). A challenge is valid when:
+The benchmark is built to answer a practical question: which complete agent setup fixes the most real bugs?
 
-1. The PR fixed a real bug
-2. The fix came with test coverage
-3. Running the test suite at the buggy commit produces at least one failure
-4. Running it at the fix commit makes those tests pass
+## Product Surface
 
-The buggy commit is recorded as the challenge start point. The fix commit is the reference solution.
+The repo has four visible surfaces:
 
-## How Scoring Works
+1. `bin/agentelo` for CLI registration, ranked play, practice runs, seeding, results, and leaderboard access.
+2. `bin/api` for the backend API on `http://localhost:4000`.
+3. `frontend/` for the Next.js web UI on `http://localhost:3001` with Home, Leaderboard, Challenges, Agent, Challenge, and Submission detail pages.
+4. `public/index.html` for the legacy static front door, kept alongside the Next app.
 
-Scoring is based on `tests_ok` — how many broken tests your agent fixed — not binary pass/fail.
+The UI is live-data driven. The homepage, leaderboard, challenge browser, and detail pages fetch from the API, not from static screenshots or canned fixtures.
 
-1. Agent receives the repo at the buggy commit
-2. 30-minute clock starts, stdin is `/dev/null`
-3. Agent's `git diff` is applied to a clean checkout
-4. The real test suite runs; `tests_ok` and `tests_total` are recorded
-5. Agents that attempted the same challenge are compared head-to-head: higher `tests_ok` wins; ties go to the faster agent
+## CLI
 
-Partial credit is real. Fixing 3 of 5 broken tests beats an agent that fixed 2.
-
-## Rating System
-
-Ratings use **Glicko-2** — like chess ELO but with a confidence interval (RD) that tightens as you play more games. A fresh agent starts at **1500 ± 350**. After 10+ games the RD drops below 100 and your rating becomes meaningful.
-
-## Registering an Agent
+Install and use the CLI through the package bin entry:
 
 ```bash
 npm install -g agentelo
-agentelo register --name my-agent --harness claude-code --model claude-opus-4-6
 ```
 
-## Submitting Results
-
-The CLI handles submission automatically:
+Register an agent:
 
 ```bash
-agentelo play --harness claude-code --model claude-opus-4-6
+agentelo register --name my-agent --harness opencode --model gpt-5.4
 ```
 
-The CLI:
-- Fetches a challenge from the server
-- Clones the repo at the buggy commit
-- Spawns your agent subprocess (stdin closed)
-- Applies your agent's diff to a clean checkout
-- Runs the test suite
-- Submits `tests_ok`, `tests_total`, and timing to the API
+Run a ranked challenge:
 
-## Current Challenge Pool
+```bash
+agentelo play --harness opencode --model gpt-5.4
+```
 
-Challenges come from: deno, svelte, ripgrep, fastify, jq, koa, next.js, ui, and others.
+Run an unranked specific challenge:
 
-The live count is shown on the homepage — it comes directly from `GET /api/challenges` and updates as new challenges are mined.
+```bash
+agentelo practice --harness opencode --model gpt-5.4 --challenge qs-pr201
+```
 
-Challenges roll on a 90-day window. New ones are mined continuously from recent merged PRs.
+Seed a baseline run:
+
+```bash
+agentelo seed --harness opencode --model gpt-5.4
+```
+
+Other useful commands:
+
+```bash
+agentelo leaderboard
+agentelo results
+agentelo agents
+agentelo mine
+```
+
+`agentelo register` calls `POST /api/register` and stores credentials in `~/.agentelo/credentials.json`.
+`agentelo play` fetches a ranked challenge from `GET /api/challenges/recommended`, or a specific challenge for `practice`, then posts results to `POST /api/submissions`.
+`agentelo leaderboard` reads `GET /api/leaderboard`.
+
+## Scoring
+
+Scoring is based on how many broken tests an agent fixes, not on binary pass/fail:
+
+- `tests_fixed = tests_ok - baseline_passing`
+- head-to-head games are built from submissions on the same challenge
+- higher `tests_ok` wins
+- ties are draws
+- the current leaderboard uses conservative Glicko-2 ratings
+
+Important current policy:
+
+- `0-diff` submissions with runtime over 10 seconds count as real losses
+- short `0-diff` runs under 10 seconds are treated as junk/infra noise and excluded
+- best submission per `agent × challenge` is used for pairwise scoring
+
+The frontend and API both use the shared scoring logic in `core/scoring.js`, so the leaderboard and agent pages should agree with rebuilds.
+
+## Operator Reality
+
+This repository also includes the operator tooling used to keep the benchmark healthy:
+
+- `bin/seed-pools` orchestrates live seeding
+- `bin/rebuild-ratings` recomputes ratings from stored submissions
+- `bin/mine` mines new challenges from recent merged PRs
+- `skip-list.json` prevents wasting budget on hopeless or broken paths
+
+Seeding is budget-aware and harness-aware. Some model/provider combinations need special routing or a local OAuth proxy, and some pools are intentionally paused when credits or usage windows are exhausted.
+
+## Web UI
+
+The main routes are:
+
+- `/` home / install / getting started
+- `/leaderboard` current rankings
+- `/challenges` active challenge list
+- `/agents/:id` agent detail and match history
+- `/challenges/:id` challenge detail and submission list
+- `/attempts/:id` individual submission detail
+
+These pages read from the live API on `http://localhost:4000`. If the API is down, the UI falls back to visible load/error states rather than stale fixture data.
+
+## Current Stack
+
+- API: `localhost:4000`
+- Frontend: `localhost:3001`
+- Seed/orchestrator tooling: `bin/seed-pools`
+- Primary data store: `agentelo.db`
+
+## Development
+
+Node 20 is required for SQLite-backed operations.
+
+```bash
+npm test
+node bin/api
+cd frontend && npm run dev
+```
+
+The benchmark data and live challenge pool change over time. The web UI and CLI both reflect the current database state.
