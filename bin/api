@@ -1,0 +1,949 @@
+#!/usr/bin/env node
+'use strict';
+
+const http   = require('http');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
+const db     = require('../core/db');
+const { updateRating, defaultRating } = require('../core/glicko2');
+const { stripTestFiles } = require('../core/scorer');
+const { computeScore, isPairwiseSubmissionExcluded, pickBetterSubmission } = require('../core/scoring');
+
+const PORT       = process.env.PORT || 4000;
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const ACTIVE_DIR = path.join(__dirname, '..', 'challenges-active');
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
+const SUBMISSION_LIMIT_IP_PER_DAY = 100;
+
+const leaderboardCache = { data: null, minAgents: 0 };
+const submissionRateLimits = {
+  day: new Date().toISOString().slice(0, 10),
+  byAgent: new Map(),
+  byIp: new Map(),
+};
+
+// Build set of active challenge IDs from challenges-active/ directory
+function getActiveChallengeIds() {
+  if (!fs.existsSync(ACTIVE_DIR)) return new Set();
+  return new Set(
+    fs.readdirSync(ACTIVE_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.replace('.json', ''))
+  );
+}
+const activeChallengeIds = getActiveChallengeIds();
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function json(res, status, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(data)); }
+      catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function isMissingStringField(value) {
+  return value == null || (typeof value === 'string' && value.trim() === '');
+}
+
+function validateSubmissionBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be a JSON object';
+  }
+
+  const requiredFields = ['api_key', 'run_id', 'challenge_id', 'agent_id', 'harness', 'model', 'diff'];
+  for (const field of requiredFields) {
+    if (isMissingStringField(body[field])) {
+      return `Missing required field: ${field}`;
+    }
+  }
+
+  const numericFields = [
+    'tests_total',
+    'tests_ok',
+    'tests_failed',
+    'agent_time_seconds',
+    'test_time_seconds',
+    'diff_lines',
+    'exit_code',
+    'tokens_in',
+    'tokens_out',
+    'cost_usd',
+  ];
+  for (const field of numericFields) {
+    if (body[field] != null && (typeof body[field] !== 'number' || !Number.isFinite(body[field]))) {
+      return `Field ${field} must be numeric`;
+    }
+  }
+
+  if (typeof body.diff !== 'string') return 'Field diff must be a string';
+
+  const testsTotal = body.tests_total != null ? body.tests_total : 0;
+  const testsOk = body.tests_ok != null ? body.tests_ok : 0;
+  if (testsOk > testsTotal) {
+    return 'Invalid submission: tests_ok cannot be greater than tests_total';
+  }
+
+  return null;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  const ip = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : 'unknown';
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+function resetDailyRateLimitState() {
+  const day = new Date().toISOString().slice(0, 10);
+  if (submissionRateLimits.day === day) return;
+  submissionRateLimits.day = day;
+  submissionRateLimits.byAgent.clear();
+  submissionRateLimits.byIp.clear();
+}
+
+function secondsUntilNextUtcDay() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  return Math.max(1, Math.ceil((next.getTime() - now.getTime()) / 1000));
+}
+
+function checkAndTrackRateLimit(agentId, ip) {
+  resetDailyRateLimitState();
+
+  const byAgent = submissionRateLimits.byAgent.get(agentId) || [];
+  if (byAgent.length >= SUBMISSION_LIMIT_AGENT_PER_DAY) {
+    return {
+      limited: true,
+      message: `Agent daily submission limit exceeded (${SUBMISSION_LIMIT_AGENT_PER_DAY}/day)`,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
+  }
+
+  const byIp = submissionRateLimits.byIp.get(ip) || [];
+  if (byIp.length >= SUBMISSION_LIMIT_IP_PER_DAY) {
+    return {
+      limited: true,
+      message: `IP daily submission limit exceeded (${SUBMISSION_LIMIT_IP_PER_DAY}/day)`,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
+  }
+
+  const ts = Date.now();
+  byAgent.push(ts);
+  byIp.push(ts);
+  submissionRateLimits.byAgent.set(agentId, byAgent);
+  submissionRateLimits.byIp.set(ip, byIp);
+
+  return { limited: false };
+}
+
+function resolveCorsOrigin(req) {
+  if (ALLOWED_ORIGINS.includes('*')) return '*';
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) return origin;
+  return ALLOWED_ORIGINS[0] || 'null';
+}
+
+function diffLabel(row) {
+  const lines = row.difficulty_lines || 0;
+  if (lines <= 20)  return 'easy';
+  if (lines <= 80)  return 'medium';
+  if (lines <= 200) return 'hard';
+  return 'expert';
+}
+
+function fmtTime(secs) {
+  if (!secs) return '—';
+  const m = Math.floor(secs / 60);
+  const s = Math.round(secs % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function detectLang(repo) {
+  if (!repo) return 'unknown';
+  const r = repo.toLowerCase();
+  if (r.includes('django') || r.includes('flask') || r.includes('fastapi') || r.includes('python')) return 'python';
+  if (r.includes('angular') || r.includes('react') || r.includes('next') || r.includes('vue') || r.includes('svelte')) return 'typescript';
+  if (r.includes('golang') || r.includes('/go') || r.includes('tokio') || r.includes('rust')) return 'rust';
+  return 'javascript';
+}
+
+function buildChallengeEntry(row, stats) {
+  const s = stats || { total: 0, wins: 0, avg_time: 0, avg_agent_time: 0 };
+
+  // Compute baseline-relative solve rate (how many agents actually fixed tests)
+  let sr = 0;
+  if (s.total > 0) {
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${row.id}.json`);
+    let bl = 0;
+    try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
+    if (bl > 0) {
+      // Count submissions that fixed at least 1 test beyond baseline
+      const subs = db.getSubmissionsByChallenge(row.id);
+      const solved = subs.filter(sub => (sub.tests_ok || 0) > bl).length;
+      sr = solved / s.total;
+    } else {
+      sr = s.wins / s.total;
+    }
+  }
+
+  return {
+    id:           row.id,
+    repo:         (row.repo || '').replace('https://github.com/', ''),
+    title:        row.title || row.id,
+    diff:         diffLabel(row),
+    lang:         detectLang(row.repo),
+    sr,
+    att:          s.total || 0,
+    avgt:         fmtTime(s.avg_agent_time || s.avg_time),
+    test_command: row.test_command,
+    created_at:   row.created_at,
+  };
+}
+
+function buildAgentEntry(agent, rank, allAgents) {
+  const history  = db.getRatingHistory(agent.id);
+  const hist     = history.slice(-10).map(h => Math.round(h.rating_after));
+
+  // d7: sum of deltas from games in last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const d7 = history
+    .filter(h => h.created_at >= sevenDaysAgo)
+    .reduce((sum, h) => sum + (h.delta || 0), 0);
+
+  const subs   = db.getSubmissionsByAgent(agent.id).slice(0, 3);
+  const recent = subs.map(s => {
+    const ch = db.getChallenge(s.challenge_id);
+    // Use tests_fixed (not raw tests_ok) for pass/fail status
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${s.challenge_id}.json`);
+    let bl = 0;
+    try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
+    const fixed = Math.max(0, (s.tests_ok || 0) - bl);
+    return {
+      n:  ch ? ch.repo.replace('https://github.com/', '').split('/')[1] + '/' + s.challenge_id : s.challenge_id,
+      st: fixed > 0 ? 'pass' : 'fail',
+      sc: fixed > 0 ? '✓' : '✗',
+      t:  fmtTime(s.agent_time_seconds),
+    };
+  });
+
+  const games  = db.getGamesByAgent(agent.id);
+  const gWins  = games.filter(g => g.score === 1).length;
+  const played = games.length;
+
+  return {
+    id:      agent.id,
+    rank,
+    name:    agent.display_name || agent.id,
+    display_name: agent.display_name || agent.id,
+    harness: agent.harness,
+    model:   agent.model,
+    elo:     Math.round(agent.rating - 2 * agent.rd),
+    rd:      Math.round(agent.rd),
+    wr:      played > 0 ? gWins / played : 0,
+    played,
+    wins:    gWins,
+    d7:      Math.round(d7),
+    hist,
+    hash:    agent.current_hash ? agent.current_hash.slice(0, 8) : null,
+    recent,
+    avgCost: (() => {
+      const allSubs = db.getSubmissionsByAgent(agent.id);
+      const withCost = allSubs.filter(s => s.cost_usd > 0);
+      return withCost.length > 0 ? withCost.reduce((sum, s) => sum + s.cost_usd, 0) / withCost.length : null;
+    })(),
+  };
+}
+
+// ── processSubmission ─────────────────────────────────────────────────────────
+
+async function processSubmission(body, authenticatedAgent) {
+  // 1. Authenticate via api_key
+  const agent = authenticatedAgent || db.getAgentByKey(body.api_key);
+  if (!agent) throw Object.assign(new Error('Invalid API key'), { status: 401 });
+  if (body.agent_id !== agent.id) {
+    throw Object.assign(new Error('agent_id does not match authenticated API key'), { status: 400 });
+  }
+
+  // 2. Track config version changes
+  if (agent.current_hash !== body.agent_hash) {
+    db.insertConfigVersion({
+      agent_id:     agent.id,
+      agent_hash:   body.agent_hash,
+      harness:      body.harness || agent.harness,
+      model:        body.model   || agent.model,
+      config_files: body.config_files || [],
+    });
+  }
+
+  // 3. Upsert challenge
+  const challengeFile = path.join(__dirname, '..', 'challenges-active', `${body.challenge_id}.json`);
+  let challengeMeta = null;
+  try { challengeMeta = JSON.parse(fs.readFileSync(challengeFile, 'utf8')); } catch (_) {}
+
+  const existing = db.getChallenge(body.challenge_id);
+  if (!existing || !existing.repo) {
+    const repo     = body.repo || (challengeMeta && (challengeMeta.repoUrl || challengeMeta.repo)) || '';
+    const title    = (challengeMeta && challengeMeta.issue && challengeMeta.issue.title) || body.challenge_id;
+    const fixDiff  = (challengeMeta && challengeMeta.fixDiff) || '';
+    const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
+    db.upsertChallenge({
+      id:          body.challenge_id,
+      repo,
+      title,
+      difficulty:  { filesChanged: 0, linesAdded: diffLines },
+      testCommand: challengeMeta && challengeMeta.testCommand,
+      fixCommit:   challengeMeta && challengeMeta.fixCommit,
+    });
+  }
+
+  // 4. Insert submission
+  db.insertSubmission({
+    run_id:             body.run_id,
+    challenge_id:       body.challenge_id,
+    agent_id:           agent.id,
+    agent_hash:         body.agent_hash || '',
+    harness:            body.harness    || agent.harness,
+    model:              body.model      || agent.model,
+    tests_passed:       body.tests_passed ? 1 : 0,
+    tests_total:        body.tests_total  || 0,
+    tests_ok:           body.tests_ok     || 0,
+    tests_failed:       body.tests_failed || 0,
+    agent_time_seconds: body.agent_time_seconds || 0,
+    test_time_seconds:  body.test_time_seconds  || 0,
+    rating_at_submission: agent.rating,
+    rd_at_submission:     agent.rd,
+    diff_lines:         body.diff_lines  || 0,
+    diff:               body.diff        || '',
+    exit_code:          body.exit_code  != null ? body.exit_code : 1,
+    tampered:           body.tampered   ? 1 : 0,
+    transcript_path:    body.log_file   || null,
+    tokens_in:          body.tokens_in   || 0,
+    tokens_out:         body.tokens_out  || 0,
+    cost_usd:           body.cost_usd    || 0,
+    created_at:         body.finished_at || new Date().toISOString(),
+  });
+
+  // 5. Get inserted submission's integer id
+  const mySub = db.getSubmission(body.run_id);
+  if (!mySub) throw new Error('Failed to retrieve inserted submission');
+
+  // 6. Find opponent submissions for same challenge.
+  const myExcluded = isPairwiseSubmissionExcluded(mySub);
+  const opponents = db.getSubmissionsByChallenge(body.challenge_id)
+    .filter(s => s.run_id !== body.run_id && s.agent_id !== agent.id)
+    .filter(s => !isPairwiseSubmissionExcluded(s));
+
+  if (myExcluded || opponents.length === 0) {
+    // No valid score or no opponents — store submission but don't generate games.
+    if (myExcluded) console.log(`[api] Skipping games for ${agent.id} on ${body.challenge_id} — pairwise excluded by shared scoring rule`);
+    db.updateAgent({
+      id:                   agent.id,
+      rating:               agent.rating,
+      rd:                   agent.rd,
+      volatility:           agent.volatility,
+      wins:                 agent.wins,
+      challenges_attempted: agent.challenges_attempted + 1,
+      current_hash:         body.agent_hash,
+    });
+    return;
+  }
+
+  // 7. Sequential Glicko-2: one update per opponent, rating changes between games
+  //    Order by opponent submission time (earliest first)
+  const sortedOpponents = opponents
+    .map(oSub => ({ oSub, oppAgent: db.getAgent(oSub.agent_id) }))
+    .filter(o => o.oppAgent)
+    .sort((a, b) => (a.oSub.created_at || '').localeCompare(b.oSub.created_at || ''));
+
+  let curRating    = agent.rating;
+  let curRd        = agent.rd;
+  let curVol       = agent.volatility;
+  let totalWins    = 0;
+
+  // Load baseline for tests_fixed scoring
+  const basePass = (challengeMeta && challengeMeta.baseline_passing != null) ? challengeMeta.baseline_passing : 0;
+
+  for (const { oSub, oppAgent } of sortedOpponents) {
+    const myScore = computeScore(mySub, oSub, { baseline_passing: basePass });
+
+    // Use opponent's frozen rating at their submission time
+    const oppRating = oSub.rating_at_submission || oppAgent.rating;
+    const oppRd     = oSub.rd_at_submission     || oppAgent.rd;
+
+    // Single-game Glicko-2 update
+    const ratingBefore = curRating;
+    const rdBefore     = curRd;
+    const updated = updateRating(
+      { rating: curRating, rd: curRd, volatility: curVol },
+      [{ opponentRating: oppRating, opponentRd: oppRd, score: myScore }]
+    );
+    const delta = updated.rating - curRating;
+    curRating = updated.rating;
+    curRd     = updated.rd;
+    curVol    = updated.volatility;
+    if (myScore === 1) totalWins++;
+
+    db.insertGame({
+      challenge_id:          body.challenge_id,
+      agent_id:              agent.id,
+      opponent_id:           oppAgent.id,
+      submission_id:         mySub.id,
+      opponent_submission_id: oSub.id,
+      score:                 myScore,
+      rating_before:         ratingBefore,
+      rating_after:          curRating,
+      rd_before:             rdBefore,
+      rd_after:              curRd,
+      delta:                 Math.round(delta * 10) / 10,
+      opponent_rating:       oppRating,
+      opponent_rd:           oppRd,
+      opponent_model:        oppAgent.model,
+    });
+  }
+
+  // 10. Update submitting agent with final sequential rating
+  db.updateAgent({
+    id:                   agent.id,
+    rating:               curRating,
+    rd:                   curRd,
+    volatility:           curVol,
+    wins:                 agent.wins + totalWins,
+    challenges_attempted: agent.challenges_attempted + 1,
+    current_hash:         body.agent_hash,
+  });
+
+  // 11. Backfill: create games for earlier agents who haven't played against us yet
+  //     This ensures the first-to-submit agent gets games too
+  for (const { oSub, oppAgent } of sortedOpponents) {
+    // Check if this opponent already has a game against our agent on this challenge
+    const existingGame = db.getDb().prepare(
+      'SELECT 1 FROM games WHERE agent_id = ? AND opponent_id = ? AND challenge_id = ? LIMIT 1'
+    ).get(oSub.agent_id, agent.id, body.challenge_id);
+    if (existingGame) continue;
+
+    // Refresh opponent's current rating (may have changed from their own submissions)
+    const freshOpp = db.getAgent(oSub.agent_id);
+    if (!freshOpp) continue;
+
+    const oppScore = computeScore(oSub, mySub, { baseline_passing: basePass });
+
+    // Use the new agent's rating at submission time as the opponent rating
+    const myRatingAtSub = mySub.rating_at_submission || 1500;
+    const myRdAtSub     = mySub.rd_at_submission || 350;
+
+    // Sequential Glicko-2 update for the backfilled agent
+    const oppUpdated = updateRating(
+      { rating: freshOpp.rating, rd: freshOpp.rd, volatility: freshOpp.volatility },
+      [{ opponentRating: myRatingAtSub, opponentRd: myRdAtSub, score: oppScore }]
+    );
+    const oppDelta = oppUpdated.rating - freshOpp.rating;
+
+    db.insertGame({
+      challenge_id:          body.challenge_id,
+      agent_id:              oSub.agent_id,
+      opponent_id:           agent.id,
+      submission_id:         oSub.id,
+      opponent_submission_id: mySub.id,
+      score:                 oppScore,
+      rating_before:         freshOpp.rating,
+      rating_after:          oppUpdated.rating,
+      rd_before:             freshOpp.rd,
+      rd_after:              oppUpdated.rd,
+      delta:                 Math.round(oppDelta * 10) / 10,
+      opponent_rating:       myRatingAtSub,
+      opponent_rd:           myRdAtSub,
+      opponent_model:        agent.model,
+    });
+
+    db.updateAgent({
+      id:                   freshOpp.id,
+      rating:               oppUpdated.rating,
+      rd:                   oppUpdated.rd,
+      volatility:           oppUpdated.volatility,
+      wins:                 freshOpp.wins + (oppScore === 1 ? 1 : 0),
+      challenges_attempted: freshOpp.challenges_attempted,
+      current_hash:         freshOpp.current_hash,
+    });
+  }
+}
+
+// ── router ────────────────────────────────────────────────────────────────────
+
+async function handleRequest(req, res) {
+  const url      = new URL(req.url, `http://localhost:${PORT}`);
+  const pathname = url.pathname;
+  const corsOrigin = resolveCorsOrigin(req);
+
+  res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+  if (corsOrigin !== '*') res.setHeader('Vary', 'Origin');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin':  corsOrigin,
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    return res.end();
+  }
+
+  // Frontend — redirect to Next.js app on :3001
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+    res.writeHead(302, { 'Location': FRONTEND_URL });
+    return res.end();
+  }
+
+  // POST /api/register
+  if (req.method === 'POST' && pathname === '/api/register') {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    if (!body.name || !body.harness || !body.model) {
+      return json(res, 400, { error: 'name, harness, and model are required' });
+    }
+
+    const api_key = 'ael_sk_' + crypto.randomBytes(24).toString('hex');
+    try {
+      db.createAgent({
+        id: body.name,
+        api_key,
+        harness: body.harness,
+        model: body.model,
+        display_name: body.name,
+      });
+      return json(res, 201, { ok: true, agent_id: body.name, api_key });
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) {
+        return json(res, 409, { error: 'Agent name already registered' });
+      }
+      console.error('[api] register error:', e.message);
+      return json(res, 500, { error: e.message });
+    }
+  }
+
+  // GET /api/challenges/recommended  (must come before /:id)
+  if (req.method === 'GET' && pathname === '/api/challenges/recommended') {
+    const challenges = db.getAllChallenges().filter(ch => activeChallengeIds.has(ch.id));
+    const counts     = db.getAttemptCounts();
+    const stats      = db.getSolveStats();
+    const sorted     = [...challenges].sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
+    return json(res, 200, sorted.map(ch => buildChallengeEntry(ch, stats[ch.id])));
+  }
+
+  // GET /api/challenges
+  if (req.method === 'GET' && pathname === '/api/challenges') {
+    const challenges = db.getAllChallenges().filter(ch => activeChallengeIds.has(ch.id));
+    const stats      = db.getSolveStats();
+    return json(res, 200, challenges.map(ch => buildChallengeEntry(ch, stats[ch.id])));
+  }
+
+  // GET /api/challenges/:id/fix
+  const chFixMatch = pathname.match(/^\/api\/challenges\/([^/]+)\/fix$/);
+  if (req.method === 'GET' && chFixMatch) {
+    const challengeId = chFixMatch[1];
+    const ch = db.getChallenge(challengeId);
+    if (!ch) return json(res, 404, { error: 'Not found' });
+
+    const apiKey = url.searchParams.get('api_key');
+    if (!apiKey) return json(res, 401, { error: 'api_key query param is required' });
+    const agent = db.getAgentByKey(apiKey);
+    if (!agent) return json(res, 401, { error: 'Invalid API key' });
+
+    const hasSubmitted = db.getSubmissionsByChallenge(challengeId).some(s => s.agent_id === agent.id);
+    if (!hasSubmitted) {
+      return json(res, 403, { error: 'Fix data is only available after your first submission on this challenge' });
+    }
+
+    const challengeFile = path.join(__dirname, '..', 'challenges-active', `${challengeId}.json`);
+    try {
+      const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+      return json(res, 200, {
+        id: challengeId,
+        fixDiff: meta.fixDiff || '',
+        fixCommit: meta.fixCommit || '',
+        baseline_passing: meta.baseline_passing != null ? meta.baseline_passing : null,
+      });
+    } catch (_) {
+      return json(res, 404, { error: 'Challenge fix data not found' });
+    }
+  }
+
+  // GET /api/challenges/:id
+  const chMatch = pathname.match(/^\/api\/challenges\/([^/]+)$/);
+  if (req.method === 'GET' && chMatch) {
+    const ch = db.getChallenge(chMatch[1]);
+    if (!ch) return json(res, 404, { error: 'Not found' });
+    const stats = db.getSolveStats();
+    const entry = buildChallengeEntry(ch, stats[ch.id]);
+
+    const challengeFile = path.join(__dirname, '..', 'challenges-active', `${chMatch[1]}.json`);
+    let baseline_passing = null;
+    let broken_by_bug = null;
+    try {
+      const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+      entry.body      = meta.issue?.body || meta.body || '';
+      entry.repoUrl      = meta.repoUrl || meta.repo || '';
+      entry.buggyCommit  = meta.buggyCommit || '';
+      entry.testCommand  = meta.testCommand || meta.test_command || 'npm test';
+      baseline_passing = meta.baseline_passing != null ? meta.baseline_passing : null;
+      broken_by_bug    = meta.broken_by_bug    != null ? meta.broken_by_bug    : null;
+    } catch (_) {}
+    entry.broken_by_bug    = broken_by_bug;
+
+    const subs = db.getSubmissionsByChallenge(chMatch[1]);
+    entry.attempts = subs.map(s => {
+      const agent = db.getAgent(s.agent_id);
+      // Use tests_fixed for passed flag, not raw tests_ok
+      const fixed = (baseline_passing != null) ? Math.max(0, (s.tests_ok || 0) - baseline_passing) : (s.tests_ok || 0);
+      return {
+        run_id:       s.run_id,
+        model:        s.model,
+        harness:      s.harness,
+        passed:       fixed > 0,
+        time:         fmtTime(s.agent_time_seconds),
+        test_time:    fmtTime(s.test_time_seconds || 0),
+        diff_lines:   s.diff_lines,
+        tests_ok:     s.tests_ok     || 0,
+        tests_total:  s.tests_total  || 0,
+        tests_failed: s.tests_failed || 0,
+        broken_by_bug:    broken_by_bug,
+        agent_name:   agent ? (agent.display_name || agent.id) : s.model,
+        created_at:   s.created_at,
+      };
+    });
+
+    return json(res, 200, entry);
+  }
+
+  // POST /api/submissions
+  if (req.method === 'POST' && pathname === '/api/submissions') {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    const validationError = validateSubmissionBody(body);
+    if (validationError) return json(res, 400, { error: validationError });
+
+    const agent = db.getAgentByKey(body.api_key);
+    if (!agent) return json(res, 401, { error: 'Invalid API key' });
+    if (body.agent_id !== agent.id) {
+      return json(res, 400, { error: 'agent_id does not match authenticated API key' });
+    }
+
+    const limit = checkAndTrackRateLimit(agent.id, getClientIp(req));
+    if (limit.limited) {
+      res.setHeader('Retry-After', String(limit.retryAfterSeconds));
+      return json(res, 429, { error: limit.message });
+    }
+
+    try {
+      await processSubmission(body, agent);
+      return json(res, 201, { ok: true });
+    } catch (e) {
+      const status = e.status || 500;
+      if (status !== 500) return json(res, status, { error: e.message });
+      console.error('[api] processSubmission error:', e.message);
+      return json(res, 500, { error: e.message });
+    }
+  }
+
+  // GET /api/leaderboard (cached — only updates every 30s to prevent mid-rebuild flicker)
+  if (req.method === 'GET' && pathname === '/api/leaderboard') {
+    const now = Date.now();
+    if (!leaderboardCache.data || now - leaderboardCache.updatedAt > 30000) {
+      const agents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
+      // Only update cache if we have a reasonable number of agents (rebuild not in progress)
+      if (agents.length >= (leaderboardCache.minAgents || 1) * 0.8 || !leaderboardCache.data) {
+        leaderboardCache.data = agents.map((a, i) => buildAgentEntry(a, i + 1, agents));
+        leaderboardCache.minAgents = Math.max(leaderboardCache.minAgents || 0, agents.length);
+        leaderboardCache.updatedAt = now;
+      }
+    }
+    return json(res, 200, leaderboardCache.data || []);
+  }
+
+  // GET /api/submissions/:id
+  const subMatch = pathname.match(/^\/api\/submissions\/([^/]+)$/);
+  if (req.method === 'GET' && subMatch) {
+    const rawId = subMatch[1];
+    let sub = db.getSubmission(rawId);
+    if (!sub) {
+      const intId = parseInt(rawId, 10);
+      if (!isNaN(intId)) sub = db.getSubmissionById(intId);
+    }
+    if (!sub) return json(res, 404, { error: 'Not found' });
+
+    // Get challenge baseline for relative scoring
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${sub.challenge_id}.json`);
+    let blPass = null, blBroken = null;
+    try {
+      const meta = JSON.parse(fs.readFileSync(chFile, 'utf8'));
+      blPass = meta.baseline_passing; blBroken = meta.broken_by_bug;
+    } catch {}
+
+    const games = db.getGamesBySubmission(sub.id).map(g => {
+      const oppSub = db.getSubmissionById(g.opponent_submission_id);
+      return {
+        opponent_id:          g.opponent_id,
+        opponent_model:       g.opponent_model,
+        opponent_submission_id: g.opponent_submission_id,
+        score:                g.score,
+        delta:                g.delta,
+        rating_after:         g.rating_after,
+        opponent_tests_ok:    oppSub ? oppSub.tests_ok    : null,
+        opponent_tests_total: oppSub ? oppSub.tests_total : null,
+        opponent_time:        oppSub ? oppSub.agent_time_seconds : null,
+        opponent_diff_lines:  oppSub ? oppSub.diff_lines  : null,
+      };
+    });
+
+    const ch = db.getChallenge(sub.challenge_id);
+
+    return json(res, 200, {
+      id:                 sub.id,
+      run_id:             sub.run_id,
+      challenge_id:       sub.challenge_id,
+      challenge_title:    ch ? ch.title : sub.challenge_id,
+      agent_id:           sub.agent_id,
+      harness:            sub.harness,
+      model:              sub.model,
+      tests_ok:           sub.tests_ok,
+      tests_total:        sub.tests_total,
+      tests_failed:       sub.tests_failed,
+      baseline_passing:   blPass,
+      broken_by_bug:      blBroken,
+      agent_time_seconds: sub.agent_time_seconds,
+      test_time_seconds:  sub.test_time_seconds,
+      diff_lines:         sub.diff_lines,
+      diff:               stripTestFiles(sub.diff || ''),
+      exit_code:          sub.exit_code,
+      tampered:           !!sub.tampered,
+      tokens_in:          sub.tokens_in || 0,
+      tokens_out:         sub.tokens_out || 0,
+      cost_usd:           sub.cost_usd || 0,
+      created_at:         sub.created_at,
+      games,
+    });
+  }
+
+  // GET /api/agents/:id
+  const agentMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (req.method === 'PATCH' && agentMatch) {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    if (isMissingStringField(body && body.api_key)) {
+      return json(res, 400, { error: 'Missing required field: api_key' });
+    }
+    if (isMissingStringField(body && body.display_name)) {
+      return json(res, 400, { error: 'Missing required field: display_name' });
+    }
+
+    const displayName = String(body.display_name).trim();
+    if (!displayName) return json(res, 400, { error: 'display_name cannot be empty' });
+
+    const requestingAgent = db.getAgentByKey(body.api_key);
+    if (!requestingAgent) return json(res, 401, { error: 'Invalid API key' });
+    if (requestingAgent.id !== agentMatch[1]) {
+      return json(res, 403, { error: 'API key does not have permission to update this agent' });
+    }
+
+    const existing = db.getAgent(agentMatch[1]);
+    if (!existing) return json(res, 404, { error: 'Not found' });
+
+    db.setAgentDisplayName(existing.id, displayName);
+    leaderboardCache.data = null;
+
+    return json(res, 200, { ok: true, id: existing.id, display_name: displayName });
+  }
+
+  if (req.method === 'GET' && agentMatch) {
+    const agent = db.getAgent(agentMatch[1]);
+    if (!agent) return json(res, 404, { error: 'Not found' });
+
+    // Rank only against agents who have played (same filter as leaderboard)
+    const allAgents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
+    const rank      = allAgents.findIndex(a => a.id === agent.id) + 1;
+    // Compute stats from actual game data (same source as leaderboard)
+    const allGames = db.getGamesByAgent(agent.id);
+    const played   = allGames.length;
+    const wins   = allGames.filter(g => g.score === 1).length;
+    const losses = allGames.filter(g => g.score === 0).length;
+    const draws  = allGames.filter(g => g.score === 0.5).length;
+
+    const ratingHistory = db.getRatingHistory(agent.id).map(h => ({
+      r:          h.rating_after,
+      ts:         h.created_at,
+      delta:      h.delta,
+      score:      h.score,
+      challenge:  h.challenge_id,
+      opponent:   h.opponent_id,
+    }));
+
+    const configVersions = db.getConfigVersions(agent.id).map(cv => ({
+      hash:         cv.agent_hash,
+      harness:      cv.harness,
+      model:        cv.model,
+      config_files: cv.config_files,
+      first_seen_at: cv.first_seen_at,
+    }));
+
+    // Build matches: submissions with their game rows
+    // Cache challenge baselines for this agent's matches
+    const baselineCache = {};
+    function getChallengeBaseline(challengeId) {
+      if (baselineCache[challengeId] !== undefined) return baselineCache[challengeId];
+      const cFile = path.join(__dirname, '..', 'challenges-active', `${challengeId}.json`);
+      try {
+        const meta = JSON.parse(fs.readFileSync(cFile, 'utf8'));
+        baselineCache[challengeId] = {
+          baseline_passing: meta.baseline_passing != null ? meta.baseline_passing : null,
+          broken_by_bug:    meta.broken_by_bug    != null ? meta.broken_by_bug    : null,
+        };
+      } catch (_) {
+        baselineCache[challengeId] = { baseline_passing: null, broken_by_bug: null };
+      }
+      return baselineCache[challengeId];
+    }
+
+    // Deduplicate: keep only the best pairwise-eligible submission per challenge.
+    const allSubs = db.getSubmissionsByAgent(agent.id);
+    const bestByChallenge = {};
+    for (const s of allSubs) {
+      if (isPairwiseSubmissionExcluded(s)) continue;
+      bestByChallenge[s.challenge_id] = pickBetterSubmission(bestByChallenge[s.challenge_id], s);
+    }
+    const dedupedSubs = Object.values(bestByChallenge);
+    const matches = dedupedSubs.map(sub => {
+      const bl = getChallengeBaseline(sub.challenge_id);
+      const games = db.getGamesBySubmission(sub.id, agent.id).map(g => {
+        const oppSub = db.getSubmissionById(g.opponent_submission_id);
+        return {
+          opponent_id:          g.opponent_id,
+          opponent_model:       g.opponent_model,
+          score:                g.score,
+          delta:                g.delta,
+          rating_after:         g.rating_after,
+          opponent_tests_ok:    oppSub ? oppSub.tests_ok    : null,
+          opponent_tests_total: oppSub ? oppSub.tests_total : null,
+          opponent_time:        oppSub ? oppSub.agent_time_seconds : null,
+        };
+      });
+      const totalDelta = games.reduce((sum, g) => sum + (g.delta || 0), 0);
+      return {
+        submission_id: sub.id,
+        run_id:        sub.run_id,
+        challenge_id:  sub.challenge_id,
+        tests_ok:      sub.tests_ok,
+        tests_total:   sub.tests_total,
+        tests_passed:  (bl.baseline_passing != null) ? Math.max(0, (sub.tests_ok || 0) - bl.baseline_passing) > 0 : (sub.tests_ok || 0) > 0,
+        baseline_passing: bl.baseline_passing,
+        broken_by_bug:    bl.broken_by_bug,
+        agent_time:    sub.agent_time_seconds,
+        diff_lines:    sub.diff_lines,
+        exit_code:     sub.exit_code,
+        tokens_in:     sub.tokens_in || 0,
+        tokens_out:    sub.tokens_out || 0,
+        cost_usd:      sub.cost_usd || 0,
+        created_at:    sub.created_at,
+        games,
+        total_delta:   Math.round(totalDelta * 10) / 10,
+      };
+    });
+
+    return json(res, 200, {
+      id:             agent.id,
+      display_name:   agent.display_name || agent.id,
+      rank,
+      harness:        agent.harness,
+      model:          agent.model,
+      current_hash:   agent.current_hash,
+      elo:            Math.round(agent.rating - 2 * agent.rd),
+      rd:             Math.round(agent.rd),
+      played,
+      wins,
+      losses,
+      draws,
+      wr:             allGames.length > 0 ? wins / allGames.length : 0,
+      d7:             ratingHistory.filter(h => {
+                        const ts = new Date(h.ts).getTime();
+                        return ts > Date.now() - 7 * 24 * 60 * 60 * 1000;
+                      }).reduce((s, h) => s + (h.delta || 0), 0),
+      ratingHistory,
+      configVersions,
+      matches,
+    });
+  }
+
+  return json(res, 404, { error: 'Not found' });
+}
+
+// ── importChallenges ──────────────────────────────────────────────────────────
+
+function importChallenges() {
+  const challengesDir = ACTIVE_DIR;
+  if (!fs.existsSync(challengesDir)) return;
+  const files = fs.readdirSync(challengesDir).filter(f => f.endsWith('.json'));
+  let imported = 0;
+  for (const f of files) {
+    const id = f.replace('.json', '');
+    const existing = db.getChallenge(id);
+    if (existing && existing.repo) continue;
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(challengesDir, f), 'utf8'));
+      const fixDiff = meta.fixDiff || '';
+      const diffLines = fixDiff.split('\n').filter(l => /^[+-]/.test(l) && !/^[+-]{3}/.test(l)).length;
+      db.upsertChallenge({
+        id,
+        repo:        meta.repoUrl || meta.repo || '',
+        title:       meta.issue?.title || meta.title || id,
+        difficulty:  { filesChanged: 0, linesAdded: diffLines },
+        testCommand: meta.testCommand,
+        fixCommit:   meta.fixCommit,
+      });
+      imported++;
+    } catch (_) {}
+  }
+  if (imported > 0) console.log(`[agentelo-api] imported ${imported} challenges from disk`);
+}
+
+// ── server ────────────────────────────────────────────────────────────────────
+
+importChallenges();
+
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch(err => {
+    console.error('[api] unhandled error:', err);
+    try { json(res, 500, { error: 'Internal server error' }); } catch (_) {}
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`[agentelo-api] listening on http://localhost:${PORT}`);
+});

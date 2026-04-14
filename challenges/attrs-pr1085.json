@@ -1,0 +1,27 @@
+{
+  "id": "attrs-pr1085",
+  "repo": "python-attrs/attrs",
+  "repoUrl": "https://github.com/python-attrs/attrs",
+  "issue": {
+    "number": 1085,
+    "title": "Fix backward compatibility with pickles before v22.2.0",
+    "body": ""
+  },
+  "pr": {
+    "number": 1085,
+    "url": "https://github.com/python-attrs/attrs/pull/1085"
+  },
+  "buggyCommit": "882805e173ba970f381ed8f162b650eb7fbc1160",
+  "fixCommit": "c9150d278ced32056d73c239ff64034e5056bcb6",
+  "fixDiff": "diff --git a/changelog.d/1085.change.md b/changelog.d/1085.change.md\nnew file mode 100644\nindex 000000000..483fc87dc\n--- /dev/null\n+++ b/changelog.d/1085.change.md\n@@ -0,0 +1 @@\n+Restored ability to unpickle instances pickled before 22.2.0.\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 1bb0f5089..014b7bc23 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -934,9 +934,15 @@ def slots_setstate(self, state):\n             Automatically created by attrs.\n             \"\"\"\n             __bound_setattr = _obj_setattr.__get__(self)\n-            for name in state_attr_names:\n-                if name in state:\n-                    __bound_setattr(name, state[name])\n+            if isinstance(state, tuple):\n+                # Backward compatibility with attrs instances pickled with\n+                # attrs versions before v22.2.0 which stored tuples.\n+                for name, value in zip(state_attr_names, state):\n+                    __bound_setattr(name, value)\n+            else:\n+                for name in state_attr_names:\n+                    if name in state:\n+                        __bound_setattr(name, state[name])\n \n             # The hash code cache is not included when the object is\n             # serialized, but it still needs to be initialized to None to\ndiff --git a/tests/test_slots.py b/tests/test_slots.py\nindex f436b3b8a..18513ce73 100644\n--- a/tests/test_slots.py\n+++ b/tests/test_slots.py\n@@ -754,13 +754,12 @@ class A:\n     c = attr.ib()\n \n \n-@pytest.mark.parametrize(\"cls\", [A])\n-def test_slots_unpickle_after_attr_removed(cls):\n+def test_slots_unpickle_after_attr_removed():\n     \"\"\"\n     We don't assign attributes we don't have anymore if the class has\n     removed it.\n     \"\"\"\n-    a = cls(1, 2, 3)\n+    a = A(1, 2, 3)\n     a_pickled = pickle.dumps(a)\n     a_unpickled = pickle.loads(a_pickled)\n     assert a_unpickled == a\n@@ -778,12 +777,11 @@ class NEW_A:\n         assert not hasattr(new_a, \"b\")\n \n \n-@pytest.mark.parametrize(\"cls\", [A])\n-def test_slots_unpickle_after_attr_added(cls, frozen):\n+def test_slots_unpickle_after_attr_added(frozen):\n     \"\"\"\n     We don't assign attribute we haven't had before if the class has one added.\n     \"\"\"\n-    a = cls(1, 2, 3)\n+    a = A(1, 2, 3)\n     a_pickled = pickle.dumps(a)\n     a_unpickled = pickle.loads(a_pickled)\n \n@@ -803,3 +801,20 @@ class NEW_A:\n         assert new_a.b == 2\n         assert new_a.c == 3\n         assert not hasattr(new_a, \"d\")\n+\n+\n+def test_slots_unpickle_is_backward_compatible(frozen):\n+    \"\"\"\n+    Ensure object pickled before v22.2.0 can still be unpickled.\n+    \"\"\"\n+    a = A(1, 2, 3)\n+\n+    a_pickled = (\n+        b\"\\x80\\x04\\x95&\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x8c\\x10\"\n+        + a.__module__.encode()\n+        + b\"\\x94\\x8c\\x01A\\x94\\x93\\x94)\\x81\\x94K\\x01K\\x02K\\x03\\x87\\x94b.\"\n+    )\n+\n+    a_unpickled = pickle.loads(a_pickled)\n+\n+    assert a_unpickled == a\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1258,
+  "fix_passing": 1260,
+  "broken_by_bug": 2,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 31,
+    "linesRemoved": 9
+  },
+  "minedAt": "2026-04-06T23:24:18.337Z"
+}

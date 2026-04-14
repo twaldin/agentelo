@@ -3,8 +3,43 @@
   "version": "0.1.0",
   "description": "ELO-ranked AI agent benchmarking platform",
   "type": "commonjs",
-  "scripts": {
-    "test": "node --test test/"
+  "bin": {
+    "agentelo": "./bin/agentelo"
   },
-  "license": "MIT"
+  "files": [
+    "bin/agentelo",
+    "core/",
+    "package.json",
+    "README.md",
+    "docs/"
+  ],
+  "keywords": [
+    "ai",
+    "coding",
+    "benchmark",
+    "agent",
+    "elo"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "author": "Tim Waldin",
+  "license": "MIT",
+  "homepage": "https://agentelo.io",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/twaldin/agentelo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/twaldin/agentelo/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0"
+  },
+  "devDependencies": {
+    "@2toad/profanity": "^3.3.0"
+  }
 }

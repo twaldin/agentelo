@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr428",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 428,
+    "title": "[Fix] `parse`: ignore `__proto__` keys",
+    "body": ""
+  },
+  "pr": {
+    "number": 428,
+    "url": "https://github.com/ljharb/qs/pull/428"
+  },
+  "buggyCommit": "ad63d36ce18cd2c315899ac1e8193de22be08cd8",
+  "fixCommit": "8b4cc14cda94a5c89341b77e5fe435ec6c41be2d",
+  "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex c833315c..a4ac4fa0 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -136,7 +136,7 @@ var parseObject = function (chain, val, options, valuesParsed) {\n             ) {\n                 obj = [];\n                 obj[index] = leaf;\n-            } else {\n+            } else if (cleanRoot !== '__proto__') {\n                 obj[cleanRoot] = leaf;\n             }\n         }\ndiff --git a/test/parse.js b/test/parse.js\nindex 7a3cfdef..7d61023e 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -629,6 +629,66 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('dunder proto is ignored', function (st) {\n+        var payload = 'categories[__proto__]=login&categories[__proto__]&categories[length]=42';\n+        var result = qs.parse(payload, { allowPrototypes: true });\n+\n+        st.deepEqual(\n+            result,\n+            {\n+                categories: {\n+                    length: '42'\n+                }\n+            },\n+            'silent [[Prototype]] payload'\n+        );\n+\n+        var plainResult = qs.parse(payload, { allowPrototypes: true, plainObjects: true });\n+\n+        st.deepEqual(\n+            plainResult,\n+            {\n+                __proto__: null,\n+                categories: {\n+                    __proto__: null,\n+                    length: '42'\n+                }\n+            },\n+            'silent [[Prototype]] payload: plain objects'\n+        );\n+\n+        var query = qs.parse('categories[__proto__]=cats&categories[__proto__]=dogs&categories[some][json]=toInject', { allowPrototypes: true });\n+\n+        st.notOk(Array.isArray(query.categories), 'is not an array');\n+        st.notOk(query.categories instanceof Array, 'is not instanceof an array');\n+        st.deepEqual(query.categories, { some: { json: 'toInject' } });\n+        st.equal(JSON.stringify(query.categories), '{\"some\":{\"json\":\"toInject\"}}', 'stringifies as a non-array');\n+\n+        st.deepEqual(\n+            qs.parse('foo[__proto__][hidden]=value&foo[bar]=stuffs', { allowPrototypes: true }),\n+            {\n+                foo: {\n+                    bar: 'stuffs'\n+                }\n+            },\n+            'hidden values'\n+        );\n+\n+        st.deepEqual(\n+            qs.parse('foo[__proto__][hidden]=value&foo[bar]=stuffs', { allowPrototypes: true, plainObjects: true }),\n+            {\n+                __proto__: null,\n+                foo: {\n+                    __proto__: null,\n+                    bar: 'stuffs'\n+                }\n+            },\n+            'hidden values: plain objects'\n+        );\n+\n+        st.end();\n+    });\n+\n     t.test('can return null objects', { skip: !Object.create }, function (st) {\n         var expected = Object.create(null);\n         expected.a = Object.create(null);\n",
+  "testCommand": "npm test",
+  "baseline_passing": 452,
+  "fix_passing": 460,
+  "broken_by_bug": 8,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 61,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T03:48:57.418Z"
+}

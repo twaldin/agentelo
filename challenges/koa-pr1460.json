@@ -1,0 +1,27 @@
+{
+  "id": "koa-pr1460",
+  "repo": "koajs/koa",
+  "repoUrl": "https://github.com/koajs/koa",
+  "issue": {
+    "number": 1460,
+    "title": "fix: Koa.js handling of node.js set error codes",
+    "body": ""
+  },
+  "pr": {
+    "number": 1460,
+    "url": "https://github.com/koajs/koa/pull/1460"
+  },
+  "buggyCommit": "faeaff5c149a81a188ab8e5af0b994029e45acbb",
+  "fixCommit": "0d2f421c265350d3d84e1bc261572954479f27d3",
+  "fixDiff": "diff --git a/lib/context.js b/lib/context.js\nindex 8da7f55ce..894fa131d 100644\n--- a/lib/context.js\n+++ b/lib/context.js\n@@ -143,16 +143,18 @@ const proto = module.exports = {\n     // force text/plain\n     this.type = 'text';\n \n+    let statusCode = err.status || err.statusCode;\n+\n     // ENOENT support\n-    if ('ENOENT' === err.code) err.status = 404;\n+    if ('ENOENT' === err.code) statusCode = 404;\n \n     // default to 500\n-    if ('number' !== typeof err.status || !statuses[err.status]) err.status = 500;\n+    if ('number' !== typeof statusCode || !statuses[statusCode]) statusCode = 500;\n \n     // respond\n-    const code = statuses[err.status];\n+    const code = statuses[statusCode];\n     const msg = err.expose ? err.message : code;\n-    this.status = err.status;\n+    this.status = err.status = statusCode;\n     this.length = Buffer.byteLength(msg);\n     res.end(msg);\n   },\ndiff --git a/test/context/onerror.js b/test/context/onerror.js\nindex e4b8e6c80..4e59b5f3d 100644\n--- a/test/context/onerror.js\n+++ b/test/context/onerror.js\n@@ -100,6 +100,48 @@ describe('ctx.onerror(err)', () => {\n       .expect(200, () => {});\n   });\n \n+  it('should set status specified in the error using statusCode', () => {\n+    const app = new Koa();\n+\n+    app.use((ctx, next) => {\n+      ctx.body = 'something else';\n+      const err = new Error('Not found');\n+      err.statusCode = 404;\n+      throw err;\n+    });\n+\n+    const server = app.listen();\n+\n+    return request(server)\n+      .get('/')\n+      .expect(404)\n+      .expect('Content-Type', 'text/plain; charset=utf-8')\n+      .expect('Not Found');\n+  });\n+\n+  describe('when invalid err.statusCode', () => {\n+    describe('not number', () => {\n+      it('should respond 500', () => {\n+        const app = new Koa();\n+\n+        app.use((ctx, next) => {\n+          ctx.body = 'something else';\n+          const err = new Error('some error');\n+          err.statusCode = 'notnumber';\n+          throw err;\n+        });\n+\n+        const server = app.listen();\n+\n+        return request(server)\n+          .get('/')\n+          .expect(500)\n+          .expect('Content-Type', 'text/plain; charset=utf-8')\n+          .expect('Internal Server Error');\n+      });\n+    });\n+  });\n+\n   describe('when invalid err.status', () => {\n     describe('not number', () => {\n       it('should respond 500', () => {\n",
+  "testCommand": "npm test",
+  "baseline_passing": 350,
+  "fix_passing": 352,
+  "broken_by_bug": 2,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 48,
+    "linesRemoved": 4
+  },
+  "minedAt": "2026-04-06T22:50:06.245Z"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2902",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2902,
+    "title": "Fix Enum field by-name lookup to only return actual members",
+    "body": "## Summary\n\nThe `Enum` field's by-name deserialization uses `getattr(self.enum, val)` to look up members. However, `getattr` returns **any** attribute of the Enum class, not just actual enum members. This means inputs like `\"mro\"`, `\"__class__\"`, or `\"__members__\"` silently return non-Enum objects instead of raising a validation error.\n\n## Problem\n\n```python\nfrom enum import Enum\n\nclass Color(Enum):\n    RED = 1\n    GREEN = 2\n\n# Current behavior - these don't raise errors:\ngetattr(Color, \"mro\")         # <built-in method mro>\ngetattr(Color, \"__members__\")  # mappingproxy({...})\ngetattr(Color, \"__class__\")    # <class 'EnumType'>\n```\n\nWhen a user submits one of these attribute names as input, the `Enum` field returns the raw attribute/method object instead of an Enum member. Downstream code expecting an Enum member would break or behave unpredictably.\n\n## Fix\n\nReplace `getattr(self.enum, val)` with `self.enum[val]`. The `[]` operator on Enum classes only looks up actual members (via `EnumMeta.__getitem__`), so non-member names correctly raise `KeyError`, which we catch and convert to a validation error.\n\n```python\n# Before\ngetattr(Color, \"mro\")     # returns <built-in method mro>\n\n# After  \nColor[\"mro\"]               # raises KeyError\nColor[\"RED\"]               # returns Color.RED ✓\n```"
+  },
+  "pr": {
+    "number": 2902,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2902"
+  },
+  "buggyCommit": "252090c7c707166cf4fcfcdc73eb4376b7bbc4b7",
+  "fixCommit": "024b5d09e9f026f0f96d220e243be69346687ce0",
+  "fixDiff": "diff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 427395ede..be6fd72fc 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -14,7 +14,8 @@ Bug fixes:\n   Thanks: user:`T90REAL` for the report and :user:`rstar327` for the PR.\n - Fix behavior when passing a dot-delited attribute name to ``partial`` for a key with ``data_key`` set (:pr:`2903`).\n   Thanks :user:`bysiber` for the PR.\n-\n+- Fix Enum field by-name lookup to only return actual members (:pr:`2902`).\n+  Thanks :user:`bysiber` for the PR.\n \n 4.2.2 (2026-02-04)\n ------------------\ndiff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py\nindex 1c2e72e06..31c1492f0 100644\n--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -1947,9 +1947,10 @@ def _deserialize(self, value, attr, data, **kwargs) -> _EnumT:\n             except ValueError as error:\n                 raise self.make_error(\"unknown\", choices=self.choices_text) from error\n         try:\n-            return getattr(self.enum, val)\n-        except AttributeError as error:\n+            ret = self.enum[val]\n+        except KeyError as error:\n             raise self.make_error(\"unknown\", choices=self.choices_text) from error\n+        return ret\n \n \n class Method(Field):\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex d69ce14cf..c64ba3fd4 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -1197,6 +1197,14 @@ def test_enum_field_by_symbol_invalid_value(self):\n         ):\n             field.deserialize(\"dummy\")\n \n+    @pytest.mark.parametrize(\"non_member\", [\"mro\", \"__class__\", \"__members__\"])\n+    def test_enum_field_by_symbol_rejects_non_member_attributes(self, non_member):\n+        field = fields.Enum(GenderEnum)\n+        with pytest.raises(\n+            ValidationError, match=\"Must be one of: male, female, non_binary.\"\n+        ):\n+            field.deserialize(non_member)\n+\n     def test_enum_field_by_symbol_not_string(self):\n         field = fields.Enum(GenderEnum)\n         with pytest.raises(ValidationError, match=\"Not a valid string.\"):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1138,
+  "fix_passing": 1141,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 13,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-06T22:24:36.527Z"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr506",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 506,
+    "title": "fix: parse url-encoded square brackets",
+    "body": ""
+  },
+  "pr": {
+    "number": 506,
+    "url": "https://github.com/ljharb/qs/pull/506"
+  },
+  "buggyCommit": "db47dccb5819fc10f616a1f036798e4788ae06a8",
+  "fixCommit": "81835ff51d852c97e364eff78bbb8c58072aca71",
+  "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex 54f24c12..8eedf63d 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -55,6 +55,7 @@ var parseValues = function parseQueryStringValues(str, options) {\n     var obj = { __proto__: null };\n \n     var cleanStr = options.ignoreQueryPrefix ? str.replace(/^\\?/, '') : str;\n+    cleanStr = cleanStr.replace(/%5B/gi, '[').replace(/%5D/gi, ']');\n     var limit = options.parameterLimit === Infinity ? undefined : options.parameterLimit;\n     var parts = cleanStr.split(options.delimiter, limit);\n     var skipIndex = -1; // Keep track of where the utf8 sentinel was found\ndiff --git a/test/parse.js b/test/parse.js\nindex f63c51cb..8724b2cc 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -571,6 +571,15 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('parses url-encoded brackets holds array of arrays when having two parts of strings with comma as array divider', function (st) {\n+        st.deepEqual(qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=4,5,6', { comma: true }), { foo: [['1', '2', '3'], ['4', '5', '6']] });\n+        st.deepEqual(qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=', { comma: true }), { foo: [['1', '2', '3'], ''] });\n+        st.deepEqual(qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=,', { comma: true }), { foo: [['1', '2', '3'], ['', '']] });\n+        st.deepEqual(qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=a', { comma: true }), { foo: [['1', '2', '3'], 'a'] });\n+\n+        st.end();\n+    });\n+\n     t.test('parses comma delimited array while having percent-encoded comma treated as normal text', function (st) {\n         st.deepEqual(qs.parse('foo=a%2Cb', { comma: true }), { foo: 'a,b' });\n         st.deepEqual(qs.parse('foo=a%2C%20b,d', { comma: true }), { foo: ['a, b', 'd'] });\n",
+  "testCommand": "npm test",
+  "baseline_passing": 720,
+  "fix_passing": 724,
+  "broken_by_bug": 4,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 10,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T03:45:31.587Z"
+}

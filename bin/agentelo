@@ -1,0 +1,1822 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const { execSync, execFileSync } = require('child_process');
+
+const { score } = require('../core/scorer');
+const { computeAgentHash } = require('../core/agentHash');
+const { normalizeAgentId } = require('../core/normalize');
+const {
+  loadResults,
+  sortResultsByDate,
+  formatResultsTable,
+  aggregateLeaderboard,
+  formatLeaderboardTable,
+} = require('../core/results');
+
+// ---------------------------------------------------------------------------
+// Paths
+// ---------------------------------------------------------------------------
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const CHALLENGES_DIR = path.join(PROJECT_ROOT, 'challenges');
+const RESULTS_DIR = path.join(PROJECT_ROOT, 'results');
+const CACHE_DIR = path.join(PROJECT_ROOT, '.cache', 'repos');
+const AGENTELO_DIR = path.join(os.homedir(), '.agentelo');
+const CHALLENGE_CACHE_DIR = path.join(AGENTELO_DIR, 'challenges');
+const CREDS_FILE = path.join(AGENTELO_DIR, 'credentials.json');
+const SEED_KEYS_FILE = path.join(AGENTELO_DIR, '.seed-keys.json');
+
+// ---------------------------------------------------------------------------
+// Vertex AI model routing table
+// Maps vertex model IDs to their canonical names, regions, and API types
+// ---------------------------------------------------------------------------
+const VERTEX_MODELS = {
+  // Gemini (global, OpenAI-compat)
+  'google/gemini-3.1-pro-preview':        { canonical: 'gemini-3.1-pro-preview',   location: 'global', api: 'openai' },
+  'google/gemini-3-flash-preview':         { canonical: 'gemini-3-flash-preview',   location: 'global', api: 'openai' },
+  'google/gemini-3.1-flash-lite-preview':  { canonical: 'gemini-3.1-flash-lite-preview', location: 'global', api: 'openai' },
+  'google/gemini-2.5-pro':                 { canonical: 'gemini-2.5-pro',           location: 'global', api: 'openai' },
+  'google/gemini-2.5-flash':               { canonical: 'gemini-2.5-flash',         location: 'global', api: 'openai' },
+  'google/gemini-2.5-flash-lite':          { canonical: 'gemini-2.5-flash-lite',    location: 'global', api: 'openai' },
+  // DeepSeek (OpenAI-compat)
+  'deepseek-ai/deepseek-v3.2-maas':       { canonical: 'deepseek-v3.2',            location: 'global',     api: 'openai' },
+  'deepseek-ai/deepseek-v3.1-maas':       { canonical: 'deepseek-v3.1',            location: 'us-west2',   api: 'openai' },
+  'deepseek-ai/deepseek-r1-0528-maas':    { canonical: 'deepseek-r1-0528',         location: 'us-central1', api: 'openai' },
+  // Qwen (global, OpenAI-compat)
+  'qwen/qwen3-235b-a22b-instruct-2507-maas': { canonical: 'qwen3-235b',            location: 'global', api: 'openai' },
+  'qwen/qwen3-coder-480b-a35b-instruct-maas': { canonical: 'qwen3-coder',          location: 'global', api: 'openai' },
+  'qwen/qwen3-next-80b-a3b-instruct-maas': { canonical: 'qwen3-next-80b',          location: 'global', api: 'openai' },
+  'qwen/qwen3-next-80b-a3b-thinking-maas': { canonical: 'qwen3-next-80b-thinking', location: 'global', api: 'openai' },
+  // Meta Llama (us-east5, OpenAI-compat)
+  'meta/llama-4-scout-17b-16e-instruct-maas':    { canonical: 'llama-4-scout',      location: 'us-east5', api: 'openai' },
+  'meta/llama-4-maverick-17b-128e-instruct-maas': { canonical: 'llama-4-maverick',  location: 'us-east5', api: 'openai' },
+  'meta/llama-3.3-70b-instruct-maas':     { canonical: 'llama-3.3-70b',            location: 'us-east5', api: 'rawpredict' },
+  // Mistral (rawPredict only, us-central1)
+  'mistralai/codestral-2501':              { canonical: 'codestral-2',              location: 'us-central1', api: 'rawpredict', rawModel: 'codestral-2501' },
+  'mistralai/mistral-medium-2505':         { canonical: 'mistral-medium-3',         location: 'us-central1', api: 'rawpredict', rawModel: 'mistral-medium-2505' },
+  'mistralai/mistral-large-3':             { canonical: 'mistral-large-3',          location: 'us-central1', api: 'rawpredict', rawModel: 'mistral-large-3' },
+  'mistralai/mistral-small-3-1':           { canonical: 'mistral-small-3.1',        location: 'us-central1', api: 'rawpredict', rawModel: 'mistral-small-3-1' },
+  // Other open models (OpenAI-compat)
+  'openai/gpt-oss-120b-maas':             { canonical: 'gpt-oss-120b',             location: 'global', api: 'openai' },
+  'openai/gpt-oss-20b-maas':              { canonical: 'gpt-oss-20b',              location: 'global', api: 'openai' },
+  'zai-org/glm-5-maas':                   { canonical: 'glm-5',                    location: 'global', api: 'openai' },
+  'zai-org/glm-4.7-maas':                 { canonical: 'glm-4.7',                  location: 'global', api: 'openai' },
+  'moonshotai/kimi-k2-thinking-maas':      { canonical: 'kimi-k2-thinking',         location: 'global', api: 'openai' },
+  // MiniMax (rawPredict only)
+  'minimax/minimax-m2-maas':               { canonical: 'minimax-m2',               location: 'global', api: 'rawpredict' },
+  // Claude (rawPredict only, us-east5) — quota-blocked, included for when quotas arrive
+  'anthropic/claude-sonnet-4-6':           { canonical: 'claude-sonnet-4-6',        location: 'us-east5', api: 'rawpredict' },
+  'anthropic/claude-opus-4-6':             { canonical: 'claude-opus-4-6',          location: 'us-east5', api: 'rawpredict' },
+  'anthropic/claude-haiku-4-5':            { canonical: 'claude-haiku-4-5',         location: 'us-east5', api: 'rawpredict' },
+};
+
+const VERTEX_PROJECT = process.env.AGENTELO_GCP_PROJECT || '';
+
+function getVertexInfo(model) {
+  return VERTEX_MODELS[model] || null;
+}
+
+function getVertexOpenAIBaseUrl(location) {
+  if (location === 'global') {
+    return `https://aiplatform.googleapis.com/v1beta1/projects/${VERTEX_PROJECT}/locations/global/endpoints/openapi`;
+  }
+  return `https://${location}-aiplatform.googleapis.com/v1beta1/projects/${VERTEX_PROJECT}/locations/${location}/endpoints/openapi`;
+}
+
+function getGcloudToken() {
+  try {
+    return execSync('gcloud auth application-default print-access-token 2>/dev/null', { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function getOpenCodeSessionStatus(tmpdir) {
+  try {
+    const ocDb = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+    if (!fs.existsSync(ocDb)) return null;
+    const { execSync: ex } = require('child_process');
+    const base = path.basename(tmpdir).replace(/'/g, "''");
+    const row = ex(
+      `sqlite3 "${ocDb}" "SELECT id, time_created, time_updated, (SELECT COUNT(*) FROM message WHERE session_id = session.id), (SELECT data FROM message WHERE session_id = session.id ORDER BY time_created DESC LIMIT 1) FROM session WHERE directory LIKE '%${base}%' ORDER BY time_updated DESC LIMIT 1"`,
+      { encoding: 'utf8', timeout: 5000 }
+    ).trim();
+    if (!row) return null;
+    const [id, created, updated, messageCount, lastMessageJson] = row.split('|');
+    let lastMode = null;
+    let lastRole = null;
+    let lastTokensIn = 0;
+    let lastTokensOut = 0;
+    if (lastMessageJson) {
+      try {
+        const parsed = JSON.parse(lastMessageJson);
+        lastMode = parsed.mode || null;
+        lastRole = parsed.role || null;
+        lastTokensIn = Number(parsed.tokens?.input || 0);
+        lastTokensOut = Number(parsed.tokens?.output || 0);
+      } catch {}
+    }
+    return {
+      id,
+      timeCreated: Number(created) || 0,
+      timeUpdated: Number(updated) || 0,
+      messageCount: Number(messageCount) || 0,
+      lastMode,
+      lastRole,
+      lastTokensIn,
+      lastTokensOut,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Arg parsing helpers
+// ---------------------------------------------------------------------------
+function parseArgs(argv) {
+  const flags = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith('--')) {
+      const key = argv[i].slice(2);
+      const val = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : true;
+      flags[key] = val;
+      if (val !== true) i++;
+    }
+  }
+  return flags;
+}
+
+// ---------------------------------------------------------------------------
+// Server URL resolution
+// ---------------------------------------------------------------------------
+function getBaseUrl(flags) {
+  const baseUrl = (flags && flags.server)
+    ? flags.server.replace(/\/+$/, '')
+    : (process.env.AGENTELO_URL || 'https://api.agentelo.io').replace(/\/+$/, '');
+  if (!baseUrl.startsWith('https://') && !baseUrl.includes('localhost')) {
+    console.error('[agentelo] WARNING: Using non-HTTPS connection. API key transmitted in plaintext.');
+  }
+  return baseUrl;
+}
+
+// ---------------------------------------------------------------------------
+// File-walk checksum helper
+// ---------------------------------------------------------------------------
+function checksumDir(dir) {
+  const result = {};
+  function walk(current, base) {
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (_) {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      // BUG 3 fix: normalize path separator to '/' for cross-platform consistency
+      const rel = path.relative(base, full).split(path.sep).join('/');
+      if (entry.isDirectory()) {
+        // skip .git directory
+        if (entry.name === '.git') continue;
+        walk(full, base);
+      } else if (entry.isFile()) {
+        try {
+          const content = fs.readFileSync(full);
+          result[rel] = crypto.createHash('sha256').update(content).digest('hex');
+        } catch (_) {
+          // skip unreadable files
+        }
+      }
+    }
+  }
+  walk(dir, dir);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// tmux availability check
+// ---------------------------------------------------------------------------
+function hasTmux() {
+  try {
+    execFileSync('which', ['tmux'], { stdio: 'pipe' });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ensure results dir exists
+// ---------------------------------------------------------------------------
+function ensureResultsDir() {
+  if (!fs.existsSync(RESULTS_DIR)) {
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Install dependencies — handles npm, pnpm, pip (with venv), cargo
+// ---------------------------------------------------------------------------
+function installDeps(dir) {
+  try {
+    if (fs.existsSync(path.join(dir, 'pnpm-lock.yaml'))) {
+      // pnpm monorepos — install without frozen lockfile (commit may predate lockfile)
+      execFileSync('pnpm', ['install', '--no-frozen-lockfile'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'package.json'))) {
+      execFileSync('npm', ['install'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    } else if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'setup.py')) || fs.existsSync(path.join(dir, 'requirements.txt'))) {
+      // Use uv + venv to isolate Python deps — never install globally
+      const venvDir = path.join(dir, '.venv');
+      const venvPython = path.join(venvDir, 'bin', 'python');
+      execFileSync('uv', ['venv', '-p', '3.12', venvDir], { cwd: dir, stdio: 'pipe', timeout: 60000 });
+      if (fs.existsSync(path.join(dir, 'pyproject.toml')) || fs.existsSync(path.join(dir, 'setup.py'))) {
+        // Install package + test deps — use non-editable (editable breaks with flit/hatch)
+        const extraCombos = ['.[dev,tests]', '.[dev,test]', '.[all]', '.[tests]', '.'];
+        let installed = false;
+        for (const extras of extraCombos) {
+          try {
+            execFileSync('uv', ['pip', 'install', extras, '--python', venvPython], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+            try {
+              execFileSync(path.join(venvDir, 'bin', 'python3'), ['-c', 'import pytest'], { cwd: dir, stdio: 'pipe', timeout: 10000 });
+              installed = true;
+              console.log(`[installDeps] Python: uv pip install ${extras} succeeded (pytest verified)`);
+              break;
+            } catch (_) {
+              console.log(`[installDeps] Python: ${extras} installed but pytest missing, trying next...`);
+            }
+          } catch (_) {}
+        }
+        if (!installed) console.warn('[installDeps] Python: all install combos failed');
+        // ALWAYS ensure pytest is installed
+        try { execFileSync('uv', ['pip', 'install', 'pytest', '--python', venvPython], { cwd: dir, stdio: 'pipe', timeout: 60000 }); } catch (_) {}
+      } else if (fs.existsSync(path.join(dir, 'requirements.txt'))) {
+        execFileSync('uv', ['pip', 'install', '-r', 'requirements.txt', '--python', venvPython], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+        try { execFileSync('uv', ['pip', 'install', 'pytest', '--python', venvPython], { cwd: dir, stdio: 'pipe', timeout: 60000 }); } catch (_) {}
+      }
+    } else if (fs.existsSync(path.join(dir, 'Cargo.toml'))) {
+      execFileSync('cargo', ['build'], { cwd: dir, stdio: 'pipe', timeout: 300000 });
+    }
+  } catch (e) {
+    console.warn('[agentelo] Dep install warning:', e.message?.slice(0, 200));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Normalize challenge JSON (miner uses nested structure, runner expects flat)
+// ---------------------------------------------------------------------------
+function normalizeChallenge(raw) {
+  return {
+    id:               raw.id,
+    repo:             raw.repoUrl || raw.repo,
+    commit:           raw.buggyCommit || raw.commit,
+    fixCommit:        raw.fixCommit,
+    fixDiff:          raw.fixDiff,
+    title:            raw.issue?.title || raw.title || raw.id,
+    body:             raw.issue?.body  || raw.body  || '',
+    test_command:     raw.testCommand  || raw.test_command || 'npm test',
+    difficulty:       raw.difficulty,
+    baseline_passing: raw.baseline_passing || 0,
+    broken_by_bug:    raw.broken_by_bug || 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Slugify helper
+// ---------------------------------------------------------------------------
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+// ---------------------------------------------------------------------------
+// POST to /api/register
+// ---------------------------------------------------------------------------
+async function postRegister(body, baseUrl) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const url = new URL('/api/register', baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+    }, (res) => {
+      let out = '';
+      res.on('data', c => out += c);
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(out) }));
+    });
+    req.on('error', reject);
+    req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.write(data);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/agents/:id (display name update)
+// ---------------------------------------------------------------------------
+async function patchAgent(agentId, body, baseUrl) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const url = new URL(`/api/agents/${encodeURIComponent(agentId)}`, baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) }
+    }, (res) => {
+      let out = '';
+      res.on('data', c => out += c);
+      res.on('end', () => {
+        let parsed = null;
+        try { parsed = out ? JSON.parse(out) : null; } catch {}
+        resolve({ status: res.statusCode, body: parsed });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(5000, () => { req.destroy(); reject(new Error('timeout')); });
+    req.write(data);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: register
+// ---------------------------------------------------------------------------
+async function cmdRegister(flags) {
+  if (!flags.name) {
+    console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
+    process.exit(1);
+  }
+  if (!flags.harness || !flags.model) {
+    console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
+    process.exit(1);
+  }
+
+  try {
+    const { profanity } = require('@2toad/profanity');
+    if (profanity && typeof profanity.exists === 'function' && profanity.exists(flags.name)) {
+      console.error('Agent name not allowed. Choose a different name.');
+      process.exit(1);
+    }
+  } catch (_) {
+    // Optional dependency for local CLI checks; skip if not installed.
+  }
+
+  const baseUrl = getBaseUrl(flags);
+  let res;
+  try {
+    res = await postRegister({ name: flags.name, harness: flags.harness, model: flags.model }, baseUrl);
+  } catch (err) {
+    console.error('[agentelo] Registration failed:', err.message);
+    process.exit(1);
+  }
+
+  if (res.status === 409) {
+    console.error('[agentelo] Agent name already taken');
+    process.exit(1);
+  }
+
+  if (res.status !== 200 && res.status !== 201) {
+    console.error('[agentelo] Registration error:', JSON.stringify(res.body));
+    process.exit(1);
+  }
+
+  const { agent_id, api_key } = res.body;
+  fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+
+  // Multi-agent credentials: store all agents keyed by name
+  let creds = {};
+  try { creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')); } catch {}
+  // Migrate old single-agent format
+  if (creds.agent_id && creds.api_key && !creds.agents) {
+    creds = { agents: { [creds.agent_id]: { api_key: creds.api_key } }, default: creds.agent_id };
+  }
+  if (!creds.agents) creds.agents = {};
+  creds.agents[agent_id] = { api_key, harness, model };
+  // Set as default if it's the first or only agent
+  if (!creds.default || Object.keys(creds.agents).length === 1) creds.default = agent_id;
+  fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
+
+  console.log(`Agent registered: ${agent_id}`);
+  console.log(`API key: ${api_key}`);
+  console.log(`Saved to ~/.agentelo/credentials.json`);
+  if (Object.keys(creds.agents).length > 1) {
+    console.log(`You have ${Object.keys(creds.agents).length} agents. Use --agent ${agent_id} to play as this one.`);
+    console.log(`Default agent: ${creds.default}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: rename
+// ---------------------------------------------------------------------------
+async function cmdRename(flags) {
+  if (!flags.name) {
+    console.error('[agentelo] Usage: agentelo rename --name <new-name> [--agent <name>]');
+    process.exit(1);
+  }
+
+  let agentId = null;
+  let apiKey = null;
+  try {
+    const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+    if (creds.agents) {
+      const selectedAgent = flags.agent || creds.default;
+      if (!selectedAgent || !creds.agents[selectedAgent]) {
+        console.error(`Agent "${selectedAgent || '(none)'}" not found. Run: agentelo agents`);
+        process.exit(1);
+      }
+      agentId = selectedAgent;
+      apiKey = creds.agents[selectedAgent].api_key;
+    } else if (creds.agent_id && creds.api_key) {
+      // Old single-agent format
+      agentId = creds.agent_id;
+      apiKey = creds.api_key;
+    }
+  } catch {
+    console.error('No credentials found. Run: agentelo register');
+    process.exit(1);
+  }
+
+  if (!agentId || !apiKey) {
+    console.error('No credentials found. Run: agentelo register');
+    process.exit(1);
+  }
+
+  const baseUrl = getBaseUrl(flags);
+  let res;
+  try {
+    res = await patchAgent(agentId, { api_key: apiKey, display_name: flags.name }, baseUrl);
+  } catch (err) {
+    console.error('[agentelo] Rename failed:', err.message);
+    process.exit(1);
+  }
+
+  if (res.status !== 200) {
+    console.error('[agentelo] Rename error:', JSON.stringify(res.body));
+    process.exit(1);
+  }
+
+  console.log(`Agent renamed: ${agentId} -> ${flags.name}`);
+}
+
+// ---------------------------------------------------------------------------
+// List registered agents
+// ---------------------------------------------------------------------------
+function cmdAgents() {
+  let creds = {};
+  try { creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')); } catch {}
+  if (creds.agent_id && !creds.agents) {
+    creds = { agents: { [creds.agent_id]: { api_key: creds.api_key } }, default: creds.agent_id };
+  }
+  const agents = creds.agents || {};
+  if (Object.keys(agents).length === 0) {
+    console.log('No agents registered. Run: agentelo register --name <name> --harness <harness> --model <model>');
+    return;
+  }
+  console.log('Registered agents:');
+  for (const [name, info] of Object.entries(agents)) {
+    const def = name === creds.default ? ' (default)' : '';
+    const details = info.harness ? ` [${info.harness}/${info.model}]` : '';
+    console.log(`  ${name}${details}${def}`);
+  }
+  console.log(`\nUse --agent <name> to play as a specific agent.`);
+  console.log(`Use: agentelo default --agent <name> to change the default.`);
+}
+
+// ---------------------------------------------------------------------------
+// POST result to API (non-blocking, non-fatal)
+// ---------------------------------------------------------------------------
+async function postToApi(result, baseUrl) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(result);
+    const url = new URL('/api/submissions', baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolve());
+    });
+    req.on('error', () => resolve());
+    req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    req.write(body);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fetch recommended challenges from API (sorted by attempt count)
+// ---------------------------------------------------------------------------
+async function fetchRecommendedChallenges(baseUrl) {
+  return new Promise((resolve) => {
+    const url = new URL('/api/challenges/recommended', baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, { method: 'GET' }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(3000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fetch full challenge data from API
+// ---------------------------------------------------------------------------
+async function fetchChallengeFromApi(challengeId, baseUrl) {
+  return new Promise((resolve) => {
+    const url = new URL(`/api/challenges/${encodeURIComponent(challengeId)}`, baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, { method: 'GET' }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(5000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fetch leaderboard from API
+// ---------------------------------------------------------------------------
+async function fetchLeaderboard(baseUrl) {
+  return new Promise((resolve) => {
+    const url = new URL('/api/leaderboard', baseUrl);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, { method: 'GET' }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (_) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(5000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Challenge loading: API -> cache -> local fallback
+// ---------------------------------------------------------------------------
+function getDifficultyLabel(ch) {
+  const lines = (ch.difficulty && (ch.difficulty.linesAdded || 0) + (ch.difficulty.linesRemoved || 0)) || 0;
+  if (lines <= 20)  return 'easy';
+  if (lines <= 80)  return 'medium';
+  if (lines <= 200) return 'hard';
+  return 'expert';
+}
+
+async function loadChallengeById(id, baseUrl) {
+  // 1. Try local challenges dir first
+  const localFile = path.join(CHALLENGES_DIR, `${id}.json`);
+  if (fs.existsSync(localFile)) {
+    return normalizeChallenge(JSON.parse(fs.readFileSync(localFile, 'utf8')));
+  }
+
+  // 2. Check cache
+  const cacheFile = path.join(CHALLENGE_CACHE_DIR, `${id}.json`);
+  if (fs.existsSync(cacheFile)) {
+    return normalizeChallenge(JSON.parse(fs.readFileSync(cacheFile, 'utf8')));
+  }
+
+  // 3. Fetch from API
+  const apiData = await fetchChallengeFromApi(id, baseUrl);
+  if (apiData && !apiData.error) {
+    // Cache it locally
+    fs.mkdirSync(CHALLENGE_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(cacheFile, JSON.stringify(apiData, null, 2), 'utf8');
+    return normalizeChallenge(apiData);
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Shared play/seed logic
+// ---------------------------------------------------------------------------
+async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {}) {
+  const harness = flags.harness;
+  const vertexInfo = getVertexInfo(flags.model);
+  const model = vertexInfo ? vertexInfo.canonical : flags.model;  // Use canonical name for results
+  const vertexModel = vertexInfo ? flags.model : null;  // Original vertex model ID for routing
+  const challengeId = flags.challenge;
+  const baseUrl = getBaseUrl(flags);
+
+  if (!harness || !model) {
+    const cmd = isBaseline ? 'seed' : (isRanked ? 'play' : 'practice');
+    console.error(`[agentelo] Usage: agentelo ${cmd} --harness <name> --model <model>${!isRanked ? ' --challenge <id>' : ''}`);
+    process.exit(1);
+  }
+
+  if (isRanked && !isBaseline && challengeId) {
+    console.error('[agentelo] --challenge is not allowed with `play` (ranked). Use `practice --challenge <id>` for unranked runs.');
+    process.exit(1);
+  }
+  if (!isRanked && !isBaseline && !challengeId) {
+    console.error('[agentelo] `practice` requires --challenge <id>.');
+    process.exit(1);
+  }
+
+  // Resolve api_key — check --agent flag, then credentials file, then env var
+  let apiKey = process.env.AGENTELO_KEY || '';
+
+  if (!isBaseline && isRanked && !apiKey) {
+    // Try loading from credentials file
+    try {
+      const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+      const agentName = flags.agent || creds.default;
+      if (creds.agents && creds.agents[agentName]) {
+        apiKey = creds.agents[agentName].api_key;
+        console.log(`[agentelo] Playing as: ${agentName}`);
+      } else if (creds.agent_id && creds.api_key) {
+        // Old single-agent format
+        apiKey = creds.api_key;
+      }
+    } catch {}
+  }
+
+  if (!isBaseline && isRanked && !apiKey) {
+    console.error('[agentelo] No agent credentials found.');
+    console.error('  Run: agentelo register --name <name> --harness <harness> --model <model>');
+    console.error('  Or set AGENTELO_KEY environment variable.');
+    process.exit(1);
+  }
+
+  if (isBaseline && !apiKey) {
+    // Auto-register for seed runs
+    const agentId = normalizeAgentId(harness, model);
+    // First check if we already have a key saved
+    try {
+      const savedKeys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8'));
+      if (savedKeys[agentId]) apiKey = savedKeys[agentId];
+    } catch (_) {}
+
+    if (!apiKey) {
+      try {
+        const regRes = await postRegister({ name: agentId, harness, model }, baseUrl);
+        if (regRes.status === 200 || regRes.status === 201) {
+          apiKey = regRes.body.api_key;
+        } else if (regRes.status === 409) {
+          // Agent already registered — must use saved key from .seed-keys.json
+          console.warn(`[agentelo] Agent ${agentId} already registered. Use saved key or re-register.`);
+        }
+        if (apiKey) {
+          fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+          let keys = {};
+          try { keys = JSON.parse(fs.readFileSync(SEED_KEYS_FILE, 'utf8')); } catch (_) {}
+          keys[agentId] = apiKey;
+          fs.writeFileSync(SEED_KEYS_FILE, JSON.stringify(keys, null, 2));
+        }
+      } catch (_) {
+        // API not running — skip
+      }
+    }
+  }
+
+  // Load challenge — fetch from API, cache locally, fall back to local files
+  fs.mkdirSync(CHALLENGE_CACHE_DIR, { recursive: true });
+  let challenge;
+  if (challengeId) {
+    // Specific challenge requested (practice or seed mode)
+    challenge = await loadChallengeById(challengeId, baseUrl);
+    if (!challenge) {
+      console.error(`[agentelo] Challenge not found: ${challengeId}`);
+      process.exit(1);
+    }
+  } else {
+    // Server picks a random challenge (ranked play or seed without --challenge)
+    let selected = null;
+    const recommended = await fetchRecommendedChallenges(baseUrl);
+    if (recommended && recommended.length > 0) {
+      const pool = recommended.slice(0, 10);
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      selected = await loadChallengeById(picked.id, baseUrl);
+    }
+    if (!selected) {
+      // Fallback: local challenge files
+      const challengeFiles = fs.existsSync(CHALLENGES_DIR)
+        ? fs.readdirSync(CHALLENGES_DIR).filter(f => f.endsWith('.json'))
+        : [];
+      // Also check cache dir
+      const cachedFiles = fs.existsSync(CHALLENGE_CACHE_DIR)
+        ? fs.readdirSync(CHALLENGE_CACHE_DIR).filter(f => f.endsWith('.json'))
+        : [];
+      const allFiles = [...new Set([...challengeFiles, ...cachedFiles])];
+      if (allFiles.length === 0) {
+        console.log("[agentelo] No challenges available. Is the server running?");
+        process.exit(1);
+      }
+      const pickedFile = allFiles[Math.floor(Math.random() * allFiles.length)];
+      // Try local first, then cache
+      const localPath = path.join(CHALLENGES_DIR, pickedFile);
+      const cachePath = path.join(CHALLENGE_CACHE_DIR, pickedFile);
+      const filePath = fs.existsSync(localPath) ? localPath : cachePath;
+      selected = normalizeChallenge(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+    }
+    challenge = selected;
+    console.log(`[agentelo] Assigned challenge: ${challenge.id} [${getDifficultyLabel(challenge)}]`);
+  }
+  console.log(`[agentelo] Challenge: ${challenge.id} — ${challenge.title?.slice(0, 60)}`);
+
+  ensureResultsDir();
+
+  // Generate run_id — include model slug for uniqueness across concurrent runs
+  const timestamp = Math.floor(Date.now() / 1000);
+  const modelSlug = slugify(model);
+  const rawRunId = `${challenge.id}-${harness}-${modelSlug}-${timestamp}`;
+
+  // BUG 1 fix: validate runId to prevent shell injection via path interpolation
+  if (!/^[a-zA-Z0-9._-]+$/.test(rawRunId)) {
+    console.error('[agentelo] Invalid run ID contains unsafe characters.');
+    process.exit(1);
+  }
+  const runId = rawRunId;
+
+  // Create log file
+  const logFile = path.join(RESULTS_DIR, `${runId}.log`);
+
+  // BUG 1 fix: verify logFile path contains no single quotes before using in shell strings
+  if (logFile.includes("'")) throw new Error('logFile path contains single quotes');
+
+  fs.writeFileSync(logFile, '', 'utf8');
+
+  // BUG 2 fix: wrap everything after temp dir creation in try/finally for cleanup
+  const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-'));
+  let cleanDir = null;
+  let fakeHome = null;
+
+  try {
+    // Use persistent repo cache — survives reboots, race-safe with lockfile
+    const repoSlug = challenge.repo.replace('https://github.com/', '').replace(/\//g, '-');
+    const cacheDir = path.join(CACHE_DIR, repoSlug);
+    const lockFile = cacheDir + '.lock';
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+    // Race-safe clone: use lockfile to prevent concurrent clones
+    if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+      let lockFd;
+      try {
+        lockFd = fs.openSync(lockFile, 'wx'); // exclusive create — fails if exists
+      } catch (_) {
+        // Another process is cloning — wait for it (up to 5 min)
+        console.log(`[agentelo] Waiting for another process to finish cloning ${repoSlug}...`);
+        const deadline = Date.now() + 300000;
+        while (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD')) && Date.now() < deadline) {
+          execFileSync('sleep', ['2']);
+        }
+        if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+          throw new Error(`Timed out waiting for cache clone of ${repoSlug}`);
+        }
+        lockFd = null;
+      }
+      if (lockFd !== null && lockFd !== undefined) {
+        try {
+          console.log(`[agentelo] Caching repo ${challenge.repo}...`);
+          // Clone to a temp name, then rename atomically
+          const cloneTmp = cacheDir + '-cloning-' + process.pid;
+          execFileSync('git', ['clone', '--filter=blob:none', challenge.repo, cloneTmp], { stdio: 'inherit', timeout: 600000 });
+          fs.renameSync(cloneTmp, cacheDir);
+          console.log('[agentelo] Cache ready.');
+        } finally {
+          fs.closeSync(lockFd);
+          try { fs.unlinkSync(lockFile); } catch (_) {}
+        }
+      }
+    } else {
+      console.log(`[agentelo] Using cached repo for ${repoSlug}`);
+    }
+
+    // Copy cache to temp dir
+    execFileSync('cp', ['-R', cacheDir + '/.', tmpdir + '/'], { stdio: 'pipe', timeout: 120000 });
+    execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: tmpdir, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: tmpdir, stdio: 'pipe' });
+    // Install deps
+    installDeps(tmpdir);
+    console.log('[agentelo] Repo ready.');
+
+    // Anti-cheat: checksum BEFORE (after deps install so node_modules isn't flagged)
+    const beforeChecksums = checksumDir(tmpdir);
+
+    // Build prompt
+    const prompt =
+      `You are being evaluated by AgentElo. This is an autonomous challenge — no human will respond. ` +
+      `Do not ask questions. Do not ask for files to be added to chat. ` +
+      `You already have full access to the repository in your current working directory and may inspect, edit, and test files directly. ` +
+      `Fix the following issue using only the codebase and issue description provided. ` +
+      `Work until you have a complete solution, then stop.\n\n` +
+      `Issue: ${challenge.title}\n${challenge.body}\n\n` +
+      `The repo is in your current working directory. Run tests with: ${challenge.test_command}.`;
+
+    const startedAt = new Date().toISOString();
+    const aiderConfigFile = path.join(tmpdir, '.agentelo-aider.yml');
+    const aiderChatHistoryFile = path.join(tmpdir, '.agentelo-aider-chat.history.md');
+    const aiderInputHistoryFile = path.join(tmpdir, '.agentelo-aider-input.history');
+    fs.writeFileSync(aiderConfigFile, '{}\n', 'utf8');
+
+    // Build harness command — direct subprocess, no OpenFleet
+    let cmd, cmdArgs;
+    switch (harness) {
+      case 'claude-code':
+        cmd = 'claude';
+        // Use --output-format json to capture token usage and cost
+        cmdArgs = ['-p', prompt, '--dangerously-skip-permissions', '--model', model, '--output-format', 'json'];
+        break;
+      case 'opencode': {
+        cmd = 'opencode';
+        let ocModel;
+        if (vertexInfo && vertexInfo.api === 'openai') {
+          // OpenCode uses regional vertex providers configured in opencode.json
+          // ALL models (including Gemini) route through Vertex to use $300 credits, not AI Studio
+          const regionProvider = {
+            'global': 'vertex',
+            'us-east5': 'vertex-east5',
+            'us-central1': 'vertex-central1',
+            'us-west2': 'vertex-west2',
+          };
+          const provider = regionProvider[vertexInfo.location] || 'vertex';
+          ocModel = provider + '/' + vertexModel;
+        } else {
+          ocModel = model;
+        }
+        cmdArgs = ['run', '--dir', tmpdir, '--model', ocModel, prompt];
+        break;
+      }
+      case 'codex':
+        cmd = 'codex';
+        cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '--json', '-C', tmpdir, prompt];
+        break;
+      case 'gemini':
+        cmd = 'gemini';
+        cmdArgs = ['-p', prompt, '-y', '-m', model, '--output-format', 'json'];
+        break;
+      case 'aider': {
+        cmd = 'aider';
+        // Aider uses diff-based editing — no tool use, model writes edit blocks.
+        // Let aider discover files from the git repo (tmpdir has .git).
+        let aiderModel;
+        if (vertexInfo && vertexInfo.api === 'openai') {
+          // Vertex OpenAI-compat models: use openai-compat base URL
+          aiderModel = `openai/${vertexModel}`;
+        } else if (model.startsWith('openrouter/')) {
+          aiderModel = `openrouter/${model.replace('openrouter/', '')}`;
+        } else {
+          aiderModel = model;
+        }
+        cmdArgs = [
+          '--config', aiderConfigFile,
+          '--no-restore-chat-history',
+          '--chat-history-file', aiderChatHistoryFile,
+          '--input-history-file', aiderInputHistoryFile,
+          '--model', aiderModel,
+          '--message', prompt,
+          '--yes-always',
+          '--no-auto-commits',
+          '--no-analytics',
+          '--no-show-model-warnings',
+          '--subtree-only',
+        ];
+        // Vertex OpenAI-compat: set base URL and auth token
+        if (vertexInfo && vertexInfo.api === 'openai') {
+          const token = getGcloudToken();
+          if (token) {
+            cmdArgs.push('--openai-api-base', getVertexOpenAIBaseUrl(vertexInfo.location));
+            cmdArgs.push('--openai-api-key', token);
+          }
+        }
+        // For OpenAI models: use local OAuth proxy (free, subscription-based)
+        if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
+          cmdArgs.push('--openai-api-base', 'http://127.0.0.1:10531/v1');
+          cmdArgs.push('--openai-api-key', 'unused');
+          cmdArgs.push('--no-stream');
+        }
+        break;
+      }
+      case 'swe-agent': {
+        cmd = 'python3';
+        // Headless wrapper around mini-swe-agent Python API (bypasses Textual TUI)
+        let sweModel;
+        if (vertexInfo && vertexInfo.api === 'openai') {
+          // litellm: openai/ prefix = use OpenAI-compat endpoint, then strips prefix
+          // So openai/openai/gpt-oss-120b-maas → sends "openai/gpt-oss-120b-maas" to API
+          // openai/deepseek-ai/deepseek-v3.2-maas → sends "deepseek-ai/deepseek-v3.2-maas"
+          sweModel = 'openai/' + vertexModel;
+        } else if (model.startsWith('openrouter/')) {
+          sweModel = model.replace('openrouter/', '');
+        } else if (model.startsWith('gpt-') || model.startsWith('claude-')) {
+          // litellm needs openai/ prefix for GPT models, anthropic/ for Claude
+          sweModel = model.startsWith('gpt-') ? 'openai/' + model : 'anthropic/' + model;
+        } else {
+          sweModel = model;
+        }
+        const trajFile = path.join(RESULTS_DIR, `${runId}.traj.json`);
+        cmdArgs = [
+          path.resolve(__dirname, 'run-mini-swe.py'),
+          '--model', sweModel,
+          '--task', prompt,
+          '--cwd', tmpdir,
+          '--cost-limit', '10.0',
+          '--output', trajFile,
+        ];
+        if (vertexInfo && vertexInfo.api === 'openai') {
+          cmdArgs.push('--model-class', 'vertex');
+        } else if (model.startsWith('openrouter/')) {
+          cmdArgs.push('--model-class', 'openrouter');
+        }
+        break;
+      }
+      default:
+        throw new Error(`Unsupported harness: ${harness}`);
+    }
+
+    // Set up environment
+    const runEnv = { ...process.env };
+    // Prevent agents from running `pip install` globally (protects system click/jinja2/litellm)
+    // This only affects the AGENT subprocess, not the scorer (which uses its own venv pip)
+    runEnv.PIP_REQUIRE_VIRTUALENV = '1';
+    // Prevent litellm from opening browser on errors (spams Provider List URL)
+    runEnv.BROWSER = 'echo';
+    runEnv.LITELLM_LOG = 'ERROR';
+    // Prevent Python from adding CWD to sys.path (equiv. to python -P).
+    // Without this, challenge repos like click/flask/jinja shadow aider's own
+    // installed dependencies, causing "No module named 'click'" crashes.
+    runEnv.PYTHONSAFEPATH = '1';
+    // Gemini CLI: use Vertex AI (uses $300 credits) instead of AI Studio (charges card)
+    runEnv.GOOGLE_GENAI_USE_VERTEXAI = 'true';
+    runEnv.GOOGLE_CLOUD_PROJECT = VERTEX_PROJECT;
+    // Add .venv/bin to PATH so agents find the venv's python/pytest
+    // But NOT for swe-agent — it uses system python3 which has minisweagent installed.
+    // Prepending venv breaks swe-agent's import of minisweagent.
+    if (harness !== 'swe-agent') {
+      const venvBin = path.join(tmpdir, '.venv', 'bin');
+      if (fs.existsSync(venvBin)) {
+        runEnv.PATH = `${venvBin}:${runEnv.PATH}`;
+        runEnv.VIRTUAL_ENV = path.join(tmpdir, '.venv');
+      }
+    }
+    if (harness === 'aider') {
+      // Keep aider fully stateless for benchmark runs so it cannot inherit
+      // stale chat/config state from the operator's home directory.
+      runEnv.HOME = fakeHome || tmpdir;
+    }
+    // NOTE: not overriding HOME — all harnesses need auth from user's home dir.
+    // Baseline isolation comes from the clean workdir (no .claude/, .opencode/, etc)
+
+    // For swe-agent with OpenAI models: use local OAuth proxy (free, subscription)
+    if (!vertexInfo && harness === 'swe-agent' && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
+      runEnv.OPENAI_BASE_URL = 'http://127.0.0.1:10531/v1';
+      runEnv.OPENAI_API_KEY = 'unused';
+    }
+    // Ensure GEMINI_API_KEY is available for gemini/ models in aider/swe-agent
+    if (model.startsWith('gemini/') && !runEnv.GEMINI_API_KEY) {
+      try {
+        const envFile = fs.readFileSync(path.join(os.homedir(), '.env'), 'utf8');
+        const match = envFile.match(/GEMINI_API_KEY=(.+)/);
+        if (match) runEnv.GEMINI_API_KEY = match[1].trim();
+      } catch {}
+    }
+    // Ensure OPENROUTER_API_KEY is available for openrouter/ models
+    if (model.startsWith('openrouter/') && !runEnv.OPENROUTER_API_KEY) {
+      try {
+        const envFile = fs.readFileSync(path.join(os.homedir(), '.agentelo', '.env'), 'utf8');
+        const match = envFile.match(/OPENROUTER_API_KEY=(.+)/);
+        if (match) runEnv.OPENROUTER_API_KEY = match[1].trim();
+      } catch {}
+    }
+    // Vertex AI: set env for swe-agent and opencode
+    if (vertexInfo) {
+      runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
+      runEnv.VERTEXAI_LOCATION = vertexInfo.location;
+      if (vertexInfo.api === 'openai' && harness === 'swe-agent') {
+        const token = getGcloudToken();
+        if (token) {
+          runEnv.OPENAI_API_BASE = getVertexOpenAIBaseUrl(vertexInfo.location);
+          runEnv.OPENAI_BASE_URL = getVertexOpenAIBaseUrl(vertexInfo.location);
+          runEnv.OPENAI_API_KEY = token;
+        }
+      }
+      if (vertexInfo.api === 'openai' && harness === 'opencode') {
+        const token = getGcloudToken();
+        if (token) {
+          // OpenCode uses custom 'vertex' provider — needs VERTEX_API_KEY env
+          runEnv.VERTEX_API_KEY = token;
+        }
+        // Cap output tokens for Vertex models (many have limits < opencode's 32000 default)
+        runEnv.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = '8192';
+      }
+      if (harness === 'opencode') {
+        // OpenCode uses GOOGLE_APPLICATION_CREDENTIALS for Vertex
+        runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
+        runEnv.VERTEXAI_LOCATION = vertexInfo.location;
+      }
+    }
+    // Legacy vertex_ai/ prefix (litellm)
+    if (model.startsWith('vertex_ai/')) {
+      runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
+      runEnv.VERTEXAI_LOCATION = 'us-central1';
+    }
+
+    console.log(`[agentelo] Running: ${cmd} ${cmdArgs[0]}... (stdin closed, 30min timeout)`);
+    console.log(`[agentelo] Log: ${logFile}`);
+
+    // Run as subprocess — stdin closed, stdout/stderr captured to log
+    const logStream = fs.createWriteStream(logFile);
+    let timedOut = false;
+    const stdoutChunks = []; // Collect stdout separately for JSON/token parsing
+
+    const startMs = Date.now();
+    const INACTIVITY_TIMEOUT = 20 * 60 * 1000; // 20 min no output = dead agent
+    await new Promise((resolve) => {
+      const child = require('child_process').spawn(cmd, cmdArgs, {
+        cwd: tmpdir,
+        env: runEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],  // stdin=pipe (we close it), stdout+stderr=pipe
+        timeout: 30 * 60 * 1000,
+      });
+      // Close stdin immediately — no human input
+      child.stdin.end();
+
+      // Inactivity watchdog — kill agent if no output for 5 minutes
+      // Catches: model hangs, silent failures
+      let lastActivity = Date.now();
+      let apiErrorCount = 0;
+      const API_ERROR_LIMIT = 5; // Kill after 5 consecutive API errors
+      const API_ERROR_PATTERNS = [
+        /Attempt \d+ failed with status (429|503|500)/,
+        /RESOURCE_EXHAUSTED/,
+        /UNAVAILABLE/,
+        /rate.?limit/i,
+      ];
+      const killChild = (reason) => {
+        timedOut = true;
+        console.log(`\n[agentelo] ${reason}. Killing agent.`);
+        child.kill('SIGTERM');
+        setTimeout(() => child.kill('SIGKILL'), 5000);
+        clearInterval(activityCheck);
+      };
+      const activityCheck = setInterval(() => {
+        if (harness === 'opencode') {
+          const ocSession = getOpenCodeSessionStatus(tmpdir);
+          // opencode failures on the OAuth-backed GPT path can wedge after the
+          // initial "build" banner with no further session/message activity.
+          // Kill these early rather than donating the full 20 minute watchdog.
+          const buildOnlyStall =
+            ocSession &&
+            ocSession.messageCount <= 2 &&
+            ocSession.lastMode === 'build' &&
+            ocSession.lastTokensIn === 0 &&
+            ocSession.lastTokensOut === 0 &&
+            Date.now() - startMs > 90 * 1000 &&
+            Date.now() - ocSession.timeUpdated > 60 * 1000;
+          const genericFirstTurnStall =
+            ocSession &&
+            Date.now() - startMs > 5 * 60 * 1000 &&
+            ocSession.messageCount <= 2 &&
+            Date.now() - ocSession.timeUpdated > 3 * 60 * 1000;
+          if (buildOnlyStall || genericFirstTurnStall) {
+            const idleSeconds = Math.round((Date.now() - ocSession.timeUpdated) / 1000);
+            const reason = buildOnlyStall
+              ? `OpenCode stalled in build phase before first real turn (${idleSeconds}s since session activity)`
+              : `OpenCode stalled before first real turn (${idleSeconds}s since session activity)`;
+            killChild(reason);
+            return;
+          }
+        }
+        if (Date.now() - lastActivity > INACTIVITY_TIMEOUT) {
+          const idle = Math.round((Date.now() - lastActivity) / 1000);
+          killChild(`Inactivity timeout (${idle}s no output)`);
+        }
+      }, 30000); // check every 30s
+
+      // Capture output + track activity + detect API error loops
+      const checkOutput = (chunk) => {
+        lastActivity = Date.now();
+        const text = chunk.toString();
+        if (API_ERROR_PATTERNS.some(p => p.test(text))) {
+          apiErrorCount++;
+          if (apiErrorCount >= API_ERROR_LIMIT) {
+            killChild(`API error loop detected (${apiErrorCount} errors)`);
+          }
+        }
+      };
+      child.stdout.on('data', (chunk) => {
+        checkOutput(chunk);
+        stdoutChunks.push(chunk);
+      });
+      child.stderr.on('data', checkOutput);
+      child.stdout.pipe(logStream);
+      child.stderr.pipe(logStream);
+      child.stdout.pipe(process.stdout);
+      child.stderr.pipe(process.stderr);
+      // Timeout
+      const timer = setTimeout(() => {
+        timedOut = true;
+        console.log('\n[agentelo] Timeout (30 min). Killing agent.');
+        child.kill('SIGTERM');
+        setTimeout(() => child.kill('SIGKILL'), 5000);
+      }, 30 * 60 * 1000);
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        clearInterval(activityCheck);
+        logStream.end();
+        const elapsed = Math.round((Date.now() - startMs) / 1000);
+        console.log(`\n[agentelo] Agent exited (code ${code}) after ${elapsed}s`);
+        resolve();
+      });
+    });
+
+    const finishedAt = new Date().toISOString();
+    const agentTimeSeconds = (new Date(finishedAt) - new Date(startedAt)) / 1000;
+
+    // Clean up tmux viewer if any
+    try {
+      execFileSync('tmux', ['kill-window', '-t', `openfleet:${runId}-view`], { stdio: 'pipe' });
+    } catch (_) {}
+
+    // Anti-cheat: checksum AFTER
+    const afterChecksums = checksumDir(tmpdir);
+
+    // Get git diff names
+    let gitDiffNames = [];
+    try {
+      const diffNameOut = execSync("git diff --name-only -- ':!dist/'", { cwd: tmpdir, stdio: 'pipe' }).toString().trim();
+      gitDiffNames = diffNameOut.split('\n').filter(Boolean);
+    } catch (_) {}
+
+    // Detect tampered files (exclude harness artifacts)
+    const HARNESS_ARTIFACTS = /^\.(agentelo-|aider\.|claude|opencode|codex|gemini|swe_agent)/;
+    const tamperedFiles = [];
+    for (const [relpath, beforeHash] of Object.entries(beforeChecksums)) {
+      if (afterChecksums[relpath] !== beforeHash && !gitDiffNames.includes(relpath) && !HARNESS_ARTIFACTS.test(relpath)) {
+        tamperedFiles.push(relpath);
+      }
+    }
+    // Also flag new files not in git diff
+    for (const relpath of Object.keys(afterChecksums)) {
+      if (!beforeChecksums[relpath] && !gitDiffNames.includes(relpath) && !HARNESS_ARTIFACTS.test(relpath)) {
+        tamperedFiles.push(relpath);
+      }
+    }
+    const tampered = tamperedFiles.length > 0;
+
+    // Collect git diff (exclude build artifacts like dist/ that change on npm install)
+    let diff = '';
+    try {
+      diff = execSync("git diff -- ':!dist/'", { cwd: tmpdir, stdio: 'pipe' }).toString();
+    } catch (_) {}
+
+    // Create clean copy for scoring — use cache instead of re-cloning
+    cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
+    try {
+      execFileSync('cp', ['-R', cacheDir + '/.', cleanDir + '/'], { stdio: 'pipe', timeout: 120000 });
+      execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+      execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+      // Copy node_modules from agent tmpdir (already installed) instead of re-running npm install
+      // This avoids the broken pretest/deps issue on qs and similar repos
+      if (fs.existsSync(path.join(tmpdir, 'node_modules'))) {
+        try {
+          execFileSync('cp', ['-R', path.join(tmpdir, 'node_modules'), path.join(cleanDir, 'node_modules')], { stdio: 'pipe', timeout: 120000 });
+        } catch {
+          installDeps(cleanDir);
+        }
+      } else if (fs.existsSync(path.join(tmpdir, '.venv'))) {
+        try {
+          execFileSync('cp', ['-R', path.join(tmpdir, '.venv'), path.join(cleanDir, '.venv')], { stdio: 'pipe', timeout: 120000 });
+        } catch {
+          installDeps(cleanDir);
+        }
+      } else {
+        installDeps(cleanDir);
+      }
+    } catch (err) {
+      console.error('[agentelo] Failed to prepare clean repo for scoring:', err.message?.slice(0, 200));
+    }
+
+    // Copy agent's changed files to cleanDir before scoring
+    // ONLY copy non-test files — test files must come from the fix-commit, not the agent
+    // This prevents agents from inflating scores by adding/modifying tests
+    const testPatterns = ['/test/', '/tests/', '/__tests__/', '.test.', '.spec.', '_test.', 'test_'];
+    const testPrefixes = ['test/', 'tests/', '__tests__/'];
+    function isTestFile(f) {
+      const fl = f.toLowerCase();
+      return testPatterns.some(p => fl.includes(p)) || testPrefixes.some(p => fl.startsWith(p));
+    }
+    try {
+      const changedFiles = execSync("git diff --name-only -- ':!dist/'", { cwd: tmpdir, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+      let copiedCode = 0, skippedTests = 0;
+      for (const f of changedFiles) {
+        if (isTestFile(f)) { skippedTests++; continue; }
+        const src = path.join(tmpdir, f);
+        const dst = path.join(cleanDir, f);
+        if (fs.existsSync(src)) {
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          fs.copyFileSync(src, dst);
+          copiedCode++;
+        }
+      }
+      // Also copy untracked NON-TEST files the agent created
+      const untrackedFiles = execSync('git ls-files --others --exclude-standard', { cwd: tmpdir, encoding: 'utf8' }).trim().split('\n').filter(f => f && !f.startsWith('node_modules/') && !f.startsWith('.'));
+      for (const f of untrackedFiles) {
+        if (isTestFile(f)) { skippedTests++; continue; }
+        const src = path.join(tmpdir, f);
+        const dst = path.join(cleanDir, f);
+        if (fs.existsSync(src)) {
+          fs.mkdirSync(path.dirname(dst), { recursive: true });
+          fs.copyFileSync(src, dst);
+          copiedCode++;
+        }
+      }
+      if (skippedTests > 0) console.log(`[agentelo] Skipped ${skippedTests} test files from agent diff (anti-cheat)`);
+      console.log(`[agentelo] Copied ${copiedCode} code files to scoring dir`);
+    } catch (e) {
+      console.error('[agentelo] Failed to copy changed files to cleanDir:', e.message?.slice(0, 200));
+    }
+
+    // Score — diff is passed for metadata only, actual code changes are already in cleanDir
+    let scoreResult = { tests_passed: false, time_seconds: 0, exit_code: 1, diff_lines: 0 };
+    try {
+      scoreResult = await score(diff, cleanDir, challenge, logFile, { patchAlreadyApplied: true });
+    } catch (err) {
+      console.error('[agentelo] Scoring error:', err.message);
+    }
+
+    // RETRY: if agent didn't fix all broken tests, give one chance to improve
+    // Use tests_ok vs baseline instead of binary tests_passed
+    const baseline = challenge.baseline_passing || 0;
+    const broken = challenge.broken_by_bug || 0;
+    const fixed = Math.max(0, (scoreResult.tests_ok || 0) - baseline);
+    const fullyFixed = broken > 0 ? fixed >= broken : scoreResult.exit_code === 0;
+    if (!fullyFixed && diff && diff.trim() && !timedOut) {
+      console.log(`[agentelo] ${fixed}/${broken} tests fixed — giving agent one retry with error feedback...`);
+
+      // Build feedback prompt with test errors from the scorer's clean run
+      const testLog = scoreResult.test_output || '';
+      const retryPrompt =
+        'Your fix did not pass all tests. Here is the test output:\n\n' +
+        '```\n' + testLog.slice(-3000) + '\n```\n\n' +
+        'Fix the remaining issues. The repo is in your current working directory. ' +
+        'Run tests with: ' + challenge.test_command;
+
+      // Run agent again with retry prompt
+      console.log('[agentelo] Running retry...');
+      const retryLogFile = logFile.replace('.log', '-retry.log');
+      const retryLogStream = fs.createWriteStream(retryLogFile);
+      await new Promise((resolve) => {
+        // Build retry args — prompt position varies by harness
+        let retryCmdArgs;
+        switch (harness) {
+          case 'claude-code':
+            retryCmdArgs = ['-p', retryPrompt, '--dangerously-skip-permissions', '--model', model];
+            break;
+          case 'opencode':
+            retryCmdArgs = ['run', '--dir', tmpdir, '--model', model, retryPrompt];
+            break;
+          case 'codex':
+            retryCmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '-C', tmpdir, retryPrompt];
+            break;
+          case 'aider':
+            retryCmdArgs = cmdArgs.map(a => a === prompt ? retryPrompt : a);
+            break;
+          case 'swe-agent':
+            retryCmdArgs = cmdArgs.map(a => a === prompt ? retryPrompt : a);
+            break;
+          default:
+            retryCmdArgs = [...cmdArgs.slice(0, -1), retryPrompt];
+        }
+        const child = require('child_process').spawn(cmd, retryCmdArgs, {
+          cwd: tmpdir,
+          env: runEnv,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 15 * 60 * 1000, // 15 min for retry (half the original)
+        });
+        child.stdin.end();
+        // Inactivity watchdog for retry too
+        let retryLastActivity = Date.now();
+        const retryActivityCheck = setInterval(() => {
+          if (Date.now() - retryLastActivity > INACTIVITY_TIMEOUT) {
+            const idle = Math.round((Date.now() - retryLastActivity) / 1000);
+            console.log(`\n[agentelo] Retry inactivity timeout (${idle}s no output). Killing.`);
+            child.kill('SIGTERM');
+            setTimeout(() => child.kill('SIGKILL'), 5000);
+            clearInterval(retryActivityCheck);
+          }
+        }, 30000);
+        child.stdout.on('data', () => { retryLastActivity = Date.now(); });
+        child.stderr.on('data', () => { retryLastActivity = Date.now(); });
+        child.stdout.pipe(retryLogStream);
+        child.stderr.pipe(retryLogStream);
+        child.stdout.pipe(process.stdout);
+        child.stderr.pipe(process.stderr);
+        const retryTimer = setTimeout(() => { child.kill('SIGTERM'); }, 15 * 60 * 1000);
+        child.on('close', () => { clearTimeout(retryTimer); clearInterval(retryActivityCheck); retryLogStream.end(); resolve(); });
+      });
+
+      // Re-collect diff after retry (exclude build artifacts)
+      try {
+        diff = execSync("git diff -- ':!dist/'", { cwd: tmpdir, stdio: 'pipe' }).toString();
+      } catch (_) {}
+
+      // Re-score with the updated diff
+      if (cleanDir) try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch (_) {}
+      cleanDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-clean-'));
+      try {
+        execFileSync('cp', ['-R', cacheDir + '/.', cleanDir + '/'], { stdio: 'pipe', timeout: 120000 });
+        execFileSync('git', ['checkout', '-f', challenge.buggyCommit || challenge.commit], { cwd: cleanDir, stdio: 'pipe' });
+        execFileSync('git', ['clean', '-fd'], { cwd: cleanDir, stdio: 'pipe' });
+        // Reuse agent's node_modules
+        if (fs.existsSync(path.join(tmpdir, 'node_modules'))) {
+          try { execFileSync('cp', ['-R', path.join(tmpdir, 'node_modules'), path.join(cleanDir, 'node_modules')], { stdio: 'pipe', timeout: 120000 }); }
+          catch { installDeps(cleanDir); }
+        } else { installDeps(cleanDir); }
+      } catch (_) {}
+
+      // Copy retry's changed files to cleanDir
+      try {
+        const changedFiles = execSync("git diff --name-only -- ':!dist/'", { cwd: tmpdir, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+        for (const f of changedFiles) {
+          const src = path.join(tmpdir, f);
+          const dst = path.join(cleanDir, f);
+          if (fs.existsSync(src)) { fs.mkdirSync(path.dirname(dst), { recursive: true }); fs.copyFileSync(src, dst); }
+        }
+      } catch {}
+
+      try {
+        scoreResult = await score(diff, cleanDir, challenge, logFile, { patchAlreadyApplied: true });
+        const retryFixed = Math.max(0, (scoreResult.tests_ok || 0) - baseline);
+        console.log(`[agentelo] Retry score: ${retryFixed}/${broken} fixed (tests_ok=${scoreResult.tests_ok})`);
+      } catch (err) {
+        console.error('[agentelo] Retry scoring error:', err.message);
+      }
+    }
+
+    // Compute agent_hash
+    let agentHash;
+    let configFiles;
+    if (isBaseline) {
+      // For seed: hash is just harness + model since HOME is isolated
+      agentHash = crypto
+        .createHash('sha256')
+        .update(`${harness}:${model}`)
+        .digest('hex')
+        .slice(0, 12);
+      configFiles = [];
+    } else {
+      const hashResult = await computeAgentHash(harness, model, tmpdir);
+      agentHash = hashResult.hash;
+      configFiles = hashResult.configFiles;
+    }
+
+    // Extract token usage from agent output
+    // Use stdoutChunks (captured separately) for reliable JSON parsing
+    let tokensIn = 0, tokensOut = 0, costUsd = 0;
+    let transcript = '';
+    try {
+      const logContent = fs.readFileSync(logFile, 'utf8');
+      transcript = logContent;
+      const stdoutText = Buffer.concat(stdoutChunks).toString();
+
+      // --- Claude Code: --output-format json → JSON result line in stdout ---
+      // Search from the end (JSON is always the last or first line) and also check the log file
+      if (harness === 'claude-code') {
+        const sources = [stdoutText, logContent];
+        for (const src of sources) {
+          if (tokensIn > 0) break;
+          // Search lines in reverse — JSON result is typically at start or end
+          const lines = src.split('\n');
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i].trim();
+            if (!line.startsWith('{')) continue;
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.type === 'result' && parsed.usage) {
+                tokensIn = (parsed.usage.input_tokens || 0)
+                  + (parsed.usage.cache_creation_input_tokens || 0)
+                  + (parsed.usage.cache_read_input_tokens || 0);
+                tokensOut = parsed.usage.output_tokens || 0;
+                if (parsed.total_cost_usd) costUsd = parsed.total_cost_usd;
+                break;
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // --- Codex: --json → JSONL on stdout, sum turn.completed usage ---
+      if (harness === 'codex') {
+        for (const line of stdoutText.split('\n')) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.type === 'turn.completed' && parsed.usage) {
+              tokensIn += parsed.usage.input_tokens || 0;
+              tokensOut += parsed.usage.output_tokens || 0;
+            }
+          } catch {}
+        }
+      }
+
+      // --- Gemini CLI: --output-format json → JSON on stdout, search both sources ---
+      if (harness === 'gemini' && tokensIn === 0) {
+        for (const src of [stdoutText, logContent]) {
+          if (tokensIn > 0) break;
+          // Try whole source as JSON
+          try {
+            const parsed = JSON.parse(src.trim());
+            if (parsed.stats?.models) {
+              for (const mStats of Object.values(parsed.stats.models)) {
+                if (mStats.tokens) { tokensIn += mStats.tokens.input || 0; tokensOut += mStats.tokens.candidates || 0; }
+              }
+            }
+          } catch {
+            // Search for JSON object starting with { in lines (reverse for speed)
+            for (const line of src.split('\n').reverse()) {
+              if (tokensIn > 0) break;
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('{') || trimmed.length < 20) continue;
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed.stats?.models) {
+                  for (const mStats of Object.values(parsed.stats.models)) {
+                    if (mStats.tokens) { tokensIn += mStats.tokens.input || 0; tokensOut += mStats.tokens.candidates || 0; }
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+
+      // --- OpenCode: query session DB by directory match ---
+      if (harness === 'opencode' && tokensIn === 0) {
+        try {
+          const ocDb = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+          if (fs.existsSync(ocDb)) {
+            const { execSync: ex } = require('child_process');
+            // Match session by tmpdir path in the directory column
+            const tmpdirResolved = fs.realpathSync(tmpdir);
+            const result = ex(`sqlite3 "${ocDb}" "SELECT SUM(json_extract(data, '$.tokens.input')), SUM(json_extract(data, '$.tokens.output')), SUM(json_extract(data, '$.cost')) FROM message WHERE session_id IN (SELECT id FROM session WHERE directory LIKE '%${path.basename(tmpdir)}%' ORDER BY time_updated DESC LIMIT 1)"`, { encoding: 'utf8', timeout: 5000 }).trim();
+            const parts = result.split('|');
+            if (parts[0] && Number(parts[0]) > 0) tokensIn = Number(parts[0]);
+            if (parts[1] && Number(parts[1]) > 0) tokensOut = Number(parts[1]);
+            if (parts[2] && Number(parts[2]) > 0) costUsd = Number(parts[2]);
+          }
+        } catch {}
+      }
+
+      // --- mini-swe-agent: parse trajectory JSON for cost/tokens ---
+      if (harness === 'swe-agent' && tokensIn === 0) {
+        try {
+          const trajFile = path.join(RESULTS_DIR, `${runId}.traj.json`);
+          if (fs.existsSync(trajFile)) {
+            const traj = JSON.parse(fs.readFileSync(trajFile, 'utf8'));
+            const stats = traj.info?.model_stats || {};
+            costUsd = stats.instance_cost || 0;
+            // Sum tokens from messages
+            for (const msg of (traj.messages || [])) {
+              const usage = msg.extra?.response?.usage;
+              if (usage) {
+                tokensIn += usage.prompt_tokens || usage.input_tokens || 0;
+                tokensOut += usage.completion_tokens || usage.output_tokens || 0;
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // --- Aider: parse "Tokens: N sent, M received." from output ---
+      // Aider uses "35k" format for thousands
+      if (harness === 'aider' && tokensIn === 0) {
+        const tokenMatch = logContent.match(/Tokens:\s+([\d,.]+k?)\s+sent,\s+([\d,.]+k?)\s+received/);
+        if (tokenMatch) {
+          const parseAiderNum = (s) => {
+            s = s.replace(/,/g, '');
+            if (s.endsWith('k')) return Math.round(parseFloat(s) * 1000);
+            return parseInt(s);
+          };
+          tokensIn = parseAiderNum(tokenMatch[1]);
+          tokensOut = parseAiderNum(tokenMatch[2]);
+        }
+      }
+
+      // --- OpenRouter cost from HTTP headers (captured by OpenCode in response) ---
+      // Also try parsing x-openrouter-cost from log if available
+      if (tokensIn === 0 && model.startsWith('openrouter/')) {
+        const costMatch = logContent.match(/x-openrouter-cost[:\s]+([0-9.]+)/i);
+        if (costMatch) costUsd = parseFloat(costMatch[1]);
+      }
+    } catch (e) { console.log(`[agentelo] Token parse error: ${e.message}`); }
+
+    // Calculate cost from tokens + model pricing if we have tokens but no cost
+    if (tokensIn > 0 && costUsd === 0) {
+      const PRICING = {
+        'claude-haiku-4-5-20251001': [0.80, 4.00], 'claude-sonnet-4-6': [3.00, 15.00], 'claude-opus-4-6': [15.00, 75.00],
+        'gpt-5.4': [2.50, 15.00], 'openai/gpt-5.4': [2.50, 15.00], 'gpt-5.4-mini': [0.75, 4.50], 'openai/gpt-5.4-mini': [0.75, 4.50],
+        'gpt-5.3-codex': [1.75, 14.00], 'openai/gpt-5.3-codex': [1.75, 14.00],
+        'gpt-5.3-codex-spark': [1.75, 14.00], 'openai/gpt-5.3-codex-spark': [1.75, 14.00],
+        'openrouter/minimax/minimax-m2.5': [0.12, 0.99], 'openrouter/kwaipilot/kat-coder-pro-v2': [0.30, 1.20],
+        'openrouter/minimax/minimax-m2.7': [0.30, 1.20], 'openrouter/qwen/qwen3-coder': [0.22, 1.00],
+        'openrouter/deepseek/deepseek-v3.2': [0.26, 0.38], 'openrouter/mistralai/devstral-small': [0.10, 0.30],
+        'openrouter/qwen/qwen3-coder-next': [0.12, 0.75], 'openrouter/x-ai/grok-4.1-fast': [0.20, 0.50],
+        'openrouter/x-ai/grok-code-fast-1': [0.20, 1.50], 'openrouter/x-ai/grok-3-mini': [0.30, 0.50],
+        'gemini-3.1-pro-preview': [2.00, 12.00], 'gemini-3-flash-preview': [0.15, 0.60],
+        'gemini-3.1-flash-lite-preview': [0.04, 0.15], 'gemini-2.5-pro': [1.25, 10.00],
+        'gemini-2.5-flash': [0.15, 0.60], 'gemini-2.5-flash-lite': [0.04, 0.15],
+        'google/gemini-3.1-pro-preview': [2.00, 12.00], 'google/gemini-3-flash-preview': [0.15, 0.60],
+        'google/gemini-3.1-flash-lite-preview': [0.04, 0.15], 'google/gemini-2.5-pro': [1.25, 10.00],
+        'google/gemini-2.5-flash': [0.15, 0.60], 'google/gemini-2.5-flash-lite': [0.04, 0.15],
+        // Vertex canonical names (after normalization)
+        'deepseek-v3.2': [0.26, 0.38], 'deepseek-v3.1': [0.26, 0.38], 'deepseek-r1-0528': [0.50, 2.00],
+        'qwen3-coder': [0.22, 1.00], 'qwen3-235b': [0.22, 1.00],
+        'qwen3-next-80b': [0.10, 0.30], 'qwen3-next-80b-thinking': [0.10, 0.30],
+        'llama-4-scout': [0.15, 0.30], 'llama-4-maverick': [0.30, 0.50], 'llama-3.3-70b': [0.06, 0.18],
+        'codestral-2': [0.30, 0.90], 'mistral-medium-3': [0.40, 2.00], 'mistral-large-3': [2.00, 6.00], 'mistral-small-3.1': [0.10, 0.30],
+        'gpt-oss-120b': [0.10, 0.30], 'gpt-oss-20b': [0.10, 0.30],
+        'glm-5': [0.10, 0.50], 'glm-4.7': [0.10, 0.50],
+        'minimax-m2': [0.10, 0.80], 'kimi-k2-thinking': [0.10, 0.50],
+      };
+      const p = PRICING[model];
+      if (p) costUsd = (tokensIn * p[0] + tokensOut * p[1]) / 1_000_000;
+    }
+
+    if (tokensIn > 0 || costUsd > 0) {
+      console.log(`[agentelo] Cost: $${costUsd.toFixed(4)} | Tokens: ${tokensIn} in, ${tokensOut} out`);
+    } else {
+      console.log(`[agentelo] Warning: no cost/token data captured for ${harness}/${model}`);
+    }
+
+    // Build result object
+    const result = {
+      run_id: runId,
+      challenge_id: challenge.id,
+      repo: challenge.repo,
+      harness,
+      model,
+      agent_hash: agentHash,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      tests_passed: scoreResult.tests_passed,
+      tests_total: scoreResult.tests_total || 0,
+      tests_ok: scoreResult.tests_ok || 0,
+      tests_failed: scoreResult.tests_failed || 0,
+      time_seconds: agentTimeSeconds,
+      agent_time_seconds: agentTimeSeconds,
+      test_time_seconds: scoreResult.time_seconds,
+      exit_code: scoreResult.exit_code,
+      diff_lines: scoreResult.diff_lines,
+      diff,
+      tampered,
+      tampered_files: tamperedFiles,
+      log_file: logFile,
+      transcript_path: logFile,
+      timed_out: timedOut,
+      config_files: configFiles,
+      api_key: apiKey,
+      tokens_in: tokensIn,
+      tokens_out: tokensOut,
+      cost_usd: costUsd,
+      ...(isBaseline ? { baseline: true, home_isolation: fakeHome } : {}),
+      ...(isBaseline ? { config_files_hashed: [] } : {}),
+    };
+
+    // Save result
+    const resultFile = path.join(RESULTS_DIR, `${runId}.json`);
+    fs.writeFileSync(resultFile, JSON.stringify(result, null, 2), 'utf8');
+
+    // Print summary
+    console.log('\n[agentelo] Done!');
+    console.log(`Challenge: ${challenge.id}`);
+    const finalFixed = Math.max(0, (result.tests_ok || 0) - (challenge.baseline_passing || 0));
+    const finalBroken = challenge.broken_by_bug || 0;
+    console.log(`Tests fixed: ${finalFixed}/${finalBroken} (tests_ok=${result.tests_ok})`);
+    console.log(`Time: ${Math.round(result.time_seconds)}s`);
+    console.log(`Diff lines: ${result.diff_lines}`);
+    console.log(`Tampered: ${tampered ? 'YES' : 'NO'}`);
+    console.log(`Result saved: results/${runId}.json`);
+    if (isBaseline) {
+      console.log(`Baseline: true (HOME isolated to ${fakeHome})`);
+    }
+
+    // Post to API (non-blocking, best-effort — silently skip if API not running)
+    // Skip submission for practice mode (unranked)
+    if (isRanked || isBaseline) {
+      await postToApi(result, baseUrl);
+    } else {
+      console.log('[agentelo] Practice mode — results not submitted to server.');
+    }
+
+  } finally {
+    // BUG 2 fix: always clean up temp dirs
+    try { fs.rmSync(tmpdir, { recursive: true, force: true }); } catch (_) {}
+    if (cleanDir) try { fs.rmSync(cleanDir, { recursive: true, force: true }); } catch (_) {}
+    if (fakeHome) try { fs.rmSync(fakeHome, { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: play (ranked, server picks challenge)
+// ---------------------------------------------------------------------------
+async function cmdPlay(flags) {
+  return runAgentPlay(flags, { isBaseline: false, isRanked: true });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: practice (unranked, user picks challenge)
+// ---------------------------------------------------------------------------
+async function cmdPractice(flags) {
+  return runAgentPlay(flags, { isBaseline: false, isRanked: false });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: seed
+// ---------------------------------------------------------------------------
+async function cmdSeed(flags) {
+  return runAgentPlay(flags, { isBaseline: true, isRanked: true });
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: results
+// ---------------------------------------------------------------------------
+function cmdResults() {
+  ensureResultsDir();
+  const results = loadResults(RESULTS_DIR);
+  if (results.length === 0) {
+    console.log('[agentelo] No results yet.');
+    return;
+  }
+  const sorted = sortResultsByDate(results);
+  console.log(formatResultsTable(sorted));
+}
+
+// ---------------------------------------------------------------------------
+// subcommand: leaderboard (fetches from API)
+// ---------------------------------------------------------------------------
+async function cmdLeaderboard(flags) {
+  const baseUrl = getBaseUrl(flags);
+  const data = await fetchLeaderboard(baseUrl);
+  if (!data || data.length === 0) {
+    console.log('[agentelo] No agents on leaderboard yet (or server not reachable).');
+    return;
+  }
+  // Print formatted table
+  const header = ['#', 'Name', 'ELO', 'RD', 'W/L', 'Model', 'Harness'].map(h => h.padEnd(h === 'Name' ? 24 : h === 'Model' ? 20 : h === 'Harness' ? 14 : 8)).join('');
+  console.log(header);
+  console.log('-'.repeat(header.length));
+  for (const a of data) {
+    const row = [
+      String(a.rank).padEnd(8),
+      (a.name || a.id).slice(0, 23).padEnd(24),
+      String(a.elo).padEnd(8),
+      String(a.rd).padEnd(8),
+      `${a.wins || 0}/${(a.played || 0) - (a.wins || 0)}`.padEnd(8),
+      (a.model || '').slice(0, 19).padEnd(20),
+      (a.harness || '').slice(0, 13).padEnd(14),
+    ].join('');
+    console.log(row);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+const subcommand = process.argv[2];
+const flags = parseArgs(process.argv.slice(3));
+
+function printUsage() {
+  console.log('Usage: agentelo <command> [options]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  register     Register an agent and save API credentials');
+  console.log('  rename       Update your agent display name');
+  console.log('  play         Ranked match (server picks challenge)');
+  console.log('  practice     Unranked run with a specific challenge');
+  console.log('  seed         Run agent with isolated HOME (baseline seeding only)');
+  console.log('  mine         Mine new challenges from GitHub repos');
+  console.log('  results      Show all past run results');
+  console.log('  leaderboard  Show ELO-ranked leaderboard from server');
+  console.log('');
+  console.log('Global options:');
+  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://api.agentelo.io)');
+  console.log('');
+  console.log('Options for register:');
+  console.log('  --name <username>   Agent username');
+  console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+  console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+  console.log('');
+  console.log('Options for rename:');
+  console.log('  --name <new-name>   New public display name');
+  console.log('  --agent <name>      Agent to rename (defaults to configured default)');
+  console.log('');
+  console.log('Options for play:');
+  console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+  console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+  console.log('');
+  console.log('Options for practice:');
+  console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+  console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+  console.log('  --challenge <id>    Challenge ID (required)');
+  console.log('');
+  console.log('Options for seed:');
+  console.log('  --harness <name>    Agent harness (e.g. claude-code)');
+  console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+  console.log('  --challenge <id>    Challenge ID (random if omitted)');
+}
+
+switch (subcommand) {
+  case 'play':
+    cmdPlay(flags).catch(err => {
+      console.error('[agentelo] Fatal error:', err.message);
+      process.exit(1);
+    });
+    break;
+  case 'practice':
+    cmdPractice(flags).catch(err => {
+      console.error('[agentelo] Fatal error:', err.message);
+      process.exit(1);
+    });
+    break;
+  case 'seed':
+    cmdSeed(flags).catch(err => {
+      console.error('[agentelo] Fatal error:', err.message);
+      process.exit(1);
+    });
+    break;
+  case 'results':
+    cmdResults();
+    break;
+  case 'leaderboard':
+    cmdLeaderboard(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+    break;
+  case 'register':
+    cmdRegister(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+    break;
+  case 'rename':
+    cmdRename(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+    break;
+  case 'mine':
+    try {
+      const mineScript = path.join(__dirname, 'mine');
+      require('child_process').execFileSync('node', [mineScript, ...process.argv.slice(3)], { stdio: 'inherit' });
+    } catch (e) {
+      process.exit(e.status || 1);
+    }
+    break;
+  case 'agents':
+    cmdAgents();
+    break;
+  case 'default':
+    if (!flags.agent) { console.error('Usage: agentelo default --agent <name>'); process.exit(1); }
+    try {
+      const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+      if (!creds.agents || !creds.agents[flags.agent]) { console.error(`Agent "${flags.agent}" not found. Run: agentelo agents`); process.exit(1); }
+      creds.default = flags.agent;
+      fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
+      console.log(`Default agent set to: ${flags.agent}`);
+    } catch { console.error('No credentials found. Run: agentelo register'); process.exit(1); }
+    break;
+  case 'rename': {
+    const apiKey = getApiKey(flags);
+    if (!flags.name) { console.error('Usage: agentelo rename --name <new-display-name>'); process.exit(1); }
+    const base = getBaseUrl(flags);
+    const agentId = getActiveAgentId(flags);
+    const body = JSON.stringify({ api_key: apiKey, display_name: flags.name });
+    const url = new URL(`/api/agents/${agentId}`, base);
+    const mod = url.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.request(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) { console.log(`Display name updated to: ${flags.name}`); }
+        else { try { console.error(JSON.parse(data).error || data); } catch { console.error(data); } process.exit(1); }
+      });
+    });
+    req.on('error', e => { console.error('Request failed:', e.message); process.exit(1); });
+    req.write(body);
+    req.end();
+    break;
+  }
+  case '--help':
+  case 'help':
+    printUsage();
+    process.exit(0);
+    break;
+  default:
+    printUsage();
+    process.exit(subcommand ? 1 : 0);
+}

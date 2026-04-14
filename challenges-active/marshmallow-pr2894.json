@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2894",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2894,
+    "title": "Fix Constant field rejecting None values during load",
+    "body": "# PR summary: \r\n`Constant(None)` was rejecting null values during load with \"Field may not be null\" because `allow_none` was being inferred before the constant value was assigned. Moving the default assignments before `super().__init__()`, lets the base class correctly infer `allow_none=True` when the constant is `None`.\r\n\r\nFixes #2868.\n\n--- Linked Issue #2868: `fields.Constant` rejects `None` constant values during load ---\nWhen that constant is `None`, loading any payload that contains null triggers `ValidationError: Field may not be null`. The stems from the initialization order: `Field.__init__` sets `allow_none` based on the (yet-unknown) `load_default`, and only afterwards `Constant.__init__` assigns the actual constant/load_default.\n\n```python\nfrom marshmallow import Schema, fields\n\nclass DemoSchema(Schema):\n    # Should always load/dump None, independent of input\n    sentinel = fields.Constant(None)\n\nschema = DemoSchema()\n\nassert schema.dump({\"sentinel\": \"anything\"})[\"sentinel\"] is None\n\nschema.load({\"sentinel\": None})\n```\n\n```\nTraceback (most recent call last):\n  File \"/data/src/test.py\", line 11, in <module>\n    schema.load({\"sentinel\": None})\n  File \"/home/hdd/miniconda3/envs/py312/lib/python3.12/site-packages/marshmallow/schema.py\", line 730, in load\n    return self._do_load(\n           ^^^^^^^^^^^^^^\n  File \"/home/hdd/miniconda3/envs/py312/lib/python3.12/site-packages/marshmallow/schema.py\", line 938, in _do_load\n    raise exc\nmarshmallow.exceptions.ValidationError: {'sentinel': ['Field may not be null.']}\n```\n\n> Note: This issue was identified by an automated testing tool for academic research and manually verified. If you have any concerns about this type of reporting, please let me know, and I will adjust my workflow accordingly."
+  },
+  "pr": {
+    "number": 2894,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2894"
+  },
+  "buggyCommit": "213ee3a020e24fb26ead3a2285ba0402c90080ce",
+  "fixCommit": "19ca8dce2d5bde94509a4a89e495f35c695442d5",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex 6ba5a7f45..4f8538fb3 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -183,3 +183,4 @@ Contributors (chronological)\n - Xiao `@T90REAL <https://github.com/T90REAL>`_\n - jfo `@jafournier <https://github.com/jafournier>`_\n - thanhlecongg `@thanhlecongg <https://github.com/thanhlecongg>`_\n+- Emmanuel Ferdman  `@emmanuel-ferdman  <https://github.com/emmanuel-ferdman>`_\ndiff --git a/CHANGELOG.rst b/CHANGELOG.rst\nindex 3288685c0..bc1c5ff54 100644\n--- a/CHANGELOG.rst\n+++ b/CHANGELOG.rst\n@@ -1,6 +1,14 @@\n Changelog\n =========\n \n+unreleased\n+----------\n+\n+Bug fixes:\n+\n+- Fix behavior of ``fields.Contant(None)`` (:issue:`2868`).\n+  Thanks :user:`T90REAL` for reporting and `emmanuel-ferdman` for the fix.\n+\n \n 4.2.1 (2026-01-23)\n ------------------\ndiff --git a/src/marshmallow/fields.py b/src/marshmallow/fields.py\nindex 5d3d64a98..dc961e631 100644\n--- a/src/marshmallow/fields.py\n+++ b/src/marshmallow/fields.py\n@@ -2065,10 +2065,10 @@ class Constant(Field[_ContantT]):\n     _CHECK_ATTRIBUTE = False\n \n     def __init__(self, constant: _ContantT, **kwargs: Unpack[_BaseFieldKwargs]):\n+        kwargs[\"load_default\"] = constant\n+        kwargs[\"dump_default\"] = constant\n         super().__init__(**kwargs)\n         self.constant = constant\n-        self.load_default = constant\n-        self.dump_default = constant\n \n     def _serialize(self, value, *args, **kwargs) -> _ContantT:\n         return self.constant\ndiff --git a/tests/test_deserialization.py b/tests/test_deserialization.py\nindex 6d5b465da..7cbe28e48 100644\n--- a/tests/test_deserialization.py\n+++ b/tests/test_deserialization.py\n@@ -1413,6 +1413,15 @@ class MySchema(Schema):\n         assert sch.load({})[\"foo\"] == 42\n         assert sch.load({\"foo\": 24})[\"foo\"] == 42\n \n+    def test_constant_none_allows_none_value(self):\n+        class MySchema(Schema):\n+            foo = fields.Constant(None)\n+\n+        sch = MySchema()\n+        assert sch.load({\"foo\": None})[\"foo\"] is None\n+        assert sch.load({})[\"foo\"] is None\n+        assert sch.load({\"foo\": \"ignored\"})[\"foo\"] is None\n+\n     def test_field_deserialization_with_user_validator_function(self):\n         field = fields.String(validate=predicate(lambda s: s.lower() == \"valid\"))\n         assert field.deserialize(\"Valid\") == \"Valid\"\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1131,
+  "fix_passing": 1132,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 4,
+    "linesAdded": 20,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:33:27.224Z"
+}

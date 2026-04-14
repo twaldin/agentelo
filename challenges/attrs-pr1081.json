@@ -1,0 +1,27 @@
+{
+  "id": "attrs-pr1081",
+  "repo": "python-attrs/attrs",
+  "repoUrl": "https://github.com/python-attrs/attrs",
+  "issue": {
+    "number": 1081,
+    "title": "Fix @frozen exceptions to allow __traceback__ to be set.",
+    "body": ""
+  },
+  "pr": {
+    "number": 1081,
+    "url": "https://github.com/python-attrs/attrs/pull/1081"
+  },
+  "buggyCommit": "c6668fa419d096d4ba52047f8d10d510da4d1712",
+  "fixCommit": "a71fbbad8950e127ebe4509b4ff0d730fb02a8b2",
+  "fixDiff": "diff --git a/changelog.d/1081.change.md b/changelog.d/1081.change.md\nnew file mode 100644\nindex 000000000..c271d6520\n--- /dev/null\n+++ b/changelog.d/1081.change.md\n@@ -0,0 +1 @@\n+Fix frozen exception classes when raised within e.g. `contextlib.contextmanager`, which mutates their `__traceback__` attributes.\ndiff --git a/src/attr/_make.py b/src/attr/_make.py\nindex 1a06504e2..48125a9db 100644\n--- a/src/attr/_make.py\n+++ b/src/attr/_make.py\n@@ -12,7 +12,7 @@\n # We need to import _compat itself in addition to the _compat members to avoid\n # having the thread-local in the globals here.\n from . import _compat, _config, setters\n-from ._compat import PY310, PYPY, _AnnotationExtractor, set_closure_cell\n+from ._compat import PY310, _AnnotationExtractor, set_closure_cell\n from .exceptions import (\n     DefaultAlreadySetError,\n     FrozenInstanceError,\n@@ -582,28 +582,19 @@ def _transform_attrs(\n     return _Attributes((AttrsClass(attrs), base_attrs, base_attr_map))\n \n \n-if PYPY:\n-\n-    def _frozen_setattrs(self, name, value):\n-        \"\"\"\n-        Attached to frozen classes as __setattr__.\n-        \"\"\"\n-        if isinstance(self, BaseException) and name in (\n-            \"__cause__\",\n-            \"__context__\",\n-        ):\n-            BaseException.__setattr__(self, name, value)\n-            return\n-\n-        raise FrozenInstanceError()\n-\n-else:\n+def _frozen_setattrs(self, name, value):\n+    \"\"\"\n+    Attached to frozen classes as __setattr__.\n+    \"\"\"\n+    if isinstance(self, BaseException) and name in (\n+        \"__cause__\",\n+        \"__context__\",\n+        \"__traceback__\",\n+    ):\n+        BaseException.__setattr__(self, name, value)\n+        return\n \n-    def _frozen_setattrs(self, name, value):\n-        \"\"\"\n-        Attached to frozen classes as __setattr__.\n-        \"\"\"\n-        raise FrozenInstanceError()\n+    raise FrozenInstanceError()\n \n \n def _frozen_delattrs(self, name):\ndiff --git a/tests/test_next_gen.py b/tests/test_next_gen.py\nindex 78fd0e52d..546dc4d06 100644\n--- a/tests/test_next_gen.py\n+++ b/tests/test_next_gen.py\n@@ -6,6 +6,7 @@\n \n import re\n \n+from contextlib import contextmanager\n from functools import partial\n \n import pytest\n@@ -312,6 +313,38 @@ class MyException(Exception):\n         assert \"foo\" == ei.value.x\n         assert ei.value.__cause__ is None\n \n+    @pytest.mark.parametrize(\n+        \"decorator\",\n+        [\n+            partial(_attr.s, frozen=True, slots=True, auto_exc=True),\n+            attrs.frozen,\n+            attrs.define,\n+            attrs.mutable,\n+        ],\n+    )\n+    def test_setting_traceback_on_exception(self, decorator):\n+        \"\"\"\n+        contextlib.contextlib (re-)sets __traceback__ on raised exceptions.\n+\n+        Ensure that works, as well as if done explicitly\n+        \"\"\"\n+\n+        @decorator\n+        class MyException(Exception):\n+            pass\n+\n+        @contextmanager\n+        def do_nothing():\n+            yield\n+\n+        with do_nothing(), pytest.raises(MyException) as ei:\n+            raise MyException()\n+\n+        assert isinstance(ei.value, MyException)\n+\n+        # this should not raise an exception either\n+        ei.value.__traceback__ = ei.value.__traceback__\n+\n     def test_converts_and_validates_by_default(self):\n         \"\"\"\n         If no on_setattr is set, assume setters.convert, setters.validate.\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1232,
+  "fix_passing": 1236,
+  "broken_by_bug": 4,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 47,
+    "linesRemoved": 22
+  },
+  "minedAt": "2026-04-06T23:27:22.585Z"
+}

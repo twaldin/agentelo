@@ -1,0 +1,27 @@
+{
+  "id": "requests-pr7309",
+  "repo": "psf/requests",
+  "repoUrl": "https://github.com/psf/requests",
+  "issue": {
+    "number": 7309,
+    "title": "Fix malformed value parsing for Content-Type",
+    "body": ""
+  },
+  "pr": {
+    "number": 7309,
+    "url": "https://github.com/psf/requests/pull/7309"
+  },
+  "buggyCommit": "bc7dd0fc4d56e808bcdd85ac2d797b3107c89259",
+  "fixCommit": "f0198e6dfc431a2293dc16e1b1e8fcddc910a7f3",
+  "fixDiff": "diff --git a/src/requests/utils.py b/src/requests/utils.py\nindex 54959bb8ab..42238375c8 100644\n--- a/src/requests/utils.py\n+++ b/src/requests/utils.py\n@@ -502,26 +502,23 @@ def get_encodings_from_content(content):\n \n \n def _parse_content_type_header(header):\n-    \"\"\"Returns content type and parameters from given header\n+    \"\"\"Returns content type and parameters from given header.\n \n     :param header: string\n     :return: tuple containing content type and dictionary of\n-         parameters\n+         parameters.\n     \"\"\"\n \n     tokens = header.split(\";\")\n     content_type, params = tokens[0].strip(), tokens[1:]\n     params_dict = {}\n-    items_to_strip = \"\\\"' \"\n+    strip_chars = \"\\\"' \"\n \n     for param in params:\n         param = param.strip()\n-        if param:\n-            key, value = param, True\n-            index_of_equals = param.find(\"=\")\n-            if index_of_equals != -1:\n-                key = param[:index_of_equals].strip(items_to_strip)\n-                value = param[index_of_equals + 1 :].strip(items_to_strip)\n+        if param and (idx := param.find(\"=\")) != -1:\n+            key = param[:idx].strip(strip_chars)\n+            value = param[idx + 1 :].strip(strip_chars)\n             params_dict[key.lower()] = value\n     return content_type, params_dict\n \ndiff --git a/tests/test_utils.py b/tests/test_utils.py\nindex c477c4089a..71a7a26e4d 100644\n--- a/tests/test_utils.py\n+++ b/tests/test_utils.py\n@@ -593,7 +593,6 @@ def test_parse_dict_header(value, expected):\n                 {\n                     \"boundary\": \"something\",\n                     \"boundary2\": \"something_else\",\n-                    \"no_equals\": True,\n                 },\n             ),\n         ),\n@@ -604,7 +603,6 @@ def test_parse_dict_header(value, expected):\n                 {\n                     \"boundary\": \"something\",\n                     \"boundary2\": \"something_else\",\n-                    \"no_equals\": True,\n                 },\n             ),\n         ),\n@@ -615,7 +613,6 @@ def test_parse_dict_header(value, expected):\n                 {\n                     \"boundary\": \"something\",\n                     \"boundary2\": \"something_else\",\n-                    \"no_equals\": True,\n                 },\n             ),\n         ),\n@@ -626,7 +623,6 @@ def test_parse_dict_header(value, expected):\n                 {\n                     \"boundary\": \"something\",\n                     \"boundary2\": \"something_else\",\n-                    \"no_equals\": True,\n                 },\n             ),\n         ),\n@@ -646,6 +642,10 @@ def test__parse_content_type_header(value, expected):\n             \"utf-8\",\n         ),\n         (CaseInsensitiveDict({\"content-type\": \"text/plain\"}), \"ISO-8859-1\"),\n+        (\n+            CaseInsensitiveDict({\"content-type\": \"text/html; charset\"}),\n+            \"ISO-8859-1\",\n+        ),\n     ),\n )\n def test_get_encoding_from_headers(value, expected):\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 396,
+  "fix_passing": 401,
+  "broken_by_bug": 5,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 10,
+    "linesRemoved": 13
+  },
+  "minedAt": "2026-04-06T22:33:42.529Z"
+}

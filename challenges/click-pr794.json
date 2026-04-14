@@ -1,0 +1,27 @@
+{
+  "id": "click-pr794",
+  "repo": "pallets/click",
+  "repoUrl": "https://github.com/pallets/click",
+  "issue": {
+    "number": 794,
+    "title": "Bug fix #793; use deterministic option name; can't rely on list.sort",
+    "body": ""
+  },
+  "pr": {
+    "number": 794,
+    "url": "https://github.com/pallets/click/pull/794"
+  },
+  "buggyCommit": "2ab5f7ebe12ee7276a25605af67227e5ffa59dd5",
+  "fixCommit": "ebcbef923d3b9f118d1f21fd3d21645b52099e87",
+  "fixDiff": "diff --git a/CHANGES b/CHANGES\nindex 2bc5dde6e8..6c49ad4c17 100644\n--- a/CHANGES\n+++ b/CHANGES\n@@ -13,6 +13,7 @@ Version 6.8\n - Fix bug in test runner when calling ``sys.exit`` with ``None``. See #739.\n - Fix crash on Windows console, see #744.\n - Fix bashcompletion on chained commands. See #754.\n+- Fix option naming routine to match documentation.  See #793\n \n Version 6.7\n -----------\ndiff --git a/click/core.py b/click/core.py\nindex 7456451475..6b981a6c19 100644\n--- a/click/core.py\n+++ b/click/core.py\n@@ -1548,8 +1548,8 @@ def _parse_decls(self, decls, expose_value):\n                     opts.append(decl)\n \n         if name is None and possible_names:\n-            possible_names.sort(key=lambda x: len(x[0]))\n-            name = possible_names[-1][1].replace('-', '_').lower()\n+            possible_names.sort(key=lambda x: -len(x[0]))  # group long options first\n+            name = possible_names[0][1].replace('-', '_').lower()\n             if not isidentifier(name):\n                 name = None\n \ndiff --git a/tests/test_options.py b/tests/test_options.py\nindex d196fe279e..9dd8cdff30 100644\n--- a/tests/test_options.py\n+++ b/tests/test_options.py\n@@ -335,3 +335,25 @@ def cli_alt(warnings):\n     assert result.output == 'False\\n'\n     result = runner.invoke(cli_alt, ['-w'])\n     assert result.output == 'True\\n'\n+\n+@pytest.mark.parametrize('option_args,expected', [\n+    (['--aggressive', '--all', '-a'], 'aggressive'),\n+    (['--first', '--second', '--third', '-a', '-b', '-c'], 'first'),\n+    (['--apple', '--banana', '--cantaloupe', '-a', '-b', '-c'], 'apple'),\n+    (['--cantaloupe', '--banana', '--apple', '-c', '-b', '-a'], 'cantaloupe'),\n+    (['-a', '-b', '-c'], 'a'),\n+    (['-c', '-b', '-a'], 'c'),\n+    (['-a', '--apple', '-b', '--banana', '-c', '--cantaloupe'], 'apple'),\n+    (['-c', '-a', '--cantaloupe', '-b', '--banana', '--apple'], 'cantaloupe'),\n+])\n+def test_multiple_long_options(runner, option_args, expected):\n+    @click.command()\n+    @click.option(*option_args, is_flag=True)\n+    def cmd(**kwargs):\n+        click.echo(str(kwargs[expected]))\n+\n+    assert cmd.params[0].name == expected\n+\n+    for form in option_args:\n+        result = runner.invoke(cmd, [form])\n+        assert result.output == 'True\\n'\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 119,
+  "fix_passing": 127,
+  "broken_by_bug": 8,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 25,
+    "linesRemoved": 2
+  },
+  "minedAt": "2026-04-06T22:54:49.618Z"
+}

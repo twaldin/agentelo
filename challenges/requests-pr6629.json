@@ -1,0 +1,27 @@
+{
+  "id": "requests-pr6629",
+  "repo": "psf/requests",
+  "repoUrl": "https://github.com/psf/requests",
+  "issue": {
+    "number": 6629,
+    "title": "Fix #6628 - JSONDecodeError are not deserializable",
+    "body": ""
+  },
+  "pr": {
+    "number": 6629,
+    "url": "https://github.com/psf/requests/pull/6629"
+  },
+  "buggyCommit": "7a13c041dbef42f9f3feb14110f02626f6892e9a",
+  "fixCommit": "382fc2c0c6c0ef0874bc65bc1175f97c073e5086",
+  "fixDiff": "diff --git a/src/requests/exceptions.py b/src/requests/exceptions.py\nindex e1cedf883d..83986b4898 100644\n--- a/src/requests/exceptions.py\n+++ b/src/requests/exceptions.py\n@@ -41,6 +41,16 @@ def __init__(self, *args, **kwargs):\n         CompatJSONDecodeError.__init__(self, *args)\n         InvalidJSONError.__init__(self, *self.args, **kwargs)\n \n+    def __reduce__(self):\n+        \"\"\"\n+        The __reduce__ method called when pickling the object must\n+        be the one from the JSONDecodeError (be it json/simplejson)\n+        as it expects all the arguments for instantiation, not just\n+        one like the IOError, and the MRO would by default call the\n+        __reduce__ method from the IOError due to the inheritance order.\n+        \"\"\"\n+        return CompatJSONDecodeError.__reduce__(self)\n+\n \n class HTTPError(RequestException):\n     \"\"\"An HTTP error occurred.\"\"\"\ndiff --git a/tests/test_requests.py b/tests/test_requests.py\nindex 34796dc7ec..77aac3fecb 100644\n--- a/tests/test_requests.py\n+++ b/tests/test_requests.py\n@@ -2810,3 +2810,13 @@ def test_status_code_425(self):\n         assert r4 == 425\n         assert r5 == 425\n         assert r6 == 425\n+\n+\n+def test_json_decode_errors_are_serializable_deserializable():\n+    json_decode_error = requests.exceptions.JSONDecodeError(\n+        \"Extra data\",\n+        '{\"responseCode\":[\"706\"],\"data\":null}{\"responseCode\":[\"706\"],\"data\":null}',\n+        36,\n+    )\n+    deserialized_error = pickle.loads(pickle.dumps(json_decode_error))\n+    assert repr(json_decode_error) == repr(deserialized_error)\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 388,
+  "fix_passing": 389,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 20,
+    "linesRemoved": 0
+  },
+  "minedAt": "2026-04-06T22:50:27.630Z"
+}

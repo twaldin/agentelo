@@ -1,0 +1,27 @@
+{
+  "id": "requests-pr7205",
+  "repo": "psf/requests",
+  "repoUrl": "https://github.com/psf/requests",
+  "issue": {
+    "number": 7205,
+    "title": "Fix empty netrc entry usage",
+    "body": "Prior to Python 3.11, a netrc entry without a username, account, or password entry was treated as malformed and raised a `NetrcParseError` disabling usage. For 3.11+, it now returns an empty tuple `('', '' ,'')` instead. That results in Requests sending an empty entry (`:`) for the value to encode in an Authorization header.\r\n\r\nThis PR brings Requests back to its intended behavior of ignoring these profiles. Anyone who may have some use case for this, we did not to intend to support this behavior. If you need it going forward, you can pass `auth=('', '')` with your request."
+  },
+  "pr": {
+    "number": 7205,
+    "url": "https://github.com/psf/requests/pull/7205"
+  },
+  "buggyCommit": "1b40fdd004bfc8ba5301bcf8a6908264e9b6b877",
+  "fixCommit": "47914226c2968802f2cdee3f6f0f6e06e4472f64",
+  "fixDiff": "diff --git a/src/requests/utils.py b/src/requests/utils.py\nindex 4d3039b200..d113a6ff3e 100644\n--- a/src/requests/utils.py\n+++ b/src/requests/utils.py\n@@ -231,7 +231,7 @@ def get_netrc_auth(url, raise_errors=False):\n \n         try:\n             _netrc = netrc(netrc_path).authenticators(host)\n-            if _netrc:\n+            if _netrc and any(_netrc):\n                 # Return with login / password\n                 login_i = 0 if _netrc[0] else 1\n                 return (_netrc[login_i], _netrc[2])\ndiff --git a/tests/test_utils.py b/tests/test_utils.py\nindex f9a287af1b..c477c4089a 100644\n--- a/tests/test_utils.py\n+++ b/tests/test_utils.py\n@@ -170,6 +170,16 @@ def test_not_vulnerable_to_bad_url_parsing(self, tmp_path, monkeypatch):\n         auth = get_netrc_auth(\"http://example.com:@evil.com/&apos;\")\n         assert auth is None\n \n+    def test_empty_default_credentials_ignored(self, tmp_path, monkeypatch):\n+        \"\"\"Empty default credentials should not be returned.\"\"\"\n+        netrc_path = tmp_path / \".netrc\"\n+        monkeypatch.setenv(\"NETRC\", str(netrc_path))\n+        with open(netrc_path, \"w\") as f:\n+            f.write(\"machine example.com login user password pass\\ndefault\\n\")\n+\n+        auth = get_netrc_auth(\"http://httpbin.org/\")\n+        assert auth is None\n+\n \n class TestToKeyValList:\n     @pytest.mark.parametrize(\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 595,
+  "fix_passing": 596,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 11,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:38:16.065Z"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "marshmallow-pr2874",
+  "repo": "marshmallow-code/marshmallow",
+  "repoUrl": "https://github.com/marshmallow-code/marshmallow",
+  "issue": {
+    "number": 2874,
+    "title": "Fix: Case sensitivity in validator",
+    "body": "Fix #2870 \r\n\r\nThe URL validator lowercases the scheme parsed from the input URL, but stores the user-provided schemes parameter without any processing. This causes validation always fail when users provide uppercase or mixed-case schemes.\r\n\r\nI changed the lowercase the custom schemes in `URL.__init__` and added a corresponding test.\n\n--- Linked Issue #2870: `URL` validator treats custom schemes case-sensitively ---\n`marshmallow.validate.URL` lowercases the scheme parsed from the input, but it stores the user-provided schemes iterable as-is. When a caller supplies uppercase or mixed-case schemes (e.g. [\"A\"]), validation always fails: the parsed scheme becomes \"a\", which isn’t found in [\"A\"], and the validator raises ValidationError: \"Not a valid URL.\".\n\n```python\nfrom marshmallow.validate import URL\nfrom marshmallow import ValidationError\n\nvalidator = URL(schemes=[\"A\"])  # custom scheme in uppercase\n\nvalidator(\"A://example.com\")\n```\n\n```\nTraceback (most recent call last):\n  File \"/data/src/test.py\", line 6, in <module>\n    validator(\"A://example.com\")\n  File \"/home/hdd/miniconda3/envs/py312/lib/python3.12/site-packages/marshmallow/validate.py\", line 209, in __call__\n    raise ValidationError(message)\nmarshmallow.exceptions.ValidationError: Not a valid URL.\n```\n\n> Note: This issue was identified by an automated testing tool for academic research and manually verified. If you have any concerns about this type of reporting, please let me know, and I will adjust my workflow accordingly."
+  },
+  "pr": {
+    "number": 2874,
+    "url": "https://github.com/marshmallow-code/marshmallow/pull/2874"
+  },
+  "buggyCommit": "880d87f6acc389aa80c223dae4013f7eed05ab13",
+  "fixCommit": "10fe10be814a77765a76334e00bc6f69cd18409b",
+  "fixDiff": "diff --git a/AUTHORS.rst b/AUTHORS.rst\nindex a7ffd703d..2459c8c0d 100644\n--- a/AUTHORS.rst\n+++ b/AUTHORS.rst\n@@ -180,3 +180,4 @@ Contributors (chronological)\n - Nicolas Simonds `@0xDEC0DE <https://github.com/0xDEC0DE>`_\n - Florian Laport `@Florian-Laport <https://github.com/Florian-Laport>`_\n - `@agentgodzilla <https://github.com/agentgodzilla>`_\n+- Xiao `@T90REAL <https://github.com/T90REAL>`_\n\\ No newline at end of file\ndiff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py\nindex ee89f765f..5d36519a6 100644\n--- a/src/marshmallow/validate.py\n+++ b/src/marshmallow/validate.py\n@@ -187,7 +187,7 @@ def __init__(\n         self.relative = relative\n         self.absolute = absolute\n         self.error: str = error or self.default_message\n-        self.schemes = schemes or self.default_schemes\n+        self.schemes = {s.lower() for s in schemes} if schemes else self.default_schemes\n         self.require_tld = require_tld\n \n     def _repr_args(self) -> str:\ndiff --git a/tests/test_validate.py b/tests/test_validate.py\nindex 783e90063..d878b1180 100644\n--- a/tests/test_validate.py\n+++ b/tests/test_validate.py\n@@ -205,6 +205,14 @@ def test_url_custom_scheme():\n     assert validator(url) == url\n \n \n+def test_url_custom_scheme_case_insensitive():\n+    validator = validate.URL(schemes={\"HTTP\"})\n+    assert validator(\"http://example.com\") == \"http://example.com\"\n+\n+    validator = validate.URL(schemes={\"HtTp\"})\n+    assert validator(\"hTtP://example.com\") == \"hTtP://example.com\"\n+\n+\n @pytest.mark.parametrize(\n     \"valid_url\",\n     (\n",
+  "testCommand": "python -m pytest",
+  "baseline_passing": 1118,
+  "fix_passing": 1119,
+  "broken_by_bug": 1,
+  "difficulty": {
+    "filesChanged": 3,
+    "linesAdded": 10,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T22:34:41.781Z"
+}

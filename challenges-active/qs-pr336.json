@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr336",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 336,
+    "title": "[fix] parsing comma delimited str with percent encoded comma",
+    "body": "changes on the default decoder to correctly parse comma delimited strings while having percent encoded comma\r\n\r\nFixes #311.\n\n--- Linked Issue #311: Comma-delimited array parsing fails when individual items contain commas ---\nComma-delimited array parsing fails when running something like this:\r\n\r\n```javascript\r\nQs.parse('things=a%2C%20b,c%2C%20d', {\r\n  comma: true\r\n});\r\n```\r\n\r\nExpected: `{ things: ['a, b', 'c, d'] }`\r\nActual: `{ things: ['a', ' b', 'c', ' d'] }`\r\n\r\nPer my understanding of RFC 3986, a percent-encoded comma should not be treated the same as a comma literal. Comma literal is a reserved character used for delimiting parameters and parameter values, but a percent-encoded comma is not.\r\n\r\nMy use case needs to deal with arbitrary user input within values, potentially including commas.\r\n\r\nI guess this can be fixed with a custom `decoder` function, but it seems like something that should work by default when `comma` is `true`.\r\n\r\nAs my use case is otherwise fairly simple and I don't need lots of custom features, I figured I'd just roll [my own query string parser/serializer](https://gist.github.com/lionel-rowe/abdf3a128e0c22a8f5123e9bb4007891). I'm linking to this strictly for reference and wouldn't recommend anyone to use it in production in its current state - it probably diverges from the RFC in a million other ways and fails for lots of edge cases that aren't relevant to my specific use case.\r\n\r\nRelated: #237 (but that deals with `stringify`, whereas this is about `parse`)."
+  },
+  "pr": {
+    "number": 336,
+    "url": "https://github.com/ljharb/qs/pull/336"
+  },
+  "buggyCommit": "37f6a6b043536a57f76e91c43c673b80464318dd",
+  "fixCommit": "cd9a3cd692df33421115741e1ec0e4526dd9da22",
+  "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex 3be8e1bc..67fb938f 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -85,7 +85,15 @@ var parseValues = function parseQueryStringValues(str, options) {\n             val = options.strictNullHandling ? null : '';\n         } else {\n             key = options.decoder(part.slice(0, pos), defaults.decoder, charset, 'key');\n-            val = options.decoder(part.slice(pos + 1), defaults.decoder, charset, 'value');\n+            var encodedVal = part.slice(pos + 1);\n+            if (options.comma && encodedVal.indexOf(',') !== -1) {\n+                val = encodedVal.split(',')\n+                    .map(function (encodedFragment) {\n+                        return options.decoder(encodedFragment, defaults.decoder, charset, 'value');\n+                    });\n+            } else {\n+                val = options.decoder(encodedVal, defaults.decoder, charset, 'value');\n+            }\n         }\n \n         if (val && options.interpretNumericEntities && charset === 'iso-8859-1') {\ndiff --git a/test/parse.js b/test/parse.js\nindex 903b2af3..10b649a7 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -429,6 +429,14 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('parses comma delimited array while having percent-encoded comma treated as normal text', function (st) {\n+        st.deepEqual(qs.parse('foo=a%2Cb', { comma: true }), { foo: ['a', 'b'] });\n+        st.deepEqual(qs.parse('foo=a%2C%20b,d', { comma: true }), { foo: ['a, b', 'd'] });\n+        st.deepEqual(qs.parse('foo=a%2C%20b,c%2C%20d', { comma: true }), { foo: ['a, b', 'c, d'] });\n+\n+        st.end();\n+    });\n+\n     t.test('parses an object in dot notation', function (st) {\n         var input = {\n             'user.name': { 'pop[bob]': 3 },\n",
+  "testCommand": "node test",
+  "baseline_passing": 414,
+  "fix_passing": 416,
+  "broken_by_bug": 2,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 17,
+    "linesRemoved": 1
+  },
+  "minedAt": "2026-04-06T03:52:59.656Z"
+}
