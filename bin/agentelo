@@ -164,6 +164,35 @@ function getBaseUrl(flags) {
   return baseUrl;
 }
 
+function loadCredentials() {
+  try {
+    return JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getSelectedAgentId(flags, creds) {
+  if (!creds || typeof creds !== 'object') return null;
+  if (flags && flags.agent) return flags.agent;
+  if (creds.agents && typeof creds.agents === 'object') return creds.default || null;
+  if (creds.agent_id) return creds.agent_id;
+  return null;
+}
+
+function getApiKey(flags, creds, { allowEnv = true } = {}) {
+  if (allowEnv && process.env.AGENTELO_KEY) return process.env.AGENTELO_KEY;
+  if (!creds || typeof creds !== 'object') return '';
+  const agentId = getSelectedAgentId(flags, creds);
+  if (creds.agents && agentId && creds.agents[agentId]) {
+    return creds.agents[agentId].api_key || '';
+  }
+  if (creds.agent_id && creds.api_key) {
+    return creds.api_key;
+  }
+  return '';
+}
+
 // ---------------------------------------------------------------------------
 // File-walk checksum helper
 // ---------------------------------------------------------------------------
@@ -355,20 +384,20 @@ async function cmdRegister(flags) {
     process.exit(1);
   }
 
+  const name = flags.name;
   try {
-    const { profanity } = require('@2toad/profanity');
-    if (profanity && typeof profanity.exists === 'function' && profanity.exists(flags.name)) {
-      console.error('Agent name not allowed. Choose a different name.');
+    const { Profanity } = require('@2toad/profanity');
+    const p = new Profanity();
+    if (p.exists(name)) {
+      console.error('Agent name not allowed.');
       process.exit(1);
     }
-  } catch (_) {
-    // Optional dependency for local CLI checks; skip if not installed.
-  }
+  } catch {}
 
   const baseUrl = getBaseUrl(flags);
   let res;
   try {
-    res = await postRegister({ name: flags.name, harness: flags.harness, model: flags.model }, baseUrl);
+    res = await postRegister({ name, harness: flags.harness, model: flags.model }, baseUrl);
   } catch (err) {
     console.error('[agentelo] Registration failed:', err.message);
     process.exit(1);
@@ -418,28 +447,22 @@ async function cmdRename(flags) {
     process.exit(1);
   }
 
-  let agentId = null;
-  let apiKey = null;
-  try {
-    const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
-    if (creds.agents) {
-      const selectedAgent = flags.agent || creds.default;
-      if (!selectedAgent || !creds.agents[selectedAgent]) {
-        console.error(`Agent "${selectedAgent || '(none)'}" not found. Run: agentelo agents`);
-        process.exit(1);
-      }
-      agentId = selectedAgent;
-      apiKey = creds.agents[selectedAgent].api_key;
-    } else if (creds.agent_id && creds.api_key) {
-      // Old single-agent format
-      agentId = creds.agent_id;
-      apiKey = creds.api_key;
-    }
-  } catch {
+  const creds = loadCredentials();
+  if (!creds) {
     console.error('No credentials found. Run: agentelo register');
     process.exit(1);
   }
 
+  const agentId = getSelectedAgentId(flags, creds);
+  if (creds.agents && (!agentId || !creds.agents[agentId])) {
+    console.error(`Agent "${agentId || '(none)'}" not found. Run: agentelo agents`);
+    process.exit(1);
+  }
+  if (!creds.agents && flags.agent && flags.agent !== creds.agent_id) {
+    console.error(`Agent "${flags.agent}" not found. Run: agentelo agents`);
+    process.exit(1);
+  }
+  const apiKey = getApiKey(flags, creds, { allowEnv: false });
   if (!agentId || !apiKey) {
     console.error('No credentials found. Run: agentelo register');
     process.exit(1);
@@ -637,21 +660,14 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
   }
 
   // Resolve api_key — check --agent flag, then credentials file, then env var
-  let apiKey = process.env.AGENTELO_KEY || '';
-
-  if (!isBaseline && isRanked && !apiKey) {
-    // Try loading from credentials file
-    try {
-      const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
-      const agentName = flags.agent || creds.default;
-      if (creds.agents && creds.agents[agentName]) {
-        apiKey = creds.agents[agentName].api_key;
-        console.log(`[agentelo] Playing as: ${agentName}`);
-      } else if (creds.agent_id && creds.api_key) {
-        // Old single-agent format
-        apiKey = creds.api_key;
-      }
-    } catch {}
+  let apiKey = '';
+  if (!isBaseline && isRanked) {
+    const creds = loadCredentials();
+    const selectedAgent = getSelectedAgentId(flags, creds);
+    apiKey = getApiKey(flags, creds, { allowEnv: true });
+    if (!process.env.AGENTELO_KEY && creds && creds.agents && selectedAgent && creds.agents[selectedAgent]) {
+      console.log(`[agentelo] Playing as: ${selectedAgent}`);
+    }
   }
 
   if (!isBaseline && isRanked && !apiKey) {
@@ -1695,9 +1711,6 @@ async function cmdLeaderboard(flags) {
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
-const subcommand = process.argv[2];
-const flags = parseArgs(process.argv.slice(3));
-
 function printUsage() {
   console.log('Usage: agentelo <command> [options]');
   console.log('');
@@ -1738,64 +1751,81 @@ function printUsage() {
   console.log('  --challenge <id>    Challenge ID (random if omitted)');
 }
 
-switch (subcommand) {
-  case 'play':
-    cmdPlay(flags).catch(err => {
-      console.error('[agentelo] Fatal error:', err.message);
-      process.exit(1);
-    });
-    break;
-  case 'practice':
-    cmdPractice(flags).catch(err => {
-      console.error('[agentelo] Fatal error:', err.message);
-      process.exit(1);
-    });
-    break;
-  case 'seed':
-    cmdSeed(flags).catch(err => {
-      console.error('[agentelo] Fatal error:', err.message);
-      process.exit(1);
-    });
-    break;
-  case 'results':
-    cmdResults();
-    break;
-  case 'leaderboard':
-    cmdLeaderboard(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
-    break;
-  case 'register':
-    cmdRegister(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
-    break;
-  case 'rename':
-    cmdRename(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
-    break;
-  case 'mine':
-    try {
-      const mineScript = path.join(__dirname, 'mine');
-      require('child_process').execFileSync('node', [mineScript, ...process.argv.slice(3)], { stdio: 'inherit' });
-    } catch (e) {
-      process.exit(e.status || 1);
-    }
-    break;
-  case 'agents':
-    cmdAgents();
-    break;
-  case 'default':
-    if (!flags.agent) { console.error('Usage: agentelo default --agent <name>'); process.exit(1); }
-    try {
-      const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
-      if (!creds.agents || !creds.agents[flags.agent]) { console.error(`Agent "${flags.agent}" not found. Run: agentelo agents`); process.exit(1); }
-      creds.default = flags.agent;
-      fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
-      console.log(`Default agent set to: ${flags.agent}`);
-    } catch { console.error('No credentials found. Run: agentelo register'); process.exit(1); }
-    break;
-  case '--help':
-  case 'help':
-    printUsage();
-    process.exit(0);
-    break;
-  default:
-    printUsage();
-    process.exit(subcommand ? 1 : 0);
+function main(argv = process.argv) {
+  const subcommand = argv[2];
+  const flags = parseArgs(argv.slice(3));
+
+  switch (subcommand) {
+    case 'play':
+      cmdPlay(flags).catch(err => {
+        console.error('[agentelo] Fatal error:', err.message);
+        process.exit(1);
+      });
+      break;
+    case 'practice':
+      cmdPractice(flags).catch(err => {
+        console.error('[agentelo] Fatal error:', err.message);
+        process.exit(1);
+      });
+      break;
+    case 'seed':
+      cmdSeed(flags).catch(err => {
+        console.error('[agentelo] Fatal error:', err.message);
+        process.exit(1);
+      });
+      break;
+    case 'results':
+      cmdResults();
+      break;
+    case 'leaderboard':
+      cmdLeaderboard(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+      break;
+    case 'register':
+      cmdRegister(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+      break;
+    case 'rename':
+      cmdRename(flags).catch(err => { console.error('[agentelo] Fatal:', err.message); process.exit(1); });
+      break;
+    case 'mine':
+      try {
+        const mineScript = path.join(__dirname, 'mine');
+        require('child_process').execFileSync('node', [mineScript, ...argv.slice(3)], { stdio: 'inherit' });
+      } catch (e) {
+        process.exit(e.status || 1);
+      }
+      break;
+    case 'agents':
+      cmdAgents();
+      break;
+    case 'default':
+      if (!flags.agent) { console.error('Usage: agentelo default --agent <name>'); process.exit(1); }
+      try {
+        const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+        if (!creds.agents || !creds.agents[flags.agent]) { console.error(`Agent "${flags.agent}" not found. Run: agentelo agents`); process.exit(1); }
+        creds.default = flags.agent;
+        fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
+        console.log(`Default agent set to: ${flags.agent}`);
+      } catch { console.error('No credentials found. Run: agentelo register'); process.exit(1); }
+      break;
+    case '--help':
+    case 'help':
+      printUsage();
+      process.exit(0);
+      break;
+    default:
+      printUsage();
+      process.exit(subcommand ? 1 : 0);
+  }
 }
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  loadCredentials,
+  getSelectedAgentId,
+  getApiKey,
+  cmdRename,
+  main,
+};
