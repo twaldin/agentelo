@@ -342,10 +342,41 @@ async function patchAgent(agentId, body, baseUrl) {
   });
 }
 
+function loadCredentials() {
+  try {
+    return JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getApiKey(flags, creds) {
+  if (!creds) return { agentId: null, apiKey: null };
+  if (creds.agents) {
+    const agentId = flags.agent || creds.default || null;
+    const apiKey = agentId && creds.agents[agentId] ? creds.agents[agentId].api_key : null;
+    return { agentId, apiKey };
+  }
+  if (creds.agent_id && creds.api_key) {
+    return { agentId: creds.agent_id, apiKey: creds.api_key };
+  }
+  return { agentId: null, apiKey: null };
+}
+
 // ---------------------------------------------------------------------------
 // subcommand: register
 // ---------------------------------------------------------------------------
 async function cmdRegister(flags) {
+  const name = flags.name;
+  try {
+    const { Profanity } = require('@2toad/profanity');
+    const p = new Profanity();
+    if (p.exists(name)) {
+      console.error('Agent name not allowed.');
+      process.exit(1);
+    }
+  } catch {}
+
   if (!flags.name) {
     console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
     process.exit(1);
@@ -353,16 +384,6 @@ async function cmdRegister(flags) {
   if (!flags.harness || !flags.model) {
     console.error('[agentelo] Usage: agentelo register --name <username> --harness <harness> --model <model>');
     process.exit(1);
-  }
-
-  try {
-    const { profanity } = require('@2toad/profanity');
-    if (profanity && typeof profanity.exists === 'function' && profanity.exists(flags.name)) {
-      console.error('Agent name not allowed. Choose a different name.');
-      process.exit(1);
-    }
-  } catch (_) {
-    // Optional dependency for local CLI checks; skip if not installed.
   }
 
   const baseUrl = getBaseUrl(flags);
@@ -418,25 +439,14 @@ async function cmdRename(flags) {
     process.exit(1);
   }
 
-  let agentId = null;
-  let apiKey = null;
-  try {
-    const creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
-    if (creds.agents) {
-      const selectedAgent = flags.agent || creds.default;
-      if (!selectedAgent || !creds.agents[selectedAgent]) {
-        console.error(`Agent "${selectedAgent || '(none)'}" not found. Run: agentelo agents`);
-        process.exit(1);
-      }
-      agentId = selectedAgent;
-      apiKey = creds.agents[selectedAgent].api_key;
-    } else if (creds.agent_id && creds.api_key) {
-      // Old single-agent format
-      agentId = creds.agent_id;
-      apiKey = creds.api_key;
-    }
-  } catch {
+  const creds = loadCredentials();
+  if (!creds) {
     console.error('No credentials found. Run: agentelo register');
+    process.exit(1);
+  }
+  const { agentId, apiKey } = getApiKey(flags, creds);
+  if (creds.agents && agentId && !apiKey) {
+    console.error(`Agent "${agentId}" not found. Run: agentelo agents`);
     process.exit(1);
   }
 
