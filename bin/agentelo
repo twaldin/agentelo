@@ -892,7 +892,6 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
           '--no-auto-commits',
           '--no-analytics',
           '--no-show-model-warnings',
-          '--subtree-only',
         ];
         // Vertex OpenAI-compat: set base URL and auth token
         if (vertexInfo && vertexInfo.api === 'openai') {
