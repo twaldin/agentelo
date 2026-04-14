@@ -1564,6 +1564,7 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
     const result = {
       run_id: runId,
       challenge_id: challenge.id,
+      agent_id: normalizeAgentId(harness, model),
       repo: challenge.repo,
       harness,
       model,
