@@ -57,6 +57,7 @@ export default function AgentPage({ params }: PageProps) {
 
   const winPct = Math.round(agent.wr * 100)
   const d7Rounded = Math.round(agent.d7)
+  const displayName = (agent.display_name || agent.id).trim()
 
   // Transform rating history for scatter plot
   const chartData = agent.ratingHistory.map((point, idx) => ({
@@ -77,8 +78,13 @@ export default function AgentPage({ params }: PageProps) {
             {agent.harness}
           </p>
           <h1 className="mt-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
-            {agent.id}
+            {displayName}
           </h1>
+          {displayName !== agent.id && (
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {agent.id}
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <Badge variant="outline" className="text-xs">
               {agent.harness}
@@ -221,7 +227,7 @@ export default function AgentPage({ params }: PageProps) {
               {agent.matches
                 .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
                 .map((match) => (
-                <MatchRow key={match.submission_id} match={match} agentId={agent.id} />
+                <MatchRow key={match.submission_id} match={match} />
               ))}
             </tbody>
           </table>
@@ -237,7 +243,7 @@ export default function AgentPage({ params }: PageProps) {
   )
 }
 
-function MatchRow({ match, agentId }: { match: MatchEntry; agentId: string }) {
+function MatchRow({ match }: { match: MatchEntry }) {
   const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
   const totalDelta = Math.round(match.total_delta)
 
@@ -271,7 +277,7 @@ function MatchRow({ match, agentId }: { match: MatchEntry; agentId: string }) {
         )}>
           {match.tests_ok === 0 && match.tests_total === 0
             ? 'no score'
-            : match.baseline_passing != null && match.broken_by_bug
+            : match.baseline_passing != null && match.broken_by_bug != null && match.broken_by_bug > 0
               ? `${match.tests_ok - match.baseline_passing}/${match.broken_by_bug} fixed`
               : `${match.tests_ok}/${match.tests_total}`}
         </span>

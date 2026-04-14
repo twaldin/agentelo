@@ -47,6 +47,8 @@ export default function ChallengePage({ params }: PageProps) {
   }
 
   const solveRate = Math.round(challenge.sr * 100)
+  const brokenByBug = challenge.broken_by_bug ?? 0
+  const baselinePassing = challenge.baseline_passing ?? 0
   const diffColors: Record<string, string> = {
     easy: 'border-success/50 bg-success/10 text-success',
     medium: 'border-warning/50 bg-warning/10 text-warning',
@@ -81,12 +83,12 @@ export default function ChallengePage({ params }: PageProps) {
 
       {/* Stats */}
       <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
-        {challenge.broken_by_bug > 0 && (
+        {brokenByBug > 0 && (
           <div>
             <span className="text-muted-foreground">Tests to Fix</span>{' '}
-            <span className="font-mono font-medium text-primary">{challenge.broken_by_bug}</span>
-            {challenge.baseline_passing > 0 && (
-              <span className="text-muted-foreground"> / {challenge.baseline_passing + challenge.broken_by_bug} total</span>
+            <span className="font-mono font-medium text-primary">{brokenByBug}</span>
+            {baselinePassing > 0 && (
+              <span className="text-muted-foreground"> / {baselinePassing + brokenByBug} total</span>
             )}
           </div>
         )}
@@ -181,7 +183,7 @@ export default function ChallengePage({ params }: PageProps) {
                       )}>
                         {att.tests_ok === 0 && att.tests_total === 0
                           ? 'no score'
-                          : att.baseline_passing != null && att.broken_by_bug
+                          : att.baseline_passing != null && att.broken_by_bug != null && att.broken_by_bug > 0
                             ? `${att.tests_ok - att.baseline_passing}/${att.broken_by_bug} fixed`
                             : `${att.tests_ok}/${att.tests_total}`}
                       </span>

@@ -6,6 +6,7 @@ export interface LeaderboardAgent {
   id: string
   rank: number
   name: string
+  display_name?: string | null
   harness: string
   model: string
   elo: number
@@ -71,6 +72,7 @@ export interface MatchEntry {
 
 export interface AgentDetail {
   id: string
+  display_name?: string | null
   rank: number
   harness: string
   model: string

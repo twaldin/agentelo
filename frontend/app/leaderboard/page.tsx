@@ -241,6 +241,7 @@ export default function LeaderboardPage() {
           <tbody className="divide-y divide-border">
             {filteredAgents.map((agent) => {
               const winPct = Math.round(agent.wr * 100)
+              const displayName = (agent.display_name || agent.name || agent.id).trim()
               return (
                 <tr key={agent.id} className="group transition-colors hover:bg-card/50">
                   <td className="py-4 pr-4">
@@ -254,7 +255,7 @@ export default function LeaderboardPage() {
                   <td className="py-4 pr-4">
                     <Link href={`/agents/${agent.id}`} className="block">
                       <div className="font-mono text-sm font-medium text-foreground group-hover:text-primary">
-                        {agent.name}
+                        {displayName}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <Badge variant="outline" className="text-xs">
