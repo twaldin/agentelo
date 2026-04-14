@@ -5,7 +5,7 @@
   "issue": {
     "number": 335,
     "title": "[fix] parsing a field that holds array of arrays",
-    "body": ""
+    "body": "\n\n--- Linked Issue #327: comma and bracket combined? ---\n```\r\nparse(\"foo[]=1,2,3&foo[]=4,5,6\", {comma: true})\r\n/*\r\nexpected { foo: [ [ 1, 2, 3 ], [4, 5, 6] ] }\r\nreceived { foo: [ 1, 2, 3, 4, 5, 6 ] }\r\n\r\n*/\r\n```\r\n\r\nuncertain if this is intentional or not"
   },
   "pr": {
     "number": 335,
@@ -14,7 +14,7 @@
   "buggyCommit": "698b683d7382721c1c32c1cdcb97ca0b16917cf9",
   "fixCommit": "f884e2d6274c51ad8455e1339a0ad9b12bd63e06",
   "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex 53c30dbc..7cca8842 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -3,6 +3,7 @@\n var utils = require('./utils');\n \n var has = Object.prototype.hasOwnProperty;\n+var isArray = Array.isArray;\n \n var defaults = {\n     allowDots: false,\n@@ -87,6 +88,10 @@ var parseValues = function parseQueryStringValues(str, options) {\n             val = val.split(',');\n         }\n \n+        if (part.indexOf('[]=') > -1) {\n+            val = isArray(val) ? [val] : val;\n+        }\n+\n         if (has.call(obj, key)) {\n             obj[key] = utils.combine(obj[key], val);\n         } else {\ndiff --git a/test/parse.js b/test/parse.js\nindex 349f14b2..be10400b 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -414,6 +414,15 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('parses brackets holds array of arrays when having two parts of strings with comma as array divider', function (st) {\n+        st.deepEqual(qs.parse('foo[]=1,2,3&foo[]=4,5,6', { comma: true }), { foo: [['1', '2', '3'], ['4', '5', '6']] });\n+        st.deepEqual(qs.parse('foo[]=1,2,3&foo[]=', { comma: true }), { foo: [['1', '2', '3'], ''] });\n+        st.deepEqual(qs.parse('foo[]=1,2,3&foo[]=,', { comma: true }), { foo: [['1', '2', '3'], ['', '']] });\n+        st.deepEqual(qs.parse('foo[]=1,2,3&foo[]=a', { comma: true }), { foo: [['1', '2', '3'], 'a'] });\n+\n+        st.end();\n+    });\n+\n     t.test('parses an object in dot notation', function (st) {\n         var input = {\n             'user.name': { 'pop[bob]': 3 },\n",
-  "testCommand": "npm test",
+  "testCommand": "node test",
   "baseline_passing": 407,
   "fix_passing": 411,
   "broken_by_bug": 4,

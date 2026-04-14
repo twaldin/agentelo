@@ -5,7 +5,7 @@
   "issue": {
     "number": 2892,
     "title": "fix: handle uppercase `file` URLs ",
-    "body": ""
+    "body": "\n\n--- Linked Issue #2891: ValidationError with uppercase `file` URLs ---\n## Issue Description\nI noticed that when a file URL uses an uppercase scheme (FILE), fields.Url raises a ValidationError, even though the exact same URL with a lowercase scheme (file) works fine. Since URL schemes are  case-insensitive, I’d expect either both to be accepted or both to be rejected.\n\nFor example, HTTPS:// and https:// both work without any issues. This seems related to marshmallow issue #2249 and PR #2800. I’m happy to open a PR to fix this if it makes sense.\n\n## Reproducing Code Example\n\n```\nfrom marshmallow import Schema, fields\n\nclass MySchema(Schema):\n    url = fields.Url(schemes={\"file\"})\n\nMySchema().load({\"url\": \"FILE:///path/to/somefile.txt\"})\n```\n\n## Expected Result\n```\n{\"url\": \"FILE:///path/to/somefile.txt\"}\n```\n## Actual Behavior\n```\nTraceback (most recent call last):\n  File \"test.py\", line 6, in <module>\n    MySchema().load({\"url\": \"FILE:///path/to/somefile.txt\"})\n  File \".../site-packages/marshmallow/schema.py\", line 730, in load\n    return self._do_load(\n  File \".../site-packages/marshmallow/schema.py\", line 938, in _do_load\n    raise exc marshmallow.exceptions.ValidationError: {'url': ['Not a valid URL.']}\n```"
   },
   "pr": {
     "number": 2892,
@@ -15,9 +15,9 @@
   "fixCommit": "39e7c833e9c8711a49d6d710f7e3ee5cf2effbbe",
   "fixDiff": "diff --git a/src/marshmallow/validate.py b/src/marshmallow/validate.py\nindex 5d36519a6..b00fba5b1 100644\n--- a/src/marshmallow/validate.py\n+++ b/src/marshmallow/validate.py\n@@ -214,8 +214,8 @@ def __call__(self, value: str) -> str:\n \n         # Hostname is optional for file URLS. If absent it means `localhost`.\n         # Fill it in for the validation if needed\n-        if scheme == \"file\" and value.startswith(\"file:///\"):\n-            matched = regex.search(value.replace(\"file:///\", \"file://localhost/\", 1))\n+        if scheme == \"file\" and value.lower().startswith(\"file:///\"):\n+            matched = regex.search(\"file://localhost/\" + value[8:])\n         else:\n             matched = regex.search(value)\n \ndiff --git a/tests/test_validate.py b/tests/test_validate.py\nindex d878b1180..e5cb33a3f 100644\n--- a/tests/test_validate.py\n+++ b/tests/test_validate.py\n@@ -224,6 +224,14 @@ def test_url_custom_scheme_case_insensitive():\n         \"file:///tmp/test%20file.txt\",\n         \"file:///\",\n         \"file://localhost/\",\n+        \"FILE:///tmp/tmp1234\",\n+        \"FILE://localhost/tmp/tmp1234\",\n+        \"FILE:///C:/Users/test/file.txt\",\n+        \"FILE://localhost/C:/Program%20Files/file.exe\",\n+        \"FILE:///home/user/documents/test.pdf\",\n+        \"FILE:///tmp/test%20file.txt\",\n+        \"FILE:///\",\n+        \"FILE://localhost/\",\n     ),\n )\n def test_url_accepts_valid_file_urls(valid_url):\n",
   "testCommand": "python -m pytest",
-  "baseline_passing": 1123,
+  "baseline_passing": 1126,
   "fix_passing": 1131,
-  "broken_by_bug": 8,
+  "broken_by_bug": 5,
   "difficulty": {
     "filesChanged": 2,
     "linesAdded": 10,

@@ -5,7 +5,7 @@
   "issue": {
     "number": 2902,
     "title": "Fix Enum field by-name lookup to only return actual members",
-    "body": ""
+    "body": "## Summary\n\nThe `Enum` field's by-name deserialization uses `getattr(self.enum, val)` to look up members. However, `getattr` returns **any** attribute of the Enum class, not just actual enum members. This means inputs like `\"mro\"`, `\"__class__\"`, or `\"__members__\"` silently return non-Enum objects instead of raising a validation error.\n\n## Problem\n\n```python\nfrom enum import Enum\n\nclass Color(Enum):\n    RED = 1\n    GREEN = 2\n\n# Current behavior - these don't raise errors:\ngetattr(Color, \"mro\")         # <built-in method mro>\ngetattr(Color, \"__members__\")  # mappingproxy({...})\ngetattr(Color, \"__class__\")    # <class 'EnumType'>\n```\n\nWhen a user submits one of these attribute names as input, the `Enum` field returns the raw attribute/method object instead of an Enum member. Downstream code expecting an Enum member would break or behave unpredictably.\n\n## Fix\n\nReplace `getattr(self.enum, val)` with `self.enum[val]`. The `[]` operator on Enum classes only looks up actual members (via `EnumMeta.__getitem__`), so non-member names correctly raise `KeyError`, which we catch and convert to a validation error.\n\n```python\n# Before\ngetattr(Color, \"mro\")     # returns <built-in method mro>\n\n# After  \nColor[\"mro\"]               # raises KeyError\nColor[\"RED\"]               # returns Color.RED ✓\n```"
   },
   "pr": {
     "number": 2902,

@@ -59,6 +59,33 @@ const HARNESS_CONFIGS = {
     homeGlobDirs: [],
     homePathOnlyDirs: [],
   },
+  'gemini': {
+    perLevel: ['GEMINI.md'],
+    homeOnly: ['.gemini/settings.json', '.gemini/state.json'],
+    perLevelGlobDirs: [],
+    perLevelPathOnlyDirs: [],
+    homeGlobDirs: [],
+    homePathOnlyDirs: [],
+  },
+  'aider': {
+    perLevel: ['.aider.conf.yml', '.aiderignore'],
+    homeOnly: ['.aider.conf.yml', '.aider.model.settings.yml'],
+    perLevelGlobDirs: [],
+    perLevelPathOnlyDirs: [],
+    homeGlobDirs: [],
+    homePathOnlyDirs: [],
+  },
+  'swe-agent': {
+    perLevel: [],
+    homeOnly: [
+      'Library/Application Support/mini-swe-agent/.env',
+      '.config/mini-swe-agent/config.yaml',
+    ],
+    perLevelGlobDirs: [],
+    perLevelPathOnlyDirs: [],
+    homeGlobDirs: [],
+    homePathOnlyDirs: [],
+  },
 };
 
 /**

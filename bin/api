@@ -8,9 +8,36 @@ const crypto = require('crypto');
 const db     = require('../core/db');
 const { updateRating, defaultRating } = require('../core/glicko2');
 const { stripTestFiles } = require('../core/scorer');
+const { computeScore, isPairwiseSubmissionExcluded, pickBetterSubmission } = require('../core/scoring');
 
 const PORT       = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+const ACTIVE_DIR = path.join(__dirname, '..', 'challenges-active');
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
+const SUBMISSION_LIMIT_IP_PER_DAY = 100;
+
+const leaderboardCache = { data: null, minAgents: 0 };
+const submissionRateLimits = {
+  day: new Date().toISOString().slice(0, 10),
+  byAgent: new Map(),
+  byIp: new Map(),
+};
+
+// Build set of active challenge IDs from challenges-active/ directory
+function getActiveChallengeIds() {
+  if (!fs.existsSync(ACTIVE_DIR)) return new Set();
+  return new Set(
+    fs.readdirSync(ACTIVE_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.replace('.json', ''))
+  );
+}
+const activeChallengeIds = getActiveChallengeIds();
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -18,7 +45,6 @@ function json(res, status, data) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
@@ -34,6 +60,112 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function isMissingStringField(value) {
+  return value == null || (typeof value === 'string' && value.trim() === '');
+}
+
+function validateSubmissionBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be a JSON object';
+  }
+
+  const requiredFields = ['api_key', 'run_id', 'challenge_id', 'agent_id', 'harness', 'model', 'diff'];
+  for (const field of requiredFields) {
+    if (isMissingStringField(body[field])) {
+      return `Missing required field: ${field}`;
+    }
+  }
+
+  const numericFields = [
+    'tests_total',
+    'tests_ok',
+    'tests_failed',
+    'agent_time_seconds',
+    'test_time_seconds',
+    'diff_lines',
+    'exit_code',
+    'tokens_in',
+    'tokens_out',
+    'cost_usd',
+  ];
+  for (const field of numericFields) {
+    if (body[field] != null && (typeof body[field] !== 'number' || !Number.isFinite(body[field]))) {
+      return `Field ${field} must be numeric`;
+    }
+  }
+
+  if (typeof body.diff !== 'string') return 'Field diff must be a string';
+
+  const testsTotal = body.tests_total != null ? body.tests_total : 0;
+  const testsOk = body.tests_ok != null ? body.tests_ok : 0;
+  if (testsOk > testsTotal) {
+    return 'Invalid submission: tests_ok cannot be greater than tests_total';
+  }
+
+  return null;
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  const ip = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : 'unknown';
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
+function resetDailyRateLimitState() {
+  const day = new Date().toISOString().slice(0, 10);
+  if (submissionRateLimits.day === day) return;
+  submissionRateLimits.day = day;
+  submissionRateLimits.byAgent.clear();
+  submissionRateLimits.byIp.clear();
+}
+
+function secondsUntilNextUtcDay() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(24, 0, 0, 0);
+  return Math.max(1, Math.ceil((next.getTime() - now.getTime()) / 1000));
+}
+
+function checkAndTrackRateLimit(agentId, ip) {
+  resetDailyRateLimitState();
+
+  const byAgent = submissionRateLimits.byAgent.get(agentId) || [];
+  if (byAgent.length >= SUBMISSION_LIMIT_AGENT_PER_DAY) {
+    return {
+      limited: true,
+      message: `Agent daily submission limit exceeded (${SUBMISSION_LIMIT_AGENT_PER_DAY}/day)`,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
+  }
+
+  const byIp = submissionRateLimits.byIp.get(ip) || [];
+  if (byIp.length >= SUBMISSION_LIMIT_IP_PER_DAY) {
+    return {
+      limited: true,
+      message: `IP daily submission limit exceeded (${SUBMISSION_LIMIT_IP_PER_DAY}/day)`,
+      retryAfterSeconds: secondsUntilNextUtcDay(),
+    };
+  }
+
+  const ts = Date.now();
+  byAgent.push(ts);
+  byIp.push(ts);
+  submissionRateLimits.byAgent.set(agentId, byAgent);
+  submissionRateLimits.byIp.set(ip, byIp);
+
+  return { limited: false };
+}
+
+function resolveCorsOrigin(req) {
+  if (ALLOWED_ORIGINS.includes('*')) return '*';
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) return origin;
+  return ALLOWED_ORIGINS[0] || 'null';
 }
 
 function diffLabel(row) {
@@ -66,7 +198,7 @@ function buildChallengeEntry(row, stats) {
   // Compute baseline-relative solve rate (how many agents actually fixed tests)
   let sr = 0;
   if (s.total > 0) {
-    const chFile = path.join(__dirname, '..', 'challenges', `${row.id}.json`);
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${row.id}.json`);
     let bl = 0;
     try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
     if (bl > 0) {
@@ -107,7 +239,7 @@ function buildAgentEntry(agent, rank, allAgents) {
   const recent = subs.map(s => {
     const ch = db.getChallenge(s.challenge_id);
     // Use tests_fixed (not raw tests_ok) for pass/fail status
-    const chFile = path.join(__dirname, '..', 'challenges', `${s.challenge_id}.json`);
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${s.challenge_id}.json`);
     let bl = 0;
     try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
     const fixed = Math.max(0, (s.tests_ok || 0) - bl);
@@ -126,10 +258,11 @@ function buildAgentEntry(agent, rank, allAgents) {
   return {
     id:      agent.id,
     rank,
-    name:    agent.id,
+    name:    agent.display_name || agent.id,
+    display_name: agent.display_name || agent.id,
     harness: agent.harness,
     model:   agent.model,
-    elo:     Math.round(agent.rating),
+    elo:     Math.round(agent.rating - 2 * agent.rd),
     rd:      Math.round(agent.rd),
     wr:      played > 0 ? gWins / played : 0,
     played,
@@ -138,16 +271,23 @@ function buildAgentEntry(agent, rank, allAgents) {
     hist,
     hash:    agent.current_hash ? agent.current_hash.slice(0, 8) : null,
     recent,
+    avgCost: (() => {
+      const allSubs = db.getSubmissionsByAgent(agent.id);
+      const withCost = allSubs.filter(s => s.cost_usd > 0);
+      return withCost.length > 0 ? withCost.reduce((sum, s) => sum + s.cost_usd, 0) / withCost.length : null;
+    })(),
   };
 }
 
 // ── processSubmission ─────────────────────────────────────────────────────────
 
-async function processSubmission(body) {
+async function processSubmission(body, authenticatedAgent) {
   // 1. Authenticate via api_key
-  if (!body.api_key) throw Object.assign(new Error('Missing api_key'), { status: 401 });
-  const agent = db.getAgentByKey(body.api_key);
+  const agent = authenticatedAgent || db.getAgentByKey(body.api_key);
   if (!agent) throw Object.assign(new Error('Invalid API key'), { status: 401 });
+  if (body.agent_id !== agent.id) {
+    throw Object.assign(new Error('agent_id does not match authenticated API key'), { status: 400 });
+  }
 
   // 2. Track config version changes
   if (agent.current_hash !== body.agent_hash) {
@@ -161,7 +301,7 @@ async function processSubmission(body) {
   }
 
   // 3. Upsert challenge
-  const challengeFile = path.join(__dirname, '..', 'challenges', `${body.challenge_id}.json`);
+  const challengeFile = path.join(__dirname, '..', 'challenges-active', `${body.challenge_id}.json`);
   let challengeMeta = null;
   try { challengeMeta = JSON.parse(fs.readFileSync(challengeFile, 'utf8')); } catch (_) {}
 
@@ -212,12 +352,15 @@ async function processSubmission(body) {
   const mySub = db.getSubmission(body.run_id);
   if (!mySub) throw new Error('Failed to retrieve inserted submission');
 
-  // 6. Find opponent submissions for same challenge
+  // 6. Find opponent submissions for same challenge.
+  const myExcluded = isPairwiseSubmissionExcluded(mySub);
   const opponents = db.getSubmissionsByChallenge(body.challenge_id)
-    .filter(s => s.run_id !== body.run_id && s.agent_id !== agent.id);
+    .filter(s => s.run_id !== body.run_id && s.agent_id !== agent.id)
+    .filter(s => !isPairwiseSubmissionExcluded(s));
 
-  if (opponents.length === 0) {
-    // No opponents — just increment challenges_attempted and update hash
+  if (myExcluded || opponents.length === 0) {
+    // No valid score or no opponents — store submission but don't generate games.
+    if (myExcluded) console.log(`[api] Skipping games for ${agent.id} on ${body.challenge_id} — pairwise excluded by shared scoring rule`);
     db.updateAgent({
       id:                   agent.id,
       rating:               agent.rating,
@@ -246,37 +389,7 @@ async function processSubmission(body) {
   const basePass = (challengeMeta && challengeMeta.baseline_passing != null) ? challengeMeta.baseline_passing : 0;
 
   for (const { oSub, oppAgent } of sortedOpponents) {
-    let myScore;
-    // Score by tests_fixed (tests_ok - baseline_passing), NOT raw tests_ok.
-    // Negative = agent made things worse. Speed tiebreak only when both fixed >0.
-    const myFixed  = (body.tests_ok || 0) - basePass;
-    const oppFixed = (oSub.tests_ok || 0) - basePass;
-
-    if (myFixed > oppFixed) {
-      myScore = 1;
-    } else if (myFixed < oppFixed) {
-      myScore = 0;
-    } else if (myFixed <= 0 && oppFixed <= 0) {
-      myScore = 0.5;
-    } else {
-      // Same partial fix = draw. Tiebreak ONLY when both solved ALL broken tests.
-      const bothPerfect = challengeMeta?.broken_by_bug > 0 && myFixed >= challengeMeta.broken_by_bug && oppFixed >= challengeMeta.broken_by_bug;
-      if (!bothPerfect) {
-        myScore = 0.5;
-      } else {
-        const myCost = body.cost_usd || 0;
-        const oppCost = oSub.cost_usd || 0;
-        if (myCost > 0 && oppCost > 0) {
-          if (myCost < oppCost) myScore = 1;
-          else if (myCost > oppCost) myScore = 0;
-          else myScore = 0.5;
-        } else {
-          if ((body.agent_time_seconds || 0) < (oSub.agent_time_seconds || 0))      myScore = 1;
-          else if ((body.agent_time_seconds || 0) > (oSub.agent_time_seconds || 0)) myScore = 0;
-          else                                                                        myScore = 0.5;
-        }
-      }
-    }
+    const myScore = computeScore(mySub, oSub, { baseline_passing: basePass });
 
     // Use opponent's frozen rating at their submission time
     const oppRating = oSub.rating_at_submission || oppAgent.rating;
@@ -337,33 +450,7 @@ async function processSubmission(body) {
     const freshOpp = db.getAgent(oSub.agent_id);
     if (!freshOpp) continue;
 
-    // Compute score from earlier submitter's perspective using tests_fixed
-    let oppScore;
-    const oppFixed2 = (oSub.tests_ok || 0) - basePass;
-    const myFixed2  = (body.tests_ok || 0) - basePass;
-    if (oppFixed2 > myFixed2) oppScore = 1;
-    else if (oppFixed2 < myFixed2) oppScore = 0;
-    else if (oppFixed2 <= 0 && myFixed2 <= 0) {
-      oppScore = 0.5;
-    } else {
-      // Same partial fix = draw. Tiebreak ONLY when both solved ALL broken tests.
-      const bothPerfect2 = challengeMeta?.broken_by_bug > 0 && oppFixed2 >= challengeMeta.broken_by_bug && myFixed2 >= challengeMeta.broken_by_bug;
-      if (!bothPerfect2) {
-        oppScore = 0.5;
-      } else {
-        const oppCost2 = oSub.cost_usd || 0;
-        const myCost2 = body.cost_usd || 0;
-        if (oppCost2 > 0 && myCost2 > 0) {
-          if (oppCost2 < myCost2) oppScore = 1;
-          else if (oppCost2 > myCost2) oppScore = 0;
-          else oppScore = 0.5;
-        } else {
-          if ((oSub.agent_time_seconds || 0) < (body.agent_time_seconds || 0)) oppScore = 1;
-          else if ((oSub.agent_time_seconds || 0) > (body.agent_time_seconds || 0)) oppScore = 0;
-          else oppScore = 0.5;
-        }
-      }
-    }
+    const oppScore = computeScore(oSub, mySub, { baseline_passing: basePass });
 
     // Use the new agent's rating at submission time as the opponent rating
     const myRatingAtSub = mySub.rating_at_submission || 1500;
@@ -410,25 +497,24 @@ async function processSubmission(body) {
 async function handleRequest(req, res) {
   const url      = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
+  const corsOrigin = resolveCorsOrigin(req);
+
+  res.setHeader('Access-Control-Allow-Origin', corsOrigin);
+  if (corsOrigin !== '*') res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Methods': 'GET,POST',
+      'Access-Control-Allow-Origin':  corsOrigin,
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH',
       'Access-Control-Allow-Headers': 'Content-Type',
     });
     return res.end();
   }
 
-  // Frontend
+  // Frontend — redirect to Next.js app on :3001
   if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-    const htmlPath = path.join(PUBLIC_DIR, 'index.html');
-    if (fs.existsSync(htmlPath)) {
-      const html = fs.readFileSync(htmlPath);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return res.end(html);
-    }
-    return json(res, 404, { error: 'Frontend not found' });
+    res.writeHead(302, { 'Location': FRONTEND_URL });
+    return res.end();
   }
 
   // POST /api/register
@@ -443,16 +529,17 @@ async function handleRequest(req, res) {
 
     const api_key = 'ael_sk_' + crypto.randomBytes(24).toString('hex');
     try {
-      db.createAgent({ id: body.name, api_key, harness: body.harness, model: body.model });
+      db.createAgent({
+        id: body.name,
+        api_key,
+        harness: body.harness,
+        model: body.model,
+        display_name: body.name,
+      });
       return json(res, 201, { ok: true, agent_id: body.name, api_key });
     } catch (e) {
       if (e.message && e.message.includes('UNIQUE')) {
-        // Return existing agent's key so seed can reuse it
-        const existing = db.getAgent(body.name);
-        if (existing) {
-          return json(res, 409, { error: 'Agent name already taken', agent_id: body.name, api_key: existing.api_key });
-        }
-        return json(res, 409, { error: 'Agent name already taken' });
+        return json(res, 409, { error: 'Agent name already registered' });
       }
       console.error('[api] register error:', e.message);
       return json(res, 500, { error: e.message });
@@ -461,7 +548,7 @@ async function handleRequest(req, res) {
 
   // GET /api/challenges/recommended  (must come before /:id)
   if (req.method === 'GET' && pathname === '/api/challenges/recommended') {
-    const challenges = db.getAllChallenges();
+    const challenges = db.getAllChallenges().filter(ch => activeChallengeIds.has(ch.id));
     const counts     = db.getAttemptCounts();
     const stats      = db.getSolveStats();
     const sorted     = [...challenges].sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
@@ -470,9 +557,40 @@ async function handleRequest(req, res) {
 
   // GET /api/challenges
   if (req.method === 'GET' && pathname === '/api/challenges') {
-    const challenges = db.getAllChallenges();
+    const challenges = db.getAllChallenges().filter(ch => activeChallengeIds.has(ch.id));
     const stats      = db.getSolveStats();
     return json(res, 200, challenges.map(ch => buildChallengeEntry(ch, stats[ch.id])));
+  }
+
+  // GET /api/challenges/:id/fix
+  const chFixMatch = pathname.match(/^\/api\/challenges\/([^/]+)\/fix$/);
+  if (req.method === 'GET' && chFixMatch) {
+    const challengeId = chFixMatch[1];
+    const ch = db.getChallenge(challengeId);
+    if (!ch) return json(res, 404, { error: 'Not found' });
+
+    const apiKey = url.searchParams.get('api_key');
+    if (!apiKey) return json(res, 401, { error: 'api_key query param is required' });
+    const agent = db.getAgentByKey(apiKey);
+    if (!agent) return json(res, 401, { error: 'Invalid API key' });
+
+    const hasSubmitted = db.getSubmissionsByChallenge(challengeId).some(s => s.agent_id === agent.id);
+    if (!hasSubmitted) {
+      return json(res, 403, { error: 'Fix data is only available after your first submission on this challenge' });
+    }
+
+    const challengeFile = path.join(__dirname, '..', 'challenges-active', `${challengeId}.json`);
+    try {
+      const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
+      return json(res, 200, {
+        id: challengeId,
+        fixDiff: meta.fixDiff || '',
+        fixCommit: meta.fixCommit || '',
+        baseline_passing: meta.baseline_passing != null ? meta.baseline_passing : null,
+      });
+    } catch (_) {
+      return json(res, 404, { error: 'Challenge fix data not found' });
+    }
   }
 
   // GET /api/challenges/:id
@@ -483,18 +601,18 @@ async function handleRequest(req, res) {
     const stats = db.getSolveStats();
     const entry = buildChallengeEntry(ch, stats[ch.id]);
 
-    const challengeFile = path.join(__dirname, '..', 'challenges', `${chMatch[1]}.json`);
+    const challengeFile = path.join(__dirname, '..', 'challenges-active', `${chMatch[1]}.json`);
     let baseline_passing = null;
     let broken_by_bug = null;
     try {
       const meta = JSON.parse(fs.readFileSync(challengeFile, 'utf8'));
       entry.body      = meta.issue?.body || meta.body || '';
-      entry.fixDiff   = meta.fixDiff   || '';
-      entry.fixCommit = meta.fixCommit || '';
+      entry.repoUrl      = meta.repoUrl || meta.repo || '';
+      entry.buggyCommit  = meta.buggyCommit || '';
+      entry.testCommand  = meta.testCommand || meta.test_command || 'npm test';
       baseline_passing = meta.baseline_passing != null ? meta.baseline_passing : null;
       broken_by_bug    = meta.broken_by_bug    != null ? meta.broken_by_bug    : null;
     } catch (_) {}
-    entry.baseline_passing = baseline_passing;
     entry.broken_by_bug    = broken_by_bug;
 
     const subs = db.getSubmissionsByChallenge(chMatch[1]);
@@ -513,9 +631,8 @@ async function handleRequest(req, res) {
         tests_ok:     s.tests_ok     || 0,
         tests_total:  s.tests_total  || 0,
         tests_failed: s.tests_failed || 0,
-        baseline_passing: baseline_passing,
         broken_by_bug:    broken_by_bug,
-        agent_name:   agent ? agent.id : s.model,
+        agent_name:   agent ? (agent.display_name || agent.id) : s.model,
         created_at:   s.created_at,
       };
     });
@@ -528,8 +645,24 @@ async function handleRequest(req, res) {
     let body;
     try { body = await readBody(req); }
     catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    const validationError = validateSubmissionBody(body);
+    if (validationError) return json(res, 400, { error: validationError });
+
+    const agent = db.getAgentByKey(body.api_key);
+    if (!agent) return json(res, 401, { error: 'Invalid API key' });
+    if (body.agent_id !== agent.id) {
+      return json(res, 400, { error: 'agent_id does not match authenticated API key' });
+    }
+
+    const limit = checkAndTrackRateLimit(agent.id, getClientIp(req));
+    if (limit.limited) {
+      res.setHeader('Retry-After', String(limit.retryAfterSeconds));
+      return json(res, 429, { error: limit.message });
+    }
+
     try {
-      await processSubmission(body);
+      await processSubmission(body, agent);
       return json(res, 201, { ok: true });
     } catch (e) {
       const status = e.status || 500;
@@ -539,10 +672,19 @@ async function handleRequest(req, res) {
     }
   }
 
-  // GET /api/leaderboard
+  // GET /api/leaderboard (cached — only updates every 30s to prevent mid-rebuild flicker)
   if (req.method === 'GET' && pathname === '/api/leaderboard') {
-    const agents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
-    return json(res, 200, agents.map((a, i) => buildAgentEntry(a, i + 1, agents)));
+    const now = Date.now();
+    if (!leaderboardCache.data || now - leaderboardCache.updatedAt > 30000) {
+      const agents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
+      // Only update cache if we have a reasonable number of agents (rebuild not in progress)
+      if (agents.length >= (leaderboardCache.minAgents || 1) * 0.8 || !leaderboardCache.data) {
+        leaderboardCache.data = agents.map((a, i) => buildAgentEntry(a, i + 1, agents));
+        leaderboardCache.minAgents = Math.max(leaderboardCache.minAgents || 0, agents.length);
+        leaderboardCache.updatedAt = now;
+      }
+    }
+    return json(res, 200, leaderboardCache.data || []);
   }
 
   // GET /api/submissions/:id
@@ -557,7 +699,7 @@ async function handleRequest(req, res) {
     if (!sub) return json(res, 404, { error: 'Not found' });
 
     // Get challenge baseline for relative scoring
-    const chFile = path.join(__dirname, '..', 'challenges', `${sub.challenge_id}.json`);
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${sub.challenge_id}.json`);
     let blPass = null, blBroken = null;
     try {
       const meta = JSON.parse(fs.readFileSync(chFile, 'utf8'));
@@ -611,6 +753,36 @@ async function handleRequest(req, res) {
 
   // GET /api/agents/:id
   const agentMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (req.method === 'PATCH' && agentMatch) {
+    let body;
+    try { body = await readBody(req); }
+    catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    if (isMissingStringField(body && body.api_key)) {
+      return json(res, 400, { error: 'Missing required field: api_key' });
+    }
+    if (isMissingStringField(body && body.display_name)) {
+      return json(res, 400, { error: 'Missing required field: display_name' });
+    }
+
+    const displayName = String(body.display_name).trim();
+    if (!displayName) return json(res, 400, { error: 'display_name cannot be empty' });
+
+    const requestingAgent = db.getAgentByKey(body.api_key);
+    if (!requestingAgent) return json(res, 401, { error: 'Invalid API key' });
+    if (requestingAgent.id !== agentMatch[1]) {
+      return json(res, 403, { error: 'API key does not have permission to update this agent' });
+    }
+
+    const existing = db.getAgent(agentMatch[1]);
+    if (!existing) return json(res, 404, { error: 'Not found' });
+
+    db.setAgentDisplayName(existing.id, displayName);
+    leaderboardCache.data = null;
+
+    return json(res, 200, { ok: true, id: existing.id, display_name: displayName });
+  }
+
   if (req.method === 'GET' && agentMatch) {
     const agent = db.getAgent(agentMatch[1]);
     if (!agent) return json(res, 404, { error: 'Not found' });
@@ -636,7 +808,9 @@ async function handleRequest(req, res) {
 
     const configVersions = db.getConfigVersions(agent.id).map(cv => ({
       hash:         cv.agent_hash,
+      harness:      cv.harness,
       model:        cv.model,
+      config_files: cv.config_files,
       first_seen_at: cv.first_seen_at,
     }));
 
@@ -645,7 +819,7 @@ async function handleRequest(req, res) {
     const baselineCache = {};
     function getChallengeBaseline(challengeId) {
       if (baselineCache[challengeId] !== undefined) return baselineCache[challengeId];
-      const cFile = path.join(__dirname, '..', 'challenges', `${challengeId}.json`);
+      const cFile = path.join(__dirname, '..', 'challenges-active', `${challengeId}.json`);
       try {
         const meta = JSON.parse(fs.readFileSync(cFile, 'utf8'));
         baselineCache[challengeId] = {
@@ -658,8 +832,15 @@ async function handleRequest(req, res) {
       return baselineCache[challengeId];
     }
 
+    // Deduplicate: keep only the best pairwise-eligible submission per challenge.
     const allSubs = db.getSubmissionsByAgent(agent.id);
-    const matches = allSubs.map(sub => {
+    const bestByChallenge = {};
+    for (const s of allSubs) {
+      if (isPairwiseSubmissionExcluded(s)) continue;
+      bestByChallenge[s.challenge_id] = pickBetterSubmission(bestByChallenge[s.challenge_id], s);
+    }
+    const dedupedSubs = Object.values(bestByChallenge);
+    const matches = dedupedSubs.map(sub => {
       const bl = getChallengeBaseline(sub.challenge_id);
       const games = db.getGamesBySubmission(sub.id, agent.id).map(g => {
         const oppSub = db.getSubmissionById(g.opponent_submission_id);
@@ -698,11 +879,12 @@ async function handleRequest(req, res) {
 
     return json(res, 200, {
       id:             agent.id,
+      display_name:   agent.display_name || agent.id,
       rank,
       harness:        agent.harness,
       model:          agent.model,
       current_hash:   agent.current_hash,
-      elo:            Math.round(agent.rating),
+      elo:            Math.round(agent.rating - 2 * agent.rd),
       rd:             Math.round(agent.rd),
       played,
       wins,
@@ -725,7 +907,7 @@ async function handleRequest(req, res) {
 // ── importChallenges ──────────────────────────────────────────────────────────
 
 function importChallenges() {
-  const challengesDir = path.join(__dirname, '..', 'challenges');
+  const challengesDir = ACTIVE_DIR;
   if (!fs.existsSync(challengesDir)) return;
   const files = fs.readdirSync(challengesDir).filter(f => f.endsWith('.json'));
   let imported = 0;

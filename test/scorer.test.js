@@ -104,6 +104,32 @@ test('score() returns failure immediately when diff cannot be applied', async ()
     assert.equal(result.tests_passed, false, 'tests_passed should be false for bad diff');
     assert.equal(result.exit_code, 1, 'exit_code should be 1 for bad diff');
     assert.equal(result.time_seconds, 0, 'time_seconds should be 0 for bad diff');
+    assert.equal(result.test_error, 'DIFF_APPLY_FAILED', 'should surface apply failure');
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
+});
+
+test('score() can evaluate an already-patched repo without re-applying the diff', async () => {
+  const repoDir = makeTempRepo();
+  try {
+    const filePath = path.join(repoDir, 'hello.txt');
+    fs.appendFileSync(filePath, 'fix applied\n');
+    const diff = spawnSync('git', ['diff'], { cwd: repoDir, encoding: 'utf8' }).stdout;
+    assert.ok(diff.length > 0, 'diff should be non-empty');
+
+    const challenge = {
+      id: 'test-patch-already-applied',
+      repo: 'https://example.com/repo.git',
+      commit: 'abc123',
+      test_command: 'true',
+    };
+
+    const result = await score(diff, repoDir, challenge, null, { patchAlreadyApplied: true });
+
+    assert.equal(result.tests_passed, true, 'tests_passed should be true when repo already has patch');
+    assert.equal(result.exit_code, 0, 'exit_code should be 0 when repo already has patch');
+    assert.ok(result.diff_lines > 0, 'diff_lines should still be counted');
   } finally {
     fs.rmSync(repoDir, { recursive: true, force: true });
   }

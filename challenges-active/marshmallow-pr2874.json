@@ -5,7 +5,7 @@
   "issue": {
     "number": 2874,
     "title": "Fix: Case sensitivity in validator",
-    "body": ""
+    "body": "Fix #2870 \r\n\r\nThe URL validator lowercases the scheme parsed from the input URL, but stores the user-provided schemes parameter without any processing. This causes validation always fail when users provide uppercase or mixed-case schemes.\r\n\r\nI changed the lowercase the custom schemes in `URL.__init__` and added a corresponding test.\n\n--- Linked Issue #2870: `URL` validator treats custom schemes case-sensitively ---\n`marshmallow.validate.URL` lowercases the scheme parsed from the input, but it stores the user-provided schemes iterable as-is. When a caller supplies uppercase or mixed-case schemes (e.g. [\"A\"]), validation always fails: the parsed scheme becomes \"a\", which isn’t found in [\"A\"], and the validator raises ValidationError: \"Not a valid URL.\".\n\n```python\nfrom marshmallow.validate import URL\nfrom marshmallow import ValidationError\n\nvalidator = URL(schemes=[\"A\"])  # custom scheme in uppercase\n\nvalidator(\"A://example.com\")\n```\n\n```\nTraceback (most recent call last):\n  File \"/data/src/test.py\", line 6, in <module>\n    validator(\"A://example.com\")\n  File \"/home/hdd/miniconda3/envs/py312/lib/python3.12/site-packages/marshmallow/validate.py\", line 209, in __call__\n    raise ValidationError(message)\nmarshmallow.exceptions.ValidationError: Not a valid URL.\n```\n\n> Note: This issue was identified by an automated testing tool for academic research and manually verified. If you have any concerns about this type of reporting, please let me know, and I will adjust my workflow accordingly."
   },
   "pr": {
     "number": 2874,

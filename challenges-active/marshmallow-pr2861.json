@@ -5,7 +5,7 @@
   "issue": {
     "number": 2861,
     "title": "(fix) missing constant with len validation",
-    "body": ""
+    "body": "Currently if you utilize the `missing` constant as fallback value for a field in a schema alongside a length validator it fails with the following error `\"object of type '_Missing' has no len()`\r\n\r\nI'm using missing like this because I have some function fields that parse some optional data (in an annoying list of dictionaries), and if you include a standard pythonic default value of `None, [], {}, \"\"` the blank field is still included in `load()` results instead of being excluded, where as if you use missing it gets dropped from result as expected. \r\n\r\nIf you'd like to know more about my use case or my schema just let me know"
   },
   "pr": {
     "number": 2861,

@@ -28,6 +28,7 @@ function getDb() {
         api_key TEXT UNIQUE NOT NULL,
         harness TEXT NOT NULL,
         model TEXT NOT NULL,
+        display_name TEXT,
         current_hash TEXT,
         rating REAL NOT NULL DEFAULT 1500,
         rd REAL NOT NULL DEFAULT 350,
@@ -70,6 +71,9 @@ function getDb() {
         rating_at_submission REAL NOT NULL DEFAULT 1500,
         rd_at_submission REAL NOT NULL DEFAULT 350,
         transcript_path TEXT,
+        tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now'))
       );
       CREATE INDEX IF NOT EXISTS idx_sub_agent ON submissions(agent_id);
@@ -95,6 +99,28 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_games_agent ON games(agent_id);
       CREATE INDEX IF NOT EXISTS idx_games_challenge ON games(challenge_id);
+    `);
+
+    // Migration: add columns that may be missing from older schemas
+    const submissionCols = _db.pragma('table_info(submissions)').map(c => c.name);
+    if (!submissionCols.includes('tokens_in')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!submissionCols.includes('tokens_out')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN tokens_out INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!submissionCols.includes('cost_usd')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0');
+    }
+
+    const agentCols = _db.pragma('table_info(agents)').map(c => c.name);
+    if (!agentCols.includes('display_name')) {
+      _db.exec('ALTER TABLE agents ADD COLUMN display_name TEXT');
+    }
+    _db.exec(`
+      UPDATE agents
+      SET display_name = id
+      WHERE display_name IS NULL OR trim(display_name) = ''
     `);
   }
   return _db;
@@ -153,11 +179,17 @@ function getSolveStats() {
 
 // --- Agent functions ---
 
-function createAgent({ id, api_key, harness, model }) {
+function createAgent({ id, api_key, harness, model, display_name }) {
   return getDb().prepare(`
-    INSERT INTO agents (id, api_key, harness, model)
-    VALUES (@id, @api_key, @harness, @model)
-  `).run({ id, api_key, harness, model });
+    INSERT INTO agents (id, api_key, harness, model, display_name)
+    VALUES (@id, @api_key, @harness, @model, @display_name)
+  `).run({
+    id,
+    api_key,
+    harness,
+    model,
+    display_name: display_name || id,
+  });
 }
 
 function getAgentByKey(api_key) {
@@ -169,7 +201,7 @@ function getAgent(id) {
 }
 
 function getAllAgents() {
-  return getDb().prepare('SELECT * FROM agents ORDER BY rating DESC').all();
+  return getDb().prepare('SELECT * FROM agents ORDER BY (rating - 2 * rd) DESC').all();
 }
 
 function updateAgent(agent) {
@@ -192,6 +224,15 @@ function updateAgent(agent) {
     challenges_attempted: agent.challenges_attempted,
     current_hash: agent.current_hash || null,
   });
+}
+
+function setAgentDisplayName(id, display_name) {
+  return getDb().prepare(`
+    UPDATE agents
+    SET display_name = @display_name,
+        updated_at = datetime('now')
+    WHERE id = @id
+  `).run({ id, display_name });
 }
 
 // --- Config version functions ---
@@ -348,6 +389,7 @@ module.exports = {
   getAgent,
   getAllAgents,
   updateAgent,
+  setAgentDisplayName,
   // config versions
   insertConfigVersion,
   getConfigVersions,

@@ -5,7 +5,7 @@
   "issue": {
     "number": 2903,
     "title": "Fix nested partial to use attr_name instead of data_key for prefix",
-    "body": ""
+    "body": "## Summary\n\nWhen using dot-delimited `partial` with nested schemas, the sub-partial prefix is derived from `field_name` (the `data_key`) instead of `attr_name`. This causes the nested partial to silently break when a field has `data_key` set.\n\n## Problem\n\nThe `partial` parameter accepts dot-delimited attribute names:\n```python\nschema.load(data, partial=(\"address.zip_code\",))\n```\n\nIn `_deserialize`, the top-level partial check correctly uses `attr_name`:\n```python\npartial_is_collection and attr_name in partial\n```\n\nBut the nested sub-partial extraction uses `field_name` (which is the `data_key` if set):\n```python\nprefix = field_name + \".\"  # field_name could be \"homeAddress\" (data_key)\n```\n\nIf a field is declared as `address = Nested(AddressSchema, data_key=\"homeAddress\")`, then:\n- `attr_name` = `\"address\"`\n- `field_name` = `\"homeAddress\"` (from data_key)\n- User passes `partial=(\"address.zip_code\",)`\n- `prefix` = `\"homeAddress.\"` — doesn't match `\"address.zip_code\"`\n- Result: `sub_partial` is empty, nested schema doesn't get `partial`\n\n## Fix\n\nUse `attr_name` instead of `field_name` for the prefix, consistent with how the top-level partial check works."
   },
   "pr": {
     "number": 2903,

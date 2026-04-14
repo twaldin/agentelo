@@ -5,7 +5,7 @@
   "issue": {
     "number": 334,
     "title": "[fix] comma option enabled value parsing to use strings only",
-    "body": ""
+    "body": "in case of comma enabled .. parsing should check for strings only when using indexOf(',')\r\n\r\nfixes: #328\n\n--- Linked Issue #328: parse: comma: true assumes string values limits use of decoder ---\nIf you want to decode numeric values as numbers, through the use of the decoder option, you could pass in the following decoder function:\r\n\r\n```javascript\r\ndecoder(value) {\r\n            if (/^(\\d+|\\d*\\.\\d+)$/.test(value)) {\r\n              return parseFloat(value);\r\n            }\r\n            return value;\r\n          }\r\n```\r\nHowever, when combined with comma: true, you will get an indexOf error due to the fact that the values have been decoded to numbers before being parsed by the code splitting them up via commas, thus breaking this parsing since it assumes all values are strings.\r\n\r\nThis could associated with splitting on commas should be run before decoding takes place, or there needs to be a check to see whether the value being checked for commas is actually a string."
   },
   "pr": {
     "number": 334,
@@ -14,7 +14,7 @@
   "buggyCommit": "670254b63fc7770894eed9a0f020bc0b72698ce3",
   "fixCommit": "698b683d7382721c1c32c1cdcb97ca0b16917cf9",
   "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex 04493e1d..53c30dbc 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -83,7 +83,7 @@ var parseValues = function parseQueryStringValues(str, options) {\n             val = interpretNumericEntities(val);\n         }\n \n-        if (val && options.comma && val.indexOf(',') > -1) {\n+        if (val && typeof val === 'string' && options.comma && val.indexOf(',') > -1) {\n             val = val.split(',');\n         }\n \ndiff --git a/test/parse.js b/test/parse.js\nindex 9ea38dd3..349f14b2 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -400,6 +400,20 @@ test('parse()', function (t) {\n         st.end();\n     });\n \n+    t.test('use number decoder, parses string that has one number with comma option enabled', function (st) {\n+        var decoder = function (str, defaultDecoder, charset, type) {\n+            if (!isNaN(Number(str))) {\n+                return parseFloat(str);\n+            }\n+            return defaultDecoder(str, defaultDecoder, charset, type);\n+        };\n+\n+        st.deepEqual(qs.parse('foo=1', { comma: true, decoder: decoder }), { foo: 1 });\n+        st.deepEqual(qs.parse('foo=0', { comma: true, decoder: decoder }), { foo: 0 });\n+\n+        st.end();\n+    });\n+\n     t.test('parses an object in dot notation', function (st) {\n         var input = {\n             'user.name': { 'pop[bob]': 3 },\n",
-  "testCommand": "npm test",
+  "testCommand": "node test",
   "baseline_passing": 405,
   "fix_passing": 407,
   "broken_by_bug": 2,
