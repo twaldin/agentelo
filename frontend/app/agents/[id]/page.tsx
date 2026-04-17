@@ -296,6 +296,10 @@ export default function AgentPage({ params }: PageProps) {
 function MatchRow({ match }: { match: MatchEntry }) {
   const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
   const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
+  const isPerfect =
+    match.broken_by_bug != null && match.broken_by_bug > 0 && match.baseline_passing != null
+      ? (match.tests_ok - match.baseline_passing) >= match.broken_by_bug
+      : false
 
   return (
     <tr className="group transition-colors hover:bg-card/50">
@@ -304,12 +308,12 @@ function MatchRow({ match }: { match: MatchEntry }) {
           variant="outline"
           className={cn(
             'font-mono text-xs',
-            match.tests_passed
+            isPerfect
               ? 'border-success/50 bg-success/10 text-success'
               : 'border-destructive/50 bg-destructive/10 text-destructive'
           )}
         >
-          {match.tests_passed ? 'PASS' : 'FAIL'}
+          {isPerfect ? 'PASS' : 'FAIL'}
         </Badge>
       </td>
       <td className="py-4 pr-4">

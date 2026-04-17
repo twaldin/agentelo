@@ -5,7 +5,7 @@
   "issue": {
     "number": 426,
     "title": "[Fix] `stringify`: actually fix cyclic references",
-    "body": "With all the testing, I think this is the ultimate solution for circular references.\r\n\r\nFixes #403.\n\n--- Linked Issue #403: qs.stringify Uncaught RangeError: Cyclic object value ---\nvar qs = require('qs');\r\nvar a = ['a'];\r\nqs.stringify({x:a,y:a});\r\n\r\n-> Uncaught RangeError: Cyclic object value"
+    "body": ""
   },
   "pr": {
     "number": 426,
@@ -14,10 +14,10 @@
   "buggyCommit": "24c19cc7164b4a18b1c0190fa8466cd93f18ae92",
   "fixCommit": "9aee773432b80bd50441f7ac1b64a86a7e00ccca",
   "fixDiff": "diff --git a/lib/stringify.js b/lib/stringify.js\nindex fa329304..c5990499 100644\n--- a/lib/stringify.js\n+++ b/lib/stringify.js\n@@ -56,6 +56,8 @@ var isNonNullishPrimitive = function isNonNullishPrimitive(v) {\n         || typeof v === 'bigint';\n };\n \n+var sentinel = {};\n+\n var stringify = function stringify(\n     object,\n     prefix,\n@@ -75,8 +77,23 @@ var stringify = function stringify(\n ) {\n     var obj = object;\n \n-    if (sideChannel.has(object)) {\n-        throw new RangeError('Cyclic object value');\n+    var tmpSc = sideChannel;\n+    var step = 0;\n+    var findFlag = false;\n+    while ((tmpSc = tmpSc.get(sentinel)) !== undefined && !findFlag) {\n+        // Where object last appeared in the ref tree\n+        var pos = tmpSc.get(object);\n+        step += 1;\n+        if (typeof pos !== 'undefined') {\n+            if (pos === step) {\n+                throw new RangeError('Cyclic object value');\n+            } else {\n+                findFlag = true; // Break while\n+            }\n+        }\n+        if (typeof tmpSc.get(sentinel) === 'undefined') {\n+            step = 0;\n+        }\n     }\n \n     if (typeof filter === 'function') {\n@@ -145,8 +162,9 @@ var stringify = function stringify(\n             ? typeof generateArrayPrefix === 'function' ? generateArrayPrefix(prefix, key) : prefix\n             : prefix + (allowDots ? '.' + key : '[' + key + ']');\n \n-        sideChannel.set(object, true);\n+        sideChannel.set(object, step);\n         var valueSideChannel = getSideChannel();\n+        valueSideChannel.set(sentinel, sideChannel);\n         pushToArray(values, stringify(\n             value,\n             keyPrefix,\ndiff --git a/test/stringify.js b/test/stringify.js\nindex 9750594e..a3800aac 100644\n--- a/test/stringify.js\n+++ b/test/stringify.js\n@@ -454,7 +454,7 @@ test('stringify()', function (t) {\n \n         st['throws'](\n             function () { qs.stringify({ 'foo[bar]': 'baz', 'foo[baz]': a }); },\n-            RangeError,\n+            /RangeError: Cyclic object value/,\n             'cyclic values throw'\n         );\n \n@@ -464,10 +464,16 @@ test('stringify()', function (t) {\n         circular.a = circular;\n         st['throws'](\n             function () { qs.stringify(circular); },\n-            RangeError,\n+            /RangeError: Cyclic object value/,\n             'cyclic values throw'\n         );\n \n+        var arr = ['a'];\n+        st.doesNotThrow(\n+            function () { qs.stringify({ x: arr, y: arr }); },\n+            'non-cyclic values do not throw'\n+        );\n+\n         st.end();\n     });\n \n",
-  "testCommand": "npx nyc tape \"test/**/*.js\"",
-  "baseline_passing": 449,
+  "testCommand": "npm test",
+  "baseline_passing": 451,
   "fix_passing": 452,
-  "broken_by_bug": 3,
+  "broken_by_bug": 1,
   "difficulty": {
     "filesChanged": 2,
     "linesAdded": 29,
