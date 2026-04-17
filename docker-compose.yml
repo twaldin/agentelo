@@ -17,8 +17,12 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "10001:10001"
+    # Bind to loopback only — nginx on the host reaches this, not the public internet
+    ports:
+      - "127.0.0.1:4000:4000"
     networks:
       - internal
+      - external
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/leaderboard"]
       interval: 30s
