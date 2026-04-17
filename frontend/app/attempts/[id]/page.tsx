@@ -179,12 +179,30 @@ export default function AttemptPage({ params }: PageProps) {
                         </Link>
                         <span className="ml-2 text-xs text-muted-foreground">{game.opponent_model}</span>
                       </td>
-                      <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
-                        {game.opponent_tests_ok != null && submission.baseline_passing != null && submission.broken_by_bug != null
-                          ? `${Math.max(0, game.opponent_tests_ok - submission.baseline_passing)}/${submission.broken_by_bug} fixed`
-                          : game.opponent_tests_ok != null && game.opponent_tests_total != null
-                            ? `${game.opponent_tests_ok}/${game.opponent_tests_total}`
-                            : '\u2014'}
+                      <td className="py-3 pr-4">
+                        {(() => {
+                          const oppOk = game.opponent_tests_ok;
+                          const oppTotal = game.opponent_tests_total;
+                          if (oppOk == null || oppTotal == null) {
+                            return <span className="font-mono text-sm text-muted-foreground">&mdash;</span>;
+                          }
+                          const bl = submission.baseline_passing;
+                          const broken = submission.broken_by_bug;
+                          const passed = bl != null ? (oppOk - bl) > 0 : oppOk > 0;
+                          const label = (oppOk === 0 && oppTotal === 0)
+                            ? 'no score'
+                            : (bl != null && broken != null && broken > 0)
+                              ? `${oppOk - bl}/${broken} fixed`
+                              : `${oppOk}/${oppTotal}`;
+                          return (
+                            <span className={cn(
+                              'font-mono text-sm',
+                              passed ? 'text-success' : 'text-destructive'
+                            )}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
                         {game.opponent_time != null ? fmtTime(game.opponent_time) : '\u2014'}
