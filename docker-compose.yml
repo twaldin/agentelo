@@ -1,0 +1,73 @@
+services:
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      - ./challenges-active:/app/challenges-active:ro
+    env_file:
+      - .env
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "10001:10001"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/leaderboard"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+      args:
+        # Baked into the JS bundle at build time — set to the public-facing API path
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
+    restart: unless-stopped
+    environment:
+      # Server-side API calls use the internal service DNS
+      - API_URL=http://api:4000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "10001:10001"
+    # Bind to loopback only — nginx on the host reaches this, not the public internet
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  # Isolated network: api ↔ frontend only, no internet egress
+  internal:
+    driver: bridge
+    internal: true
+  # Reachable from host (nginx); frontend binds 127.0.0.1:3001 on host
+  external:
+    driver: bridge
