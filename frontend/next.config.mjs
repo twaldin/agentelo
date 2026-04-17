@@ -5,6 +5,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
   turbopack: {
     root: __dirname,
   },

@@ -16,6 +16,7 @@ const PORT       = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const ACTIVE_DIR = path.join(__dirname, '..', 'challenges-active');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
+const API_PATH_PREFIX = process.env.API_PATH_PREFIX || '';
 
 const ALLOWED_ORIGINS_STRICT = process.env.ALLOWED_ORIGINS_STRICT === 'true';
 const ALLOWED_ORIGINS_RAW = process.env.ALLOWED_ORIGINS || '*';
@@ -717,7 +718,10 @@ async function verificationWorker() {
 
 async function handleRequest(req, res) {
   const url      = new URL(req.url, `http://localhost:${PORT}`);
-  const pathname = url.pathname;
+  let pathname = url.pathname;
+  if (API_PATH_PREFIX && pathname.startsWith(API_PATH_PREFIX)) {
+    pathname = pathname.slice(API_PATH_PREFIX.length) || '/';
+  }
   const corsOrigin = resolveCorsOrigin(req);
 
   res.setHeader('Access-Control-Allow-Origin', corsOrigin);

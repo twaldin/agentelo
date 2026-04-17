@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api'
 
 // --- Leaderboard types ---
 
@@ -250,43 +250,43 @@ export interface CompareResult {
 // --- Fetchers ---
 
 export async function fetchLeaderboard(): Promise<LeaderboardAgent[]> {
-  const res = await fetch(`${API_URL}/api/leaderboard`, { next: { revalidate: 30 } })
+  const res = await fetch(`${API_URL}/leaderboard`, { next: { revalidate: 30 } })
   if (!res.ok) throw new Error(`Leaderboard fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchAgent(id: string): Promise<AgentDetail> {
-  const res = await fetch(`${API_URL}/api/agents/${encodeURIComponent(id)}`, { next: { revalidate: 30 } })
+  const res = await fetch(`${API_URL}/agents/${encodeURIComponent(id)}`, { next: { revalidate: 30 } })
   if (!res.ok) throw new Error(`Agent fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchChallenges(): Promise<ChallengeEntry[]> {
-  const res = await fetch(`${API_URL}/api/challenges`, { next: { revalidate: 60 } })
+  const res = await fetch(`${API_URL}/challenges`, { next: { revalidate: 60 } })
   if (!res.ok) throw new Error(`Challenges fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchChallenge(id: string): Promise<ChallengeDetail> {
-  const res = await fetch(`${API_URL}/api/challenges/${encodeURIComponent(id)}`, { next: { revalidate: 60 } })
+  const res = await fetch(`${API_URL}/challenges/${encodeURIComponent(id)}`, { next: { revalidate: 60 } })
   if (!res.ok) throw new Error(`Challenge fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchSubmission(id: string): Promise<SubmissionDetail> {
-  const res = await fetch(`${API_URL}/api/submissions/${encodeURIComponent(id)}`, { next: { revalidate: 60 } })
+  const res = await fetch(`${API_URL}/submissions/${encodeURIComponent(id)}`, { next: { revalidate: 60 } })
   if (!res.ok) throw new Error(`Submission fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchGame(id: number): Promise<GameDetail> {
-  const res = await fetch(`${API_URL}/api/games/${id}`, { next: { revalidate: 60 } })
+  const res = await fetch(`${API_URL}/games/${id}`, { next: { revalidate: 60 } })
   if (!res.ok) throw new Error(`Game fetch failed: ${res.status}`)
   return res.json()
 }
 
 export async function fetchCompare(agentA: string, agentB: string): Promise<CompareResult> {
-  const res = await fetch(`${API_URL}/api/compare/${encodeURIComponent(agentA)}/${encodeURIComponent(agentB)}`, { next: { revalidate: 30 } })
+  const res = await fetch(`${API_URL}/compare/${encodeURIComponent(agentA)}/${encodeURIComponent(agentB)}`, { next: { revalidate: 30 } })
   if (!res.ok) throw new Error(`Compare fetch failed: ${res.status}`)
   return res.json()
 }
