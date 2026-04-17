@@ -1,0 +1,43 @@
+# Version control
+.git
+.github
+
+# Node dependencies (rebuilt inside Docker)
+node_modules
+frontend/node_modules
+
+# Next.js build cache and output
+frontend/.next
+
+# Runtime data — mounted as volumes, never baked in
+agentelo.db
+agentelo.db-wal
+agentelo.db-shm
+data/
+results/
+.cache/
+
+# Secrets — loaded via env_file at runtime, never in image
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Tests — not needed at runtime (core/ source IS needed; only exclude test suites)
+test/
+tests/
+
+# Logs and temp files
+*.log
+*.tmp
+tmp/
+
+# Development-only docs and planning
+.planning/
+docs/
+
+# Misc
+README.md
+*.md
+!CLAUDE.md
