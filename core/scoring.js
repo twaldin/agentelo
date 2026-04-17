@@ -156,9 +156,12 @@ function pickBetterSubmission(current, candidate) {
  *  2. 0-diff submissions always lose to diff-producing submissions
  *  3. Two 0-diff submissions draw
  *  4. More fixed tests wins (intelligence)
- *  5. Same fixed tests → lower cost wins (efficiency)
- *  6. No cost data → faster time wins (proxy for efficiency)
- *  7. All else equal → draw
+ *  5. Same fixed tests + both have cost → cheaper wins (efficiency)
+ *  6. All else equal → draw
+ *
+ * NOTE: Time is deliberately NOT used as a tiebreaker. Sub-second wall-clock
+ * differences are noisy and were previously letting agents win tied matchups
+ * by being fast rather than better.
  */
 function computeScore(a = {}, b = {}, options = {}) {
   const baselinePassing = options.baseline_passing ?? 0;
@@ -175,23 +178,14 @@ function computeScore(a = {}, b = {}, options = {}) {
   if (aFixed > bFixed) return 1;
   if (aFixed < bFixed) return 0;
 
-  // Same tests fixed — tiebreak on efficiency
+  // Same tests fixed — tiebreak on cost only when BOTH have cost data.
+  // Otherwise draw (time is not a reliable tiebreaker — see note above).
   const aCost = a.cost_usd || 0;
   const bCost = b.cost_usd || 0;
 
   if (aCost > 0 && bCost > 0) {
-    // Both have cost data — cheaper wins
     if (aCost < bCost) return 1;
     if (bCost < aCost) return 0;
-  }
-
-  // No cost data (or identical cost) — faster wins
-  const aTime = a.agent_time_seconds || 0;
-  const bTime = b.agent_time_seconds || 0;
-
-  if (aTime > 0 && bTime > 0) {
-    if (aTime < bTime) return 1;
-    if (bTime < aTime) return 0;
   }
 
   return 0.5;
