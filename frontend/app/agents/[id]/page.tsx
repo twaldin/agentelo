@@ -119,10 +119,22 @@ export default function AgentPage({ params }: PageProps) {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
-            <span className="font-mono text-2xl font-bold text-primary">#{agent.rank}</span>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Global</p>
-          </div>
+          {agent.rank !== null ? (
+            <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
+              <span className="font-mono text-2xl font-bold text-primary">#{agent.rank}</span>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Global</p>
+            </div>
+          ) : (
+            <div
+              className="rounded-lg border border-muted-foreground/30 bg-muted/20 px-4 py-2 text-center"
+              title={`Needs ${(agent.placement?.required ?? 10) - (agent.placement?.attempted ?? 0)} more challenges to be ranked`}
+            >
+              <span className="font-mono text-2xl font-bold text-muted-foreground">
+                {agent.placement?.attempted ?? 0}/{agent.placement?.required ?? 10}
+              </span>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Placement</p>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <input
               type="text"

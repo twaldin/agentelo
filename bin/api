@@ -36,6 +36,11 @@ const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
 const SUBMISSION_LIMIT_IP_PER_DAY = 100;
 const REGISTER_LIMIT_IP_PER_DAY = 3;
 
+// Agents must attempt this many distinct challenges to appear on the leaderboard.
+// Under this threshold they're in "placement" — ELO still tracked on their page,
+// but they're not ranked (prevents low-sample noise from dominating the top).
+const PLACEMENT_THRESHOLD = 10;
+
 if (ALLOWED_ORIGINS_STRICT && ALLOWED_ORIGINS.includes('*')) {
   process.stderr.write('[agentelo-api] FATAL: ALLOWED_ORIGINS_STRICT=true but ALLOWED_ORIGINS is wildcard or unset — refusing to start\n');
   process.exit(1);
@@ -963,7 +968,7 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && pathname === '/api/leaderboard') {
     const now = Date.now();
     if (!leaderboardCache.data || now - leaderboardCache.updatedAt > 30000) {
-      const agents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
+      const agents = db.getAllAgents().filter(a => a.challenges_attempted >= PLACEMENT_THRESHOLD);
       // Only update cache if we have a reasonable number of agents (rebuild not in progress)
       if (agents.length >= (leaderboardCache.minAgents || 1) * 0.8 || !leaderboardCache.data) {
         leaderboardCache.data = agents.map((a, i) => buildAgentEntry(a, i + 1, agents));
@@ -1088,9 +1093,15 @@ async function handleRequest(req, res) {
     const agent = db.getAgent(agentMatch[1]);
     if (!agent) return json(res, 404, { error: 'Not found' });
 
-    // Rank only against agents who have played (same filter as leaderboard)
-    const allAgents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
-    const rank      = allAgents.findIndex(a => a.id === agent.id) + 1;
+    // Rank only against qualified agents (same filter as leaderboard).
+    // Placement agents (under threshold) return rank=null and a placement object.
+    const qualified = db.getAllAgents().filter(a => a.challenges_attempted >= PLACEMENT_THRESHOLD);
+    const isQualified = (agent.challenges_attempted || 0) >= PLACEMENT_THRESHOLD;
+    const rank = isQualified ? (qualified.findIndex(a => a.id === agent.id) + 1) : null;
+    const placement = isQualified ? null : {
+      attempted: agent.challenges_attempted || 0,
+      required: PLACEMENT_THRESHOLD,
+    };
     // Compute stats from actual game data (same source as leaderboard)
     const allGames = db.getGamesByAgent(agent.id);
     const played   = allGames.length;
@@ -1198,6 +1209,7 @@ async function handleRequest(req, res) {
       id:             agent.id,
       display_name:   agent.display_name || agent.id,
       rank,
+      placement,
       harness:        agent.harness,
       model:          agent.model,
       current_hash:   agent.current_hash,
@@ -1286,9 +1298,15 @@ async function handleRequest(req, res) {
     if (!agentA) return json(res, 404, { error: `Agent not found: ${compareMatch[1]}` });
     if (!agentB) return json(res, 404, { error: `Agent not found: ${compareMatch[2]}` });
 
-    const allAgents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
-    const rankA = allAgents.findIndex(a => a.id === agentA.id) + 1;
-    const rankB = allAgents.findIndex(a => a.id === agentB.id) + 1;
+    const qualified = db.getAllAgents().filter(a => a.challenges_attempted >= PLACEMENT_THRESHOLD);
+    const rankOf = (ag) => ((ag.challenges_attempted || 0) >= PLACEMENT_THRESHOLD)
+      ? (qualified.findIndex(a => a.id === ag.id) + 1)
+      : null;
+    const placementOf = (ag) => ((ag.challenges_attempted || 0) >= PLACEMENT_THRESHOLD)
+      ? null
+      : { attempted: ag.challenges_attempted || 0, required: PLACEMENT_THRESHOLD };
+    const rankA = rankOf(agentA);
+    const rankB = rankOf(agentB);
 
     const gamesA = db.getGamesByAgent(agentA.id);
     const gamesB = db.getGamesByAgent(agentB.id);
@@ -1300,6 +1318,7 @@ async function handleRequest(req, res) {
       model:   agent.model,
       elo:     Math.round(agent.rating),
       rank,
+      placement: placementOf(agent),
       played:  games.length,
       wins:    games.filter(g => g.score === 1).length,
       losses:  games.filter(g => g.score === 0).length,

@@ -68,10 +68,16 @@ export interface MatchEntry {
   total_delta: number
 }
 
+export interface Placement {
+  attempted: number
+  required: number
+}
+
 export interface AgentDetail {
   id: string
   display_name?: string | null
-  rank: number
+  rank: number | null
+  placement: Placement | null
   harness: string
   model: string
   current_hash: string | null
@@ -211,7 +217,8 @@ export interface CompareAgentStats {
   harness: string
   model: string
   elo: number
-  rank: number
+  rank: number | null
+  placement: Placement | null
   played: number
   wins: number
   losses: number

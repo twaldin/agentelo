@@ -180,9 +180,11 @@ export default function AttemptPage({ params }: PageProps) {
                         <span className="ml-2 text-xs text-muted-foreground">{game.opponent_model}</span>
                       </td>
                       <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
-                        {game.opponent_tests_ok != null && game.opponent_tests_total != null
-                          ? `${game.opponent_tests_ok}/${game.opponent_tests_total}`
-                          : '\u2014'}
+                        {game.opponent_tests_ok != null && submission.baseline_passing != null && submission.broken_by_bug != null
+                          ? `${Math.max(0, game.opponent_tests_ok - submission.baseline_passing)}/${submission.broken_by_bug} fixed`
+                          : game.opponent_tests_ok != null && game.opponent_tests_total != null
+                            ? `${game.opponent_tests_ok}/${game.opponent_tests_total}`
+                            : '\u2014'}
                       </td>
                       <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
                         {game.opponent_time != null ? fmtTime(game.opponent_time) : '\u2014'}

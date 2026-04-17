@@ -106,9 +106,10 @@ export default function ComparePage({ params }: PageProps) {
     },
     {
       label: 'Rank',
-      aVal: `#${a.rank}`,
-      bVal: `#${b.rank}`,
-      winner: statWinner(a.rank, b.rank, true),
+      aVal: a.rank !== null ? `#${a.rank}` : 'placement',
+      bVal: b.rank !== null ? `#${b.rank}` : 'placement',
+      // Placement agents can't be compared on rank — call it a tie.
+      winner: (a.rank === null || b.rank === null) ? 'tie' : statWinner(a.rank, b.rank, true),
     },
     {
       label: 'Win Rate',
