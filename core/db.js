@@ -436,6 +436,37 @@ function getPreviousSnapshots(agentId, beforeDate) {
   ).get(agentId, beforeDate) || null;
 }
 
+// --- Rate limit functions ---
+
+function getRateLimit(bucketKey, windowDay) {
+  const row = getDb().prepare(
+    'SELECT count FROM rate_limits WHERE bucket_key = ? AND window_day = ?'
+  ).get(bucketKey, windowDay);
+  return row ? row.count : 0;
+}
+
+function incrRateLimit(bucketKey, windowDay) {
+  const db = getDb();
+  db.prepare(
+    'INSERT OR IGNORE INTO rate_limits (bucket_key, window_day, count) VALUES (?, ?, 0)'
+  ).run(bucketKey, windowDay);
+  db.prepare(
+    'UPDATE rate_limits SET count = count + 1 WHERE bucket_key = ? AND window_day = ?'
+  ).run(bucketKey, windowDay);
+}
+
+// --- Invite code functions ---
+
+function getInviteCode(code) {
+  return getDb().prepare('SELECT * FROM invite_codes WHERE code = ?').get(code) || null;
+}
+
+function markInviteCodeUsed(code, agentId) {
+  getDb().prepare(
+    "UPDATE invite_codes SET used_by_agent = ?, used_at = datetime('now') WHERE code = ?"
+  ).run(agentId, code);
+}
+
 module.exports = {
   getDb,
   // challenges
@@ -471,4 +502,10 @@ module.exports = {
   getSubmissionById,
   getSubmissionsByAgent,
   getSubmissionsByChallenge,
+  // rate limits
+  getRateLimit,
+  incrRateLimit,
+  // invite codes
+  getInviteCode,
+  markInviteCodeUsed,
 };

@@ -14,19 +14,31 @@ const PORT       = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const ACTIVE_DIR = path.join(__dirname, '..', 'challenges-active');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3001';
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
-  .split(',')
-  .map(origin => origin.trim())
-  .filter(Boolean);
+
+const ALLOWED_ORIGINS_STRICT = process.env.ALLOWED_ORIGINS_STRICT === 'true';
+const ALLOWED_ORIGINS_RAW = process.env.ALLOWED_ORIGINS || '*';
+const ALLOWED_ORIGINS = ALLOWED_ORIGINS_RAW.split(',').map(o => o.trim()).filter(Boolean);
+
+const TRUSTED_PROXIES = new Set(
+  (process.env.TRUSTED_PROXIES ?? '127.0.0.1,::1').split(',').map(ip => ip.trim()).filter(Boolean)
+);
+
+const REGISTRATION_ENABLED = process.env.REGISTRATION_ENABLED === 'true';
+const INVITE_CODES_ENV = (process.env.INVITE_CODES || '').split(',').map(c => c.trim()).filter(Boolean);
+
 const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
 const SUBMISSION_LIMIT_IP_PER_DAY = 100;
+const REGISTER_LIMIT_IP_PER_DAY = 3;
+
+if (ALLOWED_ORIGINS_STRICT && ALLOWED_ORIGINS.includes('*')) {
+  process.stderr.write('[agentelo-api] FATAL: ALLOWED_ORIGINS_STRICT=true but ALLOWED_ORIGINS is wildcard or unset — refusing to start\n');
+  process.exit(1);
+}
+if (ALLOWED_ORIGINS.includes('*')) {
+  process.stderr.write('[agentelo-api] WARNING: ALLOWED_ORIGINS is wildcard (*) — all origins allowed. Set ALLOWED_ORIGINS for production.\n');
+}
 
 const leaderboardCache = { data: null, minAgents: 0 };
-const submissionRateLimits = {
-  day: new Date().toISOString().slice(0, 10),
-  byAgent: new Map(),
-  byIp: new Map(),
-};
 
 // Build set of active challenge IDs from challenges-active/ directory
 function getActiveChallengeIds() {
@@ -108,20 +120,15 @@ function validateSubmissionBody(body) {
 }
 
 function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
+  const raw = (req.socket && req.socket.remoteAddress) || '';
+  const remote = raw.startsWith('::ffff:') ? raw.slice(7) : raw;
+  if (TRUSTED_PROXIES.has(remote) || TRUSTED_PROXIES.has(raw)) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) {
+      return forwarded.split(',')[0].trim();
+    }
   }
-  const ip = req.socket && req.socket.remoteAddress ? req.socket.remoteAddress : 'unknown';
-  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
-}
-
-function resetDailyRateLimitState() {
-  const day = new Date().toISOString().slice(0, 10);
-  if (submissionRateLimits.day === day) return;
-  submissionRateLimits.day = day;
-  submissionRateLimits.byAgent.clear();
-  submissionRateLimits.byIp.clear();
+  return remote || 'unknown';
 }
 
 function secondsUntilNextUtcDay() {
@@ -132,38 +139,31 @@ function secondsUntilNextUtcDay() {
 }
 
 function checkAndTrackRateLimit(agentId, ip) {
-  resetDailyRateLimitState();
-
   // Bypass rate limits for localhost (seeding)
   if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') {
     return { limited: false };
   }
 
-  const byAgent = submissionRateLimits.byAgent.get(agentId) || [];
-  if (byAgent.length >= SUBMISSION_LIMIT_AGENT_PER_DAY) {
-    return {
-      limited: true,
-      message: `Agent daily submission limit exceeded (${SUBMISSION_LIMIT_AGENT_PER_DAY}/day)`,
-      retryAfterSeconds: secondsUntilNextUtcDay(),
-    };
-  }
+  const windowDay = new Date().toISOString().slice(0, 10);
+  const agentKey = `agent:${agentId}`;
+  const ipKey = `ip:${ip}`;
 
-  const byIp = submissionRateLimits.byIp.get(ip) || [];
-  if (byIp.length >= SUBMISSION_LIMIT_IP_PER_DAY) {
-    return {
-      limited: true,
-      message: `IP daily submission limit exceeded (${SUBMISSION_LIMIT_IP_PER_DAY}/day)`,
-      retryAfterSeconds: secondsUntilNextUtcDay(),
-    };
-  }
+  const reason = db.getDb().transaction(() => {
+    if (db.getRateLimit(agentKey, windowDay) >= SUBMISSION_LIMIT_AGENT_PER_DAY) return 'agent';
+    if (db.getRateLimit(ipKey, windowDay) >= SUBMISSION_LIMIT_IP_PER_DAY) return 'ip';
+    db.incrRateLimit(agentKey, windowDay);
+    db.incrRateLimit(ipKey, windowDay);
+    return null;
+  })();
 
-  const ts = Date.now();
-  byAgent.push(ts);
-  byIp.push(ts);
-  submissionRateLimits.byAgent.set(agentId, byAgent);
-  submissionRateLimits.byIp.set(ip, byIp);
-
-  return { limited: false };
+  if (!reason) return { limited: false };
+  return {
+    limited: true,
+    message: reason === 'agent'
+      ? `Agent daily submission limit exceeded (${SUBMISSION_LIMIT_AGENT_PER_DAY}/day)`
+      : `IP daily submission limit exceeded (${SUBMISSION_LIMIT_IP_PER_DAY}/day)`,
+    retryAfterSeconds: secondsUntilNextUtcDay(),
+  };
 }
 
 function resolveCorsOrigin(req) {
@@ -517,6 +517,22 @@ async function handleRequest(req, res) {
 
   // POST /api/register
   if (req.method === 'POST' && pathname === '/api/register') {
+    // Rate limit: 3/IP/day (bypass for localhost)
+    const regIp = getClientIp(req);
+    if (!(regIp === '127.0.0.1' || regIp === '::1' || regIp === 'localhost')) {
+      const windowDay = new Date().toISOString().slice(0, 10);
+      const regKey = `reg:ip:${regIp}`;
+      const limited = db.getDb().transaction(() => {
+        if (db.getRateLimit(regKey, windowDay) >= REGISTER_LIMIT_IP_PER_DAY) return true;
+        db.incrRateLimit(regKey, windowDay);
+        return false;
+      })();
+      if (limited) {
+        res.setHeader('Retry-After', String(secondsUntilNextUtcDay()));
+        return json(res, 429, { error: `Registration rate limit exceeded (${REGISTER_LIMIT_IP_PER_DAY}/day per IP)` });
+      }
+    }
+
     let body;
     try { body = await readBody(req); }
     catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
@@ -527,15 +543,33 @@ async function handleRequest(req, res) {
 
     const api_key = 'ael_sk_' + crypto.randomBytes(24).toString('hex');
     try {
-      db.createAgent({
-        id: body.name,
-        api_key,
-        harness: body.harness,
-        model: body.model,
-        display_name: body.name,
-      });
+      db.getDb().transaction(() => {
+        if (!REGISTRATION_ENABLED) {
+          const code = body.invite_code ? String(body.invite_code).trim() : '';
+          if (!code) {
+            const err = new Error('Registration closed — invite code required');
+            err.inviteRequired = true;
+            throw err;
+          }
+          if (INVITE_CODES_ENV.includes(code)) {
+            db.getDb().prepare('INSERT OR IGNORE INTO invite_codes (code, note) VALUES (?, ?)').run(code, 'env');
+          }
+          const row = db.getInviteCode(code);
+          if (!row || row.used_by_agent) {
+            const err = new Error('Registration closed — invite code required');
+            err.inviteRequired = true;
+            throw err;
+          }
+          db.createAgent({ id: body.name, api_key, harness: body.harness, model: body.model, display_name: body.name });
+          db.markInviteCodeUsed(code, body.name);
+        } else {
+          db.createAgent({ id: body.name, api_key, harness: body.harness, model: body.model, display_name: body.name });
+        }
+      })();
+      req._logAgentId = body.name;
       return json(res, 201, { ok: true, agent_id: body.name, api_key });
     } catch (e) {
+      if (e.inviteRequired) return json(res, 403, { error: e.message });
       if (e.message && e.message.includes('UNIQUE')) {
         return json(res, 409, { error: 'Agent name already registered' });
       }
@@ -653,6 +687,7 @@ async function handleRequest(req, res) {
     if (body.agent_id !== agent.id) {
       return json(res, 400, { error: 'agent_id does not match authenticated API key' });
     }
+    req._logAgentId = agent.id;
 
     const limit = checkAndTrackRateLimit(agent.id, getClientIp(req));
     if (limit.limited) {
@@ -1132,9 +1167,36 @@ function importChallenges() {
 importChallenges();
 
 const server = http.createServer((req, res) => {
+  const startTs = Date.now();
+
   handleRequest(req, res).catch(err => {
     console.error('[api] unhandled error:', err);
+    req._logErr = err.message;
     try { json(res, 500, { error: 'Internal server error' }); } catch (_) {}
+  }).finally(() => {
+    try {
+      const url = new URL(req.url, `http://localhost:${PORT}`);
+      let logPath = url.pathname;
+      if (url.searchParams.has('api_key')) {
+        const p = new URLSearchParams(url.searchParams);
+        p.set('api_key', '[redacted]');
+        logPath += '?' + p.toString();
+      } else if (url.search) {
+        logPath += url.search;
+      }
+      const entry = {
+        ts: new Date().toISOString(),
+        method: req.method,
+        path: logPath,
+        status: res.statusCode,
+        duration_ms: Date.now() - startTs,
+        ip: getClientIp(req),
+        ua: req.headers['user-agent'] || null,
+      };
+      if (req._logAgentId) entry.agent_id = req._logAgentId;
+      if (req._logErr) entry.err = req._logErr;
+      process.stdout.write(JSON.stringify(entry) + '\n');
+    } catch (_) {}
   });
 });
 
