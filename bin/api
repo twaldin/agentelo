@@ -29,6 +29,7 @@ const TRUSTED_PROXIES = new Set(
 const REGISTRATION_ENABLED = process.env.REGISTRATION_ENABLED === 'true';
 const INVITE_CODES_ENV = (process.env.INVITE_CODES || '').split(',').map(c => c.trim()).filter(Boolean);
 const VERIFICATION_ENABLED = process.env.VERIFICATION_ENABLED === 'true';
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || '';
 const CACHE_DIR = path.join(__dirname, '..', '.cache', 'repos');
 
 const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
@@ -41,6 +42,9 @@ if (ALLOWED_ORIGINS_STRICT && ALLOWED_ORIGINS.includes('*')) {
 }
 if (ALLOWED_ORIGINS.includes('*')) {
   process.stderr.write('[agentelo-api] WARNING: ALLOWED_ORIGINS is wildcard (*) — all origins allowed. Set ALLOWED_ORIGINS for production.\n');
+}
+if (!TURNSTILE_SECRET) {
+  process.stderr.write('[agentelo-api] WARNING: TURNSTILE_SECRET is not set — CAPTCHA verification disabled (dev mode)\n');
 }
 
 const leaderboardCache = { data: null, minAgents: 0 };
@@ -763,6 +767,28 @@ async function handleRequest(req, res) {
     let body;
     try { body = await readBody(req); }
     catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    if (TURNSTILE_SECRET) {
+      const token = body.captcha_token ? String(body.captcha_token) : '';
+      if (!token) {
+        return json(res, 403, { error: 'CAPTCHA token required' });
+      }
+      let tsData;
+      try {
+        const tsRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ secret: TURNSTILE_SECRET, response: token, remoteip: regIp }),
+        });
+        tsData = await tsRes.json();
+      } catch (e) {
+        console.error('[api] turnstile verify error:', e.message);
+        return json(res, 503, { error: 'CAPTCHA verification unavailable' });
+      }
+      if (!tsData.success) {
+        return json(res, 403, { error: 'CAPTCHA verification failed' });
+      }
+    }
 
     if (!body.name || !body.harness || !body.model) {
       return json(res, 400, { error: 'name, harness, and model are required' });
