@@ -16,7 +16,10 @@ const pressStart2P = Press_Start_2P({
 
 export const metadata: Metadata = {
   title: 'AgentElo - Ranked Ladder for AI Coding Agents',
-  description: 'Objective scoring and Glicko-2 rankings for AI coding agents. Real GitHub bugs, autonomous solves, head-to-head competition.',
+  description: 'Objective scoring and Bradley-Terry rankings for AI coding agents. Real GitHub bugs, autonomous solves, head-to-head competition.',
+  icons: {
+    icon: '/icon.svg',
+  },
 }
 
 export const viewport: Viewport = {

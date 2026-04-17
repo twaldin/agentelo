@@ -2,11 +2,12 @@
 
 import { use, useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowRight } from 'lucide-react'
-import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
+import { ArrowRight, ArrowLeftRight } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { fetchAgent, type AgentDetail, type MatchEntry } from '@/lib/api'
 
 interface PageProps {
@@ -22,9 +23,11 @@ function fmtTime(secs: number): string {
 
 export default function AgentPage({ params }: PageProps) {
   const { id } = use(params)
+  const router = useRouter()
   const [agent, setAgent] = useState<AgentDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [compareTarget, setCompareTarget] = useState('')
 
   useEffect(() => {
     fetchAgent(id)
@@ -59,15 +62,27 @@ export default function AgentPage({ params }: PageProps) {
   const d7Rounded = Math.round(agent.d7)
   const displayName = (agent.display_name || agent.id).trim()
 
-  // Transform rating history for scatter plot
-  const chartData = agent.ratingHistory.map((point, idx) => ({
-    x: idx,
-    y: Math.round(point.r),
-    date: point.ts ? new Date(point.ts).toLocaleDateString() : '',
-    delta: Math.round(point.delta),
-    challenge: point.challenge,
-    opponent: point.opponent,
-  }))
+  // Transform rating history for chart — index-based X for even spacing
+  const chartData = agent.ratingHistory.map((point, idx) => {
+    const d = point.ts ? new Date(point.ts) : null
+    return {
+      idx,
+      y: Math.round(point.r),
+      date: d ? d.toLocaleDateString() : '',
+      dateShort: d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '',
+      delta: Math.abs(point.delta) < 1 ? point.delta : Math.round(point.delta),
+    }
+  })
+
+  // Build day-boundary ticks: first index of each new date
+  const dayTicks: number[] = []
+  let lastDate = ''
+  for (let i = 0; i < chartData.length; i++) {
+    if (chartData[i].dateShort !== lastDate) {
+      dayTicks.push(i)
+      lastDate = chartData[i].dateShort
+    }
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -108,6 +123,33 @@ export default function AgentPage({ params }: PageProps) {
             <span className="font-mono text-2xl font-bold text-primary">#{agent.rank}</span>
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Global</p>
           </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Agent ID..."
+              value={compareTarget}
+              onChange={e => setCompareTarget(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && compareTarget.trim()) {
+                  router.push(`/compare/${encodeURIComponent(id)}/${encodeURIComponent(compareTarget.trim())}`)
+                }
+              }}
+              className="h-8 w-32 rounded-md border border-border bg-card px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!compareTarget.trim()}
+              onClick={() => {
+                if (compareTarget.trim()) {
+                  router.push(`/compare/${encodeURIComponent(id)}/${encodeURIComponent(compareTarget.trim())}`)
+                }
+              }}
+            >
+              <ArrowLeftRight className="mr-1.5 h-4 w-4" />
+              Compare
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -146,19 +188,19 @@ export default function AgentPage({ params }: PageProps) {
           </h2>
           <div className="mt-4 rounded-lg border border-border bg-card p-4">
             <ResponsiveContainer width="100%" height={300}>
-              <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+              <LineChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                 <XAxis
-                  dataKey="x"
+                  dataKey="idx"
                   type="number"
-                  domain={['dataMin', 'dataMax']}
+                  domain={[0, chartData.length - 1]}
+                  ticks={dayTicks}
                   tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={{ stroke: 'var(--border)' }}
                   tickLine={{ stroke: 'var(--border)' }}
-                  tickFormatter={(value: number) => chartData[value]?.date?.slice(5) || ''}
+                  tickFormatter={(idx: number) => chartData[idx]?.dateShort ?? ''}
                 />
                 <YAxis
                   dataKey="y"
-                  type="number"
                   domain={['dataMin - 50', 'dataMax + 50']}
                   tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={{ stroke: 'var(--border)' }}
@@ -181,26 +223,21 @@ export default function AgentPage({ params }: PageProps) {
                             {data.delta > 0 ? '+' : ''}{data.delta}
                           </p>
                           <p className="text-xs text-muted-foreground">{data.date}</p>
-                          {data.challenge && (
-                            <p className="text-xs text-muted-foreground">vs {data.opponent}</p>
-                          )}
                         </div>
                       )
                     }
                     return null
                   }}
                 />
-                <Scatter data={chartData} line={{ stroke: 'var(--primary)', strokeWidth: 2 }}>
-                  {chartData.map((_, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill="var(--primary)"
-                      stroke="var(--primary)"
-                      strokeWidth={2}
-                    />
-                  ))}
-                </Scatter>
-              </ScatterChart>
+                <Line
+                  dataKey="y"
+                  stroke="var(--primary)"
+                  strokeWidth={1.5}
+                  dot={{ fill: 'var(--primary)', r: chartData.length > 200 ? 1 : chartData.length > 50 ? 2 : 3 }}
+                  activeDot={{ r: 5, fill: 'var(--primary)' }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -209,7 +246,7 @@ export default function AgentPage({ params }: PageProps) {
       {/* Match History */}
       <div className="mt-10">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
-          Match History ({agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length})
+          Challenge Submissions ({agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length})
         </h2>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[600px]">
@@ -219,6 +256,7 @@ export default function AgentPage({ params }: PageProps) {
                 <th className="pb-3 pr-4 font-medium">Challenge</th>
                 <th className="pb-3 pr-4 font-medium">Tests</th>
                 <th className="pb-3 pr-4 font-medium">Time</th>
+                <th className="pb-3 pr-4 font-medium">Cost</th>
                 <th className="pb-3 pr-4 text-right font-medium">ELO +/-</th>
                 <th className="pb-3 font-medium">Date</th>
               </tr>
@@ -245,7 +283,7 @@ export default function AgentPage({ params }: PageProps) {
 
 function MatchRow({ match }: { match: MatchEntry }) {
   const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
-  const totalDelta = Math.round(match.total_delta)
+  const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
 
   return (
     <tr className="group transition-colors hover:bg-card/50">
@@ -284,6 +322,9 @@ function MatchRow({ match }: { match: MatchEntry }) {
       </td>
       <td className="py-4 pr-4 font-mono text-sm text-muted-foreground">
         {fmtTime(match.agent_time)}
+      </td>
+      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground">
+        {match.cost_usd > 0 ? '$' + match.cost_usd.toFixed(2) : '\u2014'}
       </td>
       <td className="py-4 pr-4 text-right">
         <span className={cn(

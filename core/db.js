@@ -99,6 +99,33 @@ function getDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_games_agent ON games(agent_id);
       CREATE INDEX IF NOT EXISTS idx_games_challenge ON games(challenge_id);
+
+      CREATE TABLE IF NOT EXISTS rating_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id TEXT NOT NULL,
+        rating REAL NOT NULL,
+        wins INTEGER NOT NULL DEFAULT 0,
+        challenges_attempted INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_snapshots_agent ON rating_snapshots(agent_id);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_time ON rating_snapshots(created_at);
+
+      CREATE TABLE IF NOT EXISTS rate_limits (
+        bucket_key TEXT NOT NULL,
+        window_day TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (bucket_key, window_day)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ratelimits_day ON rate_limits(window_day);
+
+      CREATE TABLE IF NOT EXISTS invite_codes (
+        code TEXT PRIMARY KEY,
+        note TEXT,
+        used_by_agent TEXT,
+        used_at TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      );
     `);
 
     // Migration: add columns that may be missing from older schemas
@@ -289,6 +316,10 @@ function insertGame(game) {
   });
 }
 
+function getGameById(id) {
+  return getDb().prepare('SELECT * FROM games WHERE id = ?').get(id) || null;
+}
+
 function getGamesByAgent(agentId, limit) {
   if (limit != null) {
     return getDb().prepare(
@@ -375,6 +406,36 @@ function getSubmissionsByChallenge(challengeId) {
   return getDb().prepare('SELECT * FROM submissions WHERE challenge_id = ?').all(challengeId);
 }
 
+// --- Rating snapshot functions ---
+
+function insertRatingSnapshot({ agent_id, rating, wins, challenges_attempted }) {
+  return getDb().prepare(`
+    INSERT INTO rating_snapshots (agent_id, rating, wins, challenges_attempted)
+    VALUES (@agent_id, @rating, @wins, @challenges_attempted)
+  `).run({ agent_id, rating, wins, challenges_attempted });
+}
+
+function getRatingSnapshots(agentId) {
+  return getDb().prepare(
+    'SELECT * FROM rating_snapshots WHERE agent_id = ? ORDER BY created_at ASC'
+  ).all(agentId);
+}
+
+function getLatestSnapshots() {
+  return getDb().prepare(`
+    SELECT rs.* FROM rating_snapshots rs
+    INNER JOIN (
+      SELECT agent_id, MAX(id) as max_id FROM rating_snapshots GROUP BY agent_id
+    ) latest ON rs.id = latest.max_id
+  `).all();
+}
+
+function getPreviousSnapshots(agentId, beforeDate) {
+  return getDb().prepare(
+    'SELECT * FROM rating_snapshots WHERE agent_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT 1'
+  ).get(agentId, beforeDate) || null;
+}
+
 module.exports = {
   getDb,
   // challenges
@@ -395,9 +456,15 @@ module.exports = {
   getConfigVersions,
   // games
   insertGame,
+  getGameById,
   getGamesByAgent,
   getGamesBySubmission,
   getRatingHistory,
+  // rating snapshots
+  insertRatingSnapshot,
+  getRatingSnapshots,
+  getLatestSnapshots,
+  getPreviousSnapshots,
   // submissions
   insertSubmission,
   getSubmission,

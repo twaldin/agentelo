@@ -6,9 +6,9 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 const db     = require('../core/db');
-const { updateRating, defaultRating } = require('../core/glicko2');
 const { stripTestFiles } = require('../core/scorer');
 const { computeScore, isPairwiseSubmissionExcluded, pickBetterSubmission } = require('../core/scoring');
+const { computeRatings } = require('../core/bradley-terry');
 
 const PORT       = process.env.PORT || 4000;
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -134,6 +134,11 @@ function secondsUntilNextUtcDay() {
 function checkAndTrackRateLimit(agentId, ip) {
   resetDailyRateLimitState();
 
+  // Bypass rate limits for localhost (seeding)
+  if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') {
+    return { limited: false };
+  }
+
   const byAgent = submissionRateLimits.byAgent.get(agentId) || [];
   if (byAgent.length >= SUBMISSION_LIMIT_AGENT_PER_DAY) {
     return {
@@ -168,11 +173,16 @@ function resolveCorsOrigin(req) {
   return ALLOWED_ORIGINS[0] || 'null';
 }
 
-function diffLabel(row) {
-  const lines = row.difficulty_lines || 0;
-  if (lines <= 20)  return 'easy';
-  if (lines <= 80)  return 'medium';
-  if (lines <= 200) return 'hard';
+// Difficulty label based on actual solve rate (empirical difficulty).
+// Requires at least MIN_ATTEMPTS_FOR_LABEL attempts to be statistically meaningful;
+// below that, label as 'unrated'.
+const MIN_ATTEMPTS_FOR_LABEL = 10;
+function diffLabel(solveRate, attempts) {
+  if ((attempts || 0) < MIN_ATTEMPTS_FOR_LABEL) return 'unrated';
+  const sr = solveRate || 0;
+  if (sr >= 0.6) return 'easy';
+  if (sr >= 0.3) return 'medium';
+  if (sr >= 0.1) return 'hard';
   return 'expert';
 }
 
@@ -183,13 +193,133 @@ function fmtTime(secs) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function detectLang(repo) {
+function detectLang(repo, testCommand) {
   if (!repo) return 'unknown';
+  // Use test command as strongest signal
+  if (testCommand) {
+    const tc = testCommand.toLowerCase();
+    if (tc.includes('pytest') || tc.includes('python') || tc.includes('tox')) return 'python';
+  }
   const r = repo.toLowerCase();
   if (r.includes('django') || r.includes('flask') || r.includes('fastapi') || r.includes('python')) return 'python';
+  if (r.includes('pallets/') || r.includes('marshmallow') || r.includes('psf/') || r.includes('jinja') || r.includes('click') || r.includes('werkzeug')) return 'python';
   if (r.includes('angular') || r.includes('react') || r.includes('next') || r.includes('vue') || r.includes('svelte')) return 'typescript';
   if (r.includes('golang') || r.includes('/go') || r.includes('tokio') || r.includes('rust')) return 'rust';
   return 'javascript';
+}
+
+// ── Bradley-Terry rebuild ─────────────────────────────────────────────────────
+// Recomputes all ratings from scratch. Called after each new submission.
+// With ~150 agents and ~3000 submissions, completes in <1 second.
+function rebuildBradleyTerry() {
+  const CHALLENGES_DIR = path.join(__dirname, '..', 'challenges-active');
+  const baselineCache = {};
+  function getBaseline(challengeId) {
+    if (baselineCache[challengeId] !== undefined) return baselineCache[challengeId];
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(CHALLENGES_DIR, `${challengeId}.json`), 'utf8'));
+      baselineCache[challengeId] = { baseline_passing: meta.baseline_passing ?? null };
+    } catch {
+      baselineCache[challengeId] = { baseline_passing: null };
+    }
+    return baselineCache[challengeId];
+  }
+
+  // Clear games, reset agents
+  db.getDb().exec('DELETE FROM games');
+  const agents = db.getAllAgents();
+  for (const agent of agents) {
+    db.updateAgent({
+      id: agent.id, rating: 1500, rd: 0, volatility: 0,
+      wins: 0, challenges_attempted: 0, current_hash: agent.current_hash,
+    });
+  }
+
+  // Build pairwise outcomes
+  const allSubs = db.getDb().prepare('SELECT * FROM submissions ORDER BY created_at ASC').all()
+    .filter(sub => !isPairwiseSubmissionExcluded(sub));
+  const byChallenge = {};
+  for (const s of allSubs) {
+    if (!byChallenge[s.challenge_id]) byChallenge[s.challenge_id] = [];
+    byChallenge[s.challenge_id].push(s);
+  }
+  for (const [chId, subs] of Object.entries(byChallenge)) {
+    const best = {};
+    for (const s of subs) best[s.agent_id] = pickBetterSubmission(best[s.agent_id], s);
+    byChallenge[chId] = Object.values(best);
+  }
+
+  const outcomes = new Map();
+  const challengesPerAgent = new Map();
+  const winsPerAgent = new Map();
+  const pairwiseGames = [];
+
+  function getRecord(a, b) {
+    if (!outcomes.has(a)) outcomes.set(a, new Map());
+    const aMap = outcomes.get(a);
+    if (!aMap.has(b)) aMap.set(b, { wins: 0, losses: 0, draws: 0 });
+    return aMap.get(b);
+  }
+
+  for (const [challengeId, subs] of Object.entries(byChallenge)) {
+    const { baseline_passing } = getBaseline(challengeId);
+    for (const sub of subs) {
+      challengesPerAgent.set(sub.agent_id, (challengesPerAgent.get(sub.agent_id) || 0) + 1);
+    }
+    for (let i = 0; i < subs.length; i++) {
+      for (let j = i + 1; j < subs.length; j++) {
+        const subA = subs[i], subB = subs[j];
+        if (subA.agent_id === subB.agent_id) continue;
+        const scoreA = computeScore(subA, subB, { baseline_passing });
+        const scoreB = scoreA === 1 ? 0 : scoreA === 0 ? 1 : 0.5;
+        const recAB = getRecord(subA.agent_id, subB.agent_id);
+        const recBA = getRecord(subB.agent_id, subA.agent_id);
+        if (scoreA === 1) { recAB.wins++; recBA.losses++; winsPerAgent.set(subA.agent_id, (winsPerAgent.get(subA.agent_id) || 0) + 1); }
+        else if (scoreA === 0) { recAB.losses++; recBA.wins++; winsPerAgent.set(subB.agent_id, (winsPerAgent.get(subB.agent_id) || 0) + 1); }
+        else { recAB.draws++; recBA.draws++; }
+        pairwiseGames.push({ challengeId, subA, subB, scoreA, scoreB });
+      }
+    }
+  }
+
+  const ratings = computeRatings(outcomes);
+
+  // Update agents
+  for (const [agentId, rating] of ratings) {
+    const agent = db.getAgent(agentId);
+    if (!agent) continue;
+    db.updateAgent({
+      id: agentId, rating, rd: 0, volatility: 0,
+      wins: winsPerAgent.get(agentId) || 0,
+      challenges_attempted: challengesPerAgent.get(agentId) || 0,
+      current_hash: agent.current_hash,
+    });
+  }
+
+  // Insert game records
+  for (const { challengeId, subA, subB, scoreA, scoreB } of pairwiseGames) {
+    const ratingA = ratings.get(subA.agent_id) || 1500;
+    const ratingB = ratings.get(subB.agent_id) || 1500;
+    db.insertGame({ challenge_id: challengeId, agent_id: subA.agent_id, opponent_id: subB.agent_id,
+      submission_id: subA.id, opponent_submission_id: subB.id, score: scoreA,
+      rating_before: ratingA, rating_after: ratingA, rd_before: 0, rd_after: 0, delta: 0,
+      opponent_rating: ratingB, opponent_rd: 0, opponent_model: subB.model });
+    db.insertGame({ challenge_id: challengeId, agent_id: subB.agent_id, opponent_id: subA.agent_id,
+      submission_id: subB.id, opponent_submission_id: subA.id, score: scoreB,
+      rating_before: ratingB, rating_after: ratingB, rd_before: 0, rd_after: 0, delta: 0,
+      opponent_rating: ratingA, opponent_rd: 0, opponent_model: subA.model });
+  }
+
+  // Save snapshots
+  for (const [agentId, rating] of ratings) {
+    db.insertRatingSnapshot({
+      agent_id: agentId, rating,
+      wins: winsPerAgent.get(agentId) || 0,
+      challenges_attempted: challengesPerAgent.get(agentId) || 0,
+    });
+  }
+
+  console.log(`[api] BT rebuild: ${ratings.size} agents, ${pairwiseGames.length * 2} games`);
 }
 
 function buildChallengeEntry(row, stats) {
@@ -215,8 +345,8 @@ function buildChallengeEntry(row, stats) {
     id:           row.id,
     repo:         (row.repo || '').replace('https://github.com/', ''),
     title:        row.title || row.id,
-    diff:         diffLabel(row),
-    lang:         detectLang(row.repo),
+    diff:         diffLabel(sr, s.total || 0),
+    lang:         detectLang(row.repo, row.test_command),
     sr,
     att:          s.total || 0,
     avgt:         fmtTime(s.avg_agent_time || s.avg_time),
@@ -226,14 +356,16 @@ function buildChallengeEntry(row, stats) {
 }
 
 function buildAgentEntry(agent, rank, allAgents) {
-  const history  = db.getRatingHistory(agent.id);
-  const hist     = history.slice(-10).map(h => Math.round(h.rating_after));
+  const snapshots = db.getRatingSnapshots(agent.id);
+  const hist      = snapshots.slice(-10).map(s => Math.round(s.rating));
 
-  // d7: sum of deltas from games in last 7 days
+  // d7: rating change over last 7 days (from snapshots)
+  // If no snapshot before the 7d window, use the agent's first snapshot
+  // (i.e. their entire rating journey since creation within this week)
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const d7 = history
-    .filter(h => h.created_at >= sevenDaysAgo)
-    .reduce((sum, h) => sum + (h.delta || 0), 0);
+  const prevSnapshot = db.getPreviousSnapshots(agent.id, sevenDaysAgo);
+  const baseRating = prevSnapshot ? prevSnapshot.rating : (snapshots.length > 0 ? snapshots[0].rating : agent.rating);
+  const d7 = agent.rating - baseRating;
 
   const subs   = db.getSubmissionsByAgent(agent.id).slice(0, 3);
   const recent = subs.map(s => {
@@ -262,7 +394,7 @@ function buildAgentEntry(agent, rank, allAgents) {
     display_name: agent.display_name || agent.id,
     harness: agent.harness,
     model:   agent.model,
-    elo:     Math.round(agent.rating - 2 * agent.rd),
+    elo:     Math.round(agent.rating),
     rd:      Math.round(agent.rd),
     wr:      played > 0 ? gWins / played : 0,
     played,
@@ -352,144 +484,10 @@ async function processSubmission(body, authenticatedAgent) {
   const mySub = db.getSubmission(body.run_id);
   if (!mySub) throw new Error('Failed to retrieve inserted submission');
 
-  // 6. Find opponent submissions for same challenge.
-  const myExcluded = isPairwiseSubmissionExcluded(mySub);
-  const opponents = db.getSubmissionsByChallenge(body.challenge_id)
-    .filter(s => s.run_id !== body.run_id && s.agent_id !== agent.id)
-    .filter(s => !isPairwiseSubmissionExcluded(s));
-
-  if (myExcluded || opponents.length === 0) {
-    // No valid score or no opponents — store submission but don't generate games.
-    if (myExcluded) console.log(`[api] Skipping games for ${agent.id} on ${body.challenge_id} — pairwise excluded by shared scoring rule`);
-    db.updateAgent({
-      id:                   agent.id,
-      rating:               agent.rating,
-      rd:                   agent.rd,
-      volatility:           agent.volatility,
-      wins:                 agent.wins,
-      challenges_attempted: agent.challenges_attempted + 1,
-      current_hash:         body.agent_hash,
-    });
-    return;
-  }
-
-  // 7. Sequential Glicko-2: one update per opponent, rating changes between games
-  //    Order by opponent submission time (earliest first)
-  const sortedOpponents = opponents
-    .map(oSub => ({ oSub, oppAgent: db.getAgent(oSub.agent_id) }))
-    .filter(o => o.oppAgent)
-    .sort((a, b) => (a.oSub.created_at || '').localeCompare(b.oSub.created_at || ''));
-
-  let curRating    = agent.rating;
-  let curRd        = agent.rd;
-  let curVol       = agent.volatility;
-  let totalWins    = 0;
-
-  // Load baseline for tests_fixed scoring
-  const basePass = (challengeMeta && challengeMeta.baseline_passing != null) ? challengeMeta.baseline_passing : 0;
-
-  for (const { oSub, oppAgent } of sortedOpponents) {
-    const myScore = computeScore(mySub, oSub, { baseline_passing: basePass });
-
-    // Use opponent's frozen rating at their submission time
-    const oppRating = oSub.rating_at_submission || oppAgent.rating;
-    const oppRd     = oSub.rd_at_submission     || oppAgent.rd;
-
-    // Single-game Glicko-2 update
-    const ratingBefore = curRating;
-    const rdBefore     = curRd;
-    const updated = updateRating(
-      { rating: curRating, rd: curRd, volatility: curVol },
-      [{ opponentRating: oppRating, opponentRd: oppRd, score: myScore }]
-    );
-    const delta = updated.rating - curRating;
-    curRating = updated.rating;
-    curRd     = updated.rd;
-    curVol    = updated.volatility;
-    if (myScore === 1) totalWins++;
-
-    db.insertGame({
-      challenge_id:          body.challenge_id,
-      agent_id:              agent.id,
-      opponent_id:           oppAgent.id,
-      submission_id:         mySub.id,
-      opponent_submission_id: oSub.id,
-      score:                 myScore,
-      rating_before:         ratingBefore,
-      rating_after:          curRating,
-      rd_before:             rdBefore,
-      rd_after:              curRd,
-      delta:                 Math.round(delta * 10) / 10,
-      opponent_rating:       oppRating,
-      opponent_rd:           oppRd,
-      opponent_model:        oppAgent.model,
-    });
-  }
-
-  // 10. Update submitting agent with final sequential rating
-  db.updateAgent({
-    id:                   agent.id,
-    rating:               curRating,
-    rd:                   curRd,
-    volatility:           curVol,
-    wins:                 agent.wins + totalWins,
-    challenges_attempted: agent.challenges_attempted + 1,
-    current_hash:         body.agent_hash,
-  });
-
-  // 11. Backfill: create games for earlier agents who haven't played against us yet
-  //     This ensures the first-to-submit agent gets games too
-  for (const { oSub, oppAgent } of sortedOpponents) {
-    // Check if this opponent already has a game against our agent on this challenge
-    const existingGame = db.getDb().prepare(
-      'SELECT 1 FROM games WHERE agent_id = ? AND opponent_id = ? AND challenge_id = ? LIMIT 1'
-    ).get(oSub.agent_id, agent.id, body.challenge_id);
-    if (existingGame) continue;
-
-    // Refresh opponent's current rating (may have changed from their own submissions)
-    const freshOpp = db.getAgent(oSub.agent_id);
-    if (!freshOpp) continue;
-
-    const oppScore = computeScore(oSub, mySub, { baseline_passing: basePass });
-
-    // Use the new agent's rating at submission time as the opponent rating
-    const myRatingAtSub = mySub.rating_at_submission || 1500;
-    const myRdAtSub     = mySub.rd_at_submission || 350;
-
-    // Sequential Glicko-2 update for the backfilled agent
-    const oppUpdated = updateRating(
-      { rating: freshOpp.rating, rd: freshOpp.rd, volatility: freshOpp.volatility },
-      [{ opponentRating: myRatingAtSub, opponentRd: myRdAtSub, score: oppScore }]
-    );
-    const oppDelta = oppUpdated.rating - freshOpp.rating;
-
-    db.insertGame({
-      challenge_id:          body.challenge_id,
-      agent_id:              oSub.agent_id,
-      opponent_id:           agent.id,
-      submission_id:         oSub.id,
-      opponent_submission_id: mySub.id,
-      score:                 oppScore,
-      rating_before:         freshOpp.rating,
-      rating_after:          oppUpdated.rating,
-      rd_before:             freshOpp.rd,
-      rd_after:              oppUpdated.rd,
-      delta:                 Math.round(oppDelta * 10) / 10,
-      opponent_rating:       myRatingAtSub,
-      opponent_rd:           myRdAtSub,
-      opponent_model:        agent.model,
-    });
-
-    db.updateAgent({
-      id:                   freshOpp.id,
-      rating:               oppUpdated.rating,
-      rd:                   oppUpdated.rd,
-      volatility:           oppUpdated.volatility,
-      wins:                 freshOpp.wins + (oppScore === 1 ? 1 : 0),
-      challenges_attempted: freshOpp.challenges_attempted,
-      current_hash:         freshOpp.current_hash,
-    });
-  }
+  // 6. Trigger full Bradley-Terry rebuild
+  //    BT solves all ratings simultaneously — no sequential game-by-game updates.
+  //    With ~150 agents and ~3000 submissions, rebuild takes <1 second.
+  rebuildBradleyTerry();
 }
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -632,6 +630,7 @@ async function handleRequest(req, res) {
         tests_total:  s.tests_total  || 0,
         tests_failed: s.tests_failed || 0,
         broken_by_bug:    broken_by_bug,
+        cost_usd:     s.cost_usd || 0,
         agent_name:   agent ? (agent.display_name || agent.id) : s.model,
         created_at:   s.created_at,
       };
@@ -709,6 +708,7 @@ async function handleRequest(req, res) {
     const games = db.getGamesBySubmission(sub.id).map(g => {
       const oppSub = db.getSubmissionById(g.opponent_submission_id);
       return {
+        id:                   g.id,
         opponent_id:          g.opponent_id,
         opponent_model:       g.opponent_model,
         opponent_submission_id: g.opponent_submission_id,
@@ -797,13 +797,12 @@ async function handleRequest(req, res) {
     const losses = allGames.filter(g => g.score === 0).length;
     const draws  = allGames.filter(g => g.score === 0.5).length;
 
-    const ratingHistory = db.getRatingHistory(agent.id).map(h => ({
-      r:          h.rating_after,
-      ts:         h.created_at,
-      delta:      h.delta,
-      score:      h.score,
-      challenge:  h.challenge_id,
-      opponent:   h.opponent_id,
+    // Rating history from snapshots (one entry per rebuild)
+    const snapshots = db.getRatingSnapshots(agent.id);
+    const ratingHistory = snapshots.map((snap, i) => ({
+      r:     snap.rating,
+      ts:    snap.created_at,
+      delta: i > 0 ? snap.rating - snapshots[i - 1].rating : 0,
     }));
 
     const configVersions = db.getConfigVersions(agent.id).map(cv => ({
@@ -832,6 +831,17 @@ async function handleRequest(req, res) {
       return baselineCache[challengeId];
     }
 
+    // Build snapshot delta lookup: for each snapshot timestamp, compute the
+    // rating change from the previous snapshot. Used to show per-submission ELO +/-.
+    const snapshotDeltas = new Map();
+    for (let i = 0; i < snapshots.length; i++) {
+      const delta = i > 0 ? snapshots[i].rating - snapshots[i - 1].rating : 0;
+      // Multiple snapshots can share a timestamp (from batch rebuilds).
+      // Keep the cumulative delta for that timestamp.
+      const ts = snapshots[i].created_at;
+      snapshotDeltas.set(ts, (snapshotDeltas.get(ts) || 0) + delta);
+    }
+
     // Deduplicate: keep only the best pairwise-eligible submission per challenge.
     const allSubs = db.getSubmissionsByAgent(agent.id);
     const bestByChallenge = {};
@@ -845,6 +855,7 @@ async function handleRequest(req, res) {
       const games = db.getGamesBySubmission(sub.id, agent.id).map(g => {
         const oppSub = db.getSubmissionById(g.opponent_submission_id);
         return {
+          id:                   g.id,
           opponent_id:          g.opponent_id,
           opponent_model:       g.opponent_model,
           score:                g.score,
@@ -855,7 +866,12 @@ async function handleRequest(req, res) {
           opponent_time:        oppSub ? oppSub.agent_time_seconds : null,
         };
       });
-      const totalDelta = games.reduce((sum, g) => sum + (g.delta || 0), 0);
+
+      // Compute ELO delta from snapshots: find the snapshot at this submission's
+      // timestamp and diff against the previous one. This is the rating change
+      // caused by this submission triggering a full BT rebuild.
+      const subDelta = snapshotDeltas.get(sub.created_at) || 0;
+
       return {
         submission_id: sub.id,
         run_id:        sub.run_id,
@@ -873,7 +889,7 @@ async function handleRequest(req, res) {
         cost_usd:      sub.cost_usd || 0,
         created_at:    sub.created_at,
         games,
-        total_delta:   Math.round(totalDelta * 10) / 10,
+        total_delta:   Math.round(subDelta * 100) / 100,
       };
     });
 
@@ -884,20 +900,198 @@ async function handleRequest(req, res) {
       harness:        agent.harness,
       model:          agent.model,
       current_hash:   agent.current_hash,
-      elo:            Math.round(agent.rating - 2 * agent.rd),
+      elo:            Math.round(agent.rating),
       rd:             Math.round(agent.rd),
       played,
       wins,
       losses,
       draws,
       wr:             allGames.length > 0 ? wins / allGames.length : 0,
-      d7:             ratingHistory.filter(h => {
-                        const ts = new Date(h.ts).getTime();
-                        return ts > Date.now() - 7 * 24 * 60 * 60 * 1000;
-                      }).reduce((s, h) => s + (h.delta || 0), 0),
+      d7:             (() => {
+                        const prev = db.getPreviousSnapshots(agent.id,
+                          new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString());
+                        const base = prev ? prev.rating : (snapshots.length > 0 ? snapshots[0].rating : agent.rating);
+                        return Math.round(agent.rating - base);
+                      })(),
       ratingHistory,
       configVersions,
       matches,
+    });
+  }
+
+  // GET /api/games/:id
+  const gameMatch = pathname.match(/^\/api\/games\/(\d+)$/);
+  if (req.method === 'GET' && gameMatch) {
+    const game = db.getGameById(Number(gameMatch[1]));
+    if (!game) return json(res, 404, { error: 'Game not found' });
+
+    const sub = db.getSubmissionById(game.submission_id);
+    const oppSub = db.getSubmissionById(game.opponent_submission_id);
+    const ch = db.getChallenge(game.challenge_id);
+
+    let blPass = null, blBroken = null;
+    const chFile = path.join(__dirname, '..', 'challenges-active', `${game.challenge_id}.json`);
+    try {
+      const meta = JSON.parse(fs.readFileSync(chFile, 'utf8'));
+      blPass = meta.baseline_passing != null ? meta.baseline_passing : null;
+      blBroken = meta.broken_by_bug != null ? meta.broken_by_bug : null;
+    } catch {}
+
+    const formatSub = (s) => s ? {
+      id:                 s.id,
+      run_id:             s.run_id,
+      agent_id:           s.agent_id,
+      harness:            s.harness,
+      model:              s.model,
+      tests_ok:           s.tests_ok,
+      tests_total:        s.tests_total,
+      tests_failed:       s.tests_failed,
+      agent_time_seconds: s.agent_time_seconds,
+      test_time_seconds:  s.test_time_seconds,
+      diff_lines:         s.diff_lines,
+      diff:               stripTestFiles(s.diff || ''),
+      exit_code:          s.exit_code,
+      tokens_in:          s.tokens_in || 0,
+      tokens_out:         s.tokens_out || 0,
+      cost_usd:           s.cost_usd || 0,
+      created_at:         s.created_at,
+    } : null;
+
+    return json(res, 200, {
+      id:                game.id,
+      challenge_id:      game.challenge_id,
+      challenge_title:   ch ? ch.title : game.challenge_id,
+      agent_id:          game.agent_id,
+      opponent_id:       game.opponent_id,
+      score:             game.score,
+      delta:             game.delta,
+      rating_before:     game.rating_before,
+      rating_after:      game.rating_after,
+      opponent_rating:   game.opponent_rating,
+      opponent_model:    game.opponent_model,
+      baseline_passing:  blPass,
+      broken_by_bug:     blBroken,
+      created_at:        game.created_at,
+      submission:        formatSub(sub),
+      opponent_submission: formatSub(oppSub),
+    });
+  }
+
+  // GET /api/compare/:agentA/:agentB
+  const compareMatch = pathname.match(/^\/api\/compare\/([^/]+)\/([^/]+)$/);
+  if (req.method === 'GET' && compareMatch) {
+    const agentA = db.getAgent(decodeURIComponent(compareMatch[1]));
+    const agentB = db.getAgent(decodeURIComponent(compareMatch[2]));
+    if (!agentA) return json(res, 404, { error: `Agent not found: ${compareMatch[1]}` });
+    if (!agentB) return json(res, 404, { error: `Agent not found: ${compareMatch[2]}` });
+
+    const allAgents = db.getAllAgents().filter(a => a.challenges_attempted > 0);
+    const rankA = allAgents.findIndex(a => a.id === agentA.id) + 1;
+    const rankB = allAgents.findIndex(a => a.id === agentB.id) + 1;
+
+    const gamesA = db.getGamesByAgent(agentA.id);
+    const gamesB = db.getGamesByAgent(agentB.id);
+
+    const buildStats = (agent, rank, games) => ({
+      id:      agent.id,
+      display_name: agent.display_name || agent.id,
+      harness: agent.harness,
+      model:   agent.model,
+      elo:     Math.round(agent.rating),
+      rank,
+      played:  games.length,
+      wins:    games.filter(g => g.score === 1).length,
+      losses:  games.filter(g => g.score === 0).length,
+      draws:   games.filter(g => g.score === 0.5).length,
+      wr:      games.length > 0 ? games.filter(g => g.score === 1).length / games.length : 0,
+      avgCost: (() => {
+        const subs = db.getSubmissionsByAgent(agent.id);
+        const wc = subs.filter(s => s.cost_usd > 0);
+        return wc.length > 0 ? wc.reduce((sum, s) => sum + s.cost_usd, 0) / wc.length : null;
+      })(),
+    });
+
+    // Build per-challenge comparison
+    const subsA = db.getSubmissionsByAgent(agentA.id);
+    const subsB = db.getSubmissionsByAgent(agentB.id);
+
+    // Best sub per challenge (same logic as agent page)
+    const bestA = {}, bestB = {};
+    for (const s of subsA) {
+      if (isPairwiseSubmissionExcluded(s)) continue;
+      bestA[s.challenge_id] = pickBetterSubmission(bestA[s.challenge_id], s);
+    }
+    for (const s of subsB) {
+      if (isPairwiseSubmissionExcluded(s)) continue;
+      bestB[s.challenge_id] = pickBetterSubmission(bestB[s.challenge_id], s);
+    }
+
+    const allChallengeIds = new Set([...Object.keys(bestA), ...Object.keys(bestB)]);
+    const challenges = [];
+
+    for (const cid of allChallengeIds) {
+      const ch = db.getChallenge(cid);
+      let blPass = null, blBroken = null;
+      const chFile = path.join(__dirname, '..', 'challenges-active', `${cid}.json`);
+      try {
+        const meta = JSON.parse(fs.readFileSync(chFile, 'utf8'));
+        blPass = meta.baseline_passing != null ? meta.baseline_passing : null;
+        blBroken = meta.broken_by_bug != null ? meta.broken_by_bug : null;
+      } catch {}
+
+      const fmtSub = (s) => s ? {
+        submission_id: s.id,
+        tests_ok:      s.tests_ok,
+        tests_total:   s.tests_total,
+        agent_time:    s.agent_time_seconds,
+        diff_lines:    s.diff_lines,
+        cost_usd:      s.cost_usd || 0,
+        tests_fixed:   blPass != null ? Math.max(0, (s.tests_ok || 0) - blPass) : (s.tests_ok || 0),
+      } : null;
+
+      // Find the game between these two agents on this challenge
+      let game = null;
+      if (bestA[cid] && bestB[cid]) {
+        const gRow = db.getGamesBySubmission(bestA[cid].id, agentA.id)
+          .find(g => g.opponent_id === agentB.id);
+        if (gRow) {
+          game = { id: gRow.id, score: gRow.score, delta: gRow.delta };
+        }
+      }
+
+      challenges.push({
+        challenge_id: cid,
+        title: ch ? ch.title : cid,
+        baseline_passing: blPass,
+        broken_by_bug: blBroken,
+        a: fmtSub(bestA[cid]),
+        b: fmtSub(bestB[cid]),
+        game,
+      });
+    }
+
+    // Sort: both submitted first, then by challenge_id
+    challenges.sort((x, y) => {
+      const bothX = x.a && x.b ? 1 : 0;
+      const bothY = y.a && y.b ? 1 : 0;
+      if (bothX !== bothY) return bothY - bothX;
+      return x.challenge_id.localeCompare(y.challenge_id);
+    });
+
+    // Head-to-head record (only challenges where both competed)
+    const h2h = { a_wins: 0, b_wins: 0, draws: 0 };
+    for (const c of challenges) {
+      if (!c.game) continue;
+      if (c.game.score === 1) h2h.a_wins++;
+      else if (c.game.score === 0) h2h.b_wins++;
+      else h2h.draws++;
+    }
+
+    return json(res, 200, {
+      a: buildStats(agentA, rankA, gamesA),
+      b: buildStats(agentB, rankB, gamesB),
+      h2h,
+      challenges,
     });
   }
 

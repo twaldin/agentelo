@@ -2,7 +2,7 @@
 
 **ELO-ranked benchmark for AI coding agents**
 
-AgentElo pits AI agents against real GitHub bugs and ranks them by head-to-head outcomes. It measures the full agent stack — model + harness + config + runtime behavior — not just the model. Ratings use Glicko-2, tracking both skill and uncertainty as agents play more challenges.
+AgentElo pits AI agents against real GitHub bugs and ranks them by head-to-head outcomes. It measures the full agent stack — model + harness + config + runtime behavior — not just the model. Ratings use Bradley-Terry maximum likelihood estimation across all pairwise matchups.
 
 ## Quick Start
 
@@ -16,20 +16,20 @@ agentelo play
 
 - **Real bugs from real repos** — challenges are mined from merged open-source bug fixes, not synthetic tasks
 - **Measures the full agent** — harness matters as much as model; the same model can score 0% in one harness and 70% in another
-- **Glicko-2 ratings** — every matchup updates skill rating and confidence, not just a flat score
+- **Bradley-Terry ratings** — all pairwise outcomes solved simultaneously, no ordering artifacts
 - **41 challenges across 7 repos** — `click`, `fastify`, `flask`, `jinja`, `koa`, `marshmallow`, `qs`
 
 ## Leaderboard
 
 | Rank | Agent | ELO | Win Rate |
 |-----:|-------|----:|---------:|
-| 1 | `opencode-qwen3-coder-next` | 2304 | 43.7% |
-| 2 | `claude-code-sonnet-4-6` | 2235 | 73.7% |
-| 3 | `aider-qwen3.6-plus` | 2203 | 45.3% |
-| 4 | `opencode-gpt-5.3-codex` | 2184 | 72.2% |
-| 5 | `swe-agent-glm-5` | 2150 | 68.8% |
+| 1 | `swe-agent-glm-5` | 1887 | 85% |
+| 2 | `opencode-glm-5` | 1882 | 85% |
+| 3 | `opencode-gpt-5.4` | 1873 | 85% |
+| 4 | `opencode-gpt-5.3-codex` | 1861 | 84% |
+| 5 | `gemini-gemini-3-flash-preview` | 1856 | 84% |
 
-*151 agents ranked. Snapshot: 2026-04-14.*
+*148 agents ranked. Snapshot: 2026-04-15. Bradley-Terry pairwise ratings.*
 
 ## Supported Harnesses
 

@@ -133,6 +133,13 @@ async function score(diff, repoDir, challenge, logFile, options = {}) {
     }
   }
 
+  // Force-reset all test paths to the baseline buggy_commit state.
+  // Belt-and-suspenders anti-tampering: even if the agent slipped test
+  // files through stripTestFiles/isTestFile (gaps for spec/, bench/,
+  // pytest.ini, jest.config.*, __snapshots__/, conftest.py, etc.),
+  // this step guarantees the final test tree = buggy_commit tests + fix-PR hunks.
+  resetTestPathsToBaseline(repoDir);
+
   // Inject fix-commit test files so we score against the PR's test suite
   let testInjected = false;
   if (challenge.fixDiff || challenge.fixCommit) {
@@ -378,6 +385,73 @@ async function injectFixTests(repoDir, challenge) {
 
   console.error('[scorer] ⚠ NO TEST INJECTION SUCCEEDED — scoring with original tests only');
   return false;
+}
+
+/**
+ * Force-reset all test paths in repoDir to the current HEAD state (buggy_commit).
+ * This is the anti-tampering guarantee: regardless of what the agent did or what
+ * slipped through our diff/copy filters, the test tree is restored to baseline
+ * before we apply fix-PR test hunks and run the suite.
+ *
+ * Covers test directories, test config files, snapshots, and fixture/conftest files.
+ * Uses `git checkout HEAD -- <path>` to restore modified tracked files, and
+ * `git clean -fd <path>` to remove agent-added new files within test paths.
+ */
+function resetTestPathsToBaseline(repoDir) {
+  const { execFileSync } = require('child_process');
+
+  // Directories: restore tracked + remove untracked
+  const TEST_DIRS = [
+    'test', 'tests', '__tests__', 'spec', 'bench', '__bench__', 'e2e', '__snapshots__',
+  ];
+  // Individual files (checkout-only; no untracked-delete needed)
+  const TEST_CONFIG_FILES = [
+    'pytest.ini', 'setup.cfg', 'tox.ini', 'conftest.py',
+    'jest.config.js', 'jest.config.ts', 'jest.config.mjs', 'jest.config.cjs', 'jest.config.json',
+    'mocha.opts', '.mocharc.js', '.mocharc.cjs', '.mocharc.json', '.mocharc.yml', '.mocharc.yaml',
+    'vitest.config.js', 'vitest.config.ts', 'vitest.config.mjs',
+    'tap.js', '.tape.js', '.taprc',
+  ];
+
+  let resetCount = 0;
+  for (const dir of TEST_DIRS) {
+    const dirPath = path.join(repoDir, dir);
+    if (!fs.existsSync(dirPath)) continue;
+    try {
+      execFileSync('git', ['checkout', 'HEAD', '--', dir], { cwd: repoDir, stdio: 'pipe' });
+      execFileSync('git', ['clean', '-fd', '--', dir], { cwd: repoDir, stdio: 'pipe' });
+      resetCount++;
+    } catch (_) { /* path may not be tracked; skip */ }
+  }
+
+  for (const file of TEST_CONFIG_FILES) {
+    const filePath = path.join(repoDir, file);
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      execFileSync('git', ['checkout', 'HEAD', '--', file], { cwd: repoDir, stdio: 'pipe' });
+      resetCount++;
+    } catch (_) { /* not tracked; skip */ }
+  }
+
+  // Also clean up root-level test files matching name patterns (e.g. foo.test.js at root)
+  try {
+    const rootFiles = fs.readdirSync(repoDir);
+    for (const f of rootFiles) {
+      const fl = f.toLowerCase();
+      const isTestNamed = /\.(test|spec)\.[a-z]+$/.test(fl) || /^test_/.test(fl) || /_test\.[a-z]+$/.test(fl);
+      if (!isTestNamed) continue;
+      try {
+        execFileSync('git', ['checkout', 'HEAD', '--', f], { cwd: repoDir, stdio: 'pipe' });
+      } catch (_) {
+        // Untracked: delete it
+        try { fs.unlinkSync(path.join(repoDir, f)); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  if (resetCount > 0) {
+    console.log(`[scorer] Reset ${resetCount} test path(s) to buggy_commit state`);
+  }
 }
 
 /**

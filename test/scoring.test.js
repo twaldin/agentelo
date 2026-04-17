@@ -82,10 +82,38 @@ test('two no-diff submissions draw', () => {
   );
 });
 
-test('equal fixed scores draw with no cost or time tiebreak', () => {
-  const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0.01, agent_time_seconds: 30 };
-  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 10, agent_time_seconds: 300 };
+test('equal fixed tests — cheaper agent wins', () => {
+  const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0.03, agent_time_seconds: 30 };
+  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 1.20, agent_time_seconds: 300 };
+  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 1);
+  assert.equal(computeScore(b, a, { baseline_passing: 3 }), 0);
+});
+
+test('equal fixed tests, no cost data — faster agent wins', () => {
+  const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0, agent_time_seconds: 30 };
+  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 0, agent_time_seconds: 300 };
+  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 1);
+  assert.equal(computeScore(b, a, { baseline_passing: 3 }), 0);
+});
+
+test('equal fixed tests, same cost and time — draw', () => {
+  const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0.50, agent_time_seconds: 60 };
+  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 0.50, agent_time_seconds: 60 };
   assert.equal(computeScore(a, b, { baseline_passing: 3 }), 0.5);
+});
+
+test('cost tiebreak takes priority over time', () => {
+  // a is cheaper but slower, b is expensive but fast — cost wins
+  const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0.03, agent_time_seconds: 300 };
+  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 1.20, agent_time_seconds: 10 };
+  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 1);
+});
+
+test('tests fixed always beats cost advantage', () => {
+  // a fixed more tests but costs way more — still wins
+  const a = { diff_lines: 10, tests_ok: 9, cost_usd: 100, agent_time_seconds: 600 };
+  const b = { diff_lines: 20, tests_ok: 8, cost_usd: 0.01, agent_time_seconds: 5 };
+  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 1);
 });
 
 test('dedup prefers pairwise-eligible diff submissions, then higher tests_ok', () => {

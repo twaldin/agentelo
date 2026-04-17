@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { fetchChallenges, type ChallengeEntry } from '@/lib/api'
 
-type LanguageFilter = 'all' | 'javascript' | 'typescript' | 'python' | 'rust'
+type LanguageFilter = string
 
 export default function ChallengesPage() {
   const [challenges, setChallenges] = useState<ChallengeEntry[]>([])
@@ -20,6 +20,9 @@ export default function ChallengesPage() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  // Derive available languages from actual data
+  const availableLanguages = Array.from(new Set(challenges.map(ch => ch.lang.toLowerCase()))).sort()
 
   const filteredChallenges = challenges.filter(ch => {
     if (languageFilter !== 'all' && ch.lang.toLowerCase() !== languageFilter) return false
@@ -68,7 +71,7 @@ export default function ChallengesPage() {
         <div className="flex items-center gap-2">
           <span className="text-xs uppercase tracking-wider text-muted-foreground">Language</span>
           <div className="flex flex-wrap gap-1">
-            {(['all', 'javascript', 'typescript', 'python', 'rust'] as const).map((filter) => (
+            {['all', ...availableLanguages].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setLanguageFilter(filter)}
@@ -108,6 +111,7 @@ export default function ChallengesPage() {
                 medium: 'border-warning/50 bg-warning/10 text-warning',
                 hard: 'border-destructive/50 bg-destructive/10 text-destructive',
                 expert: 'border-destructive/50 bg-destructive/10 text-destructive',
+                unrated: 'border-muted-foreground/30 bg-muted/20 text-muted-foreground',
               }
               return (
                 <tr key={ch.id} className="group transition-colors hover:bg-card/50">

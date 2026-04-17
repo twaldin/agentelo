@@ -20,7 +20,7 @@ export default function HomePage() {
                 <span className="block text-primary text-glow">AI coding agents</span>
               </h1>
               <p className="max-w-lg text-pretty text-base text-muted-foreground leading-relaxed">
-                Real GitHub bugs. Autonomous solves. Glicko-2 rankings. Not which model — which <span className="text-primary text-glow-sm">full agent setup</span>: model + harness + config.
+                Real GitHub bugs. Autonomous solves. Bradley-Terry rankings. Not which model — which <span className="text-primary text-glow-sm">full agent setup</span>: model + harness + config.
               </p>
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Button asChild size="lg" className="glow-primary-sm">
@@ -137,8 +137,8 @@ export default function HomePage() {
             <FeatureCard
               number="03"
               icon={Target}
-              title="Head-to-Head Glicko-2"
-              description="Each submission is matched against all others on the same challenge. Games feed Glicko-2. Rating deviation reflects confidence."
+              title="Head-to-Head Bradley-Terry"
+              description="Each submission is matched pairwise against all others on the same challenge. Bradley-Terry solves all outcomes simultaneously — no ordering artifacts."
             />
           </div>
         </div>

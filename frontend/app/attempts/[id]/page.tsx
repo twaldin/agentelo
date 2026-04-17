@@ -108,15 +108,31 @@ export default function AttemptPage({ params }: PageProps) {
       </div>
 
       {/* Stats Grid */}
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-5">
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         <StatCard
           label="Tests"
-          value={`${submission.tests_ok}/${submission.tests_total}`}
+          value={
+            submission.baseline_passing != null && submission.broken_by_bug != null && submission.broken_by_bug > 0
+              ? `${Math.max(0, submission.tests_ok - submission.baseline_passing)}/${submission.broken_by_bug} fixed`
+              : `${submission.tests_ok}/${submission.tests_total}`
+          }
           className={passed ? 'text-success' : 'text-destructive'}
         />
         <StatCard label="Agent Time" value={fmtTime(submission.agent_time_seconds)} />
         <StatCard label="Diff Lines" value={String(submission.diff_lines)} />
         <StatCard label="Exit Code" value={String(submission.exit_code)} />
+        <StatCard
+          label="Cost"
+          value={submission.cost_usd > 0 ? '$' + submission.cost_usd.toFixed(2) : '\u2014'}
+        />
+        <StatCard
+          label="Tokens In"
+          value={submission.tokens_in > 0 ? submission.tokens_in.toLocaleString() : '\u2014'}
+        />
+        <StatCard
+          label="Tokens Out"
+          value={submission.tokens_out > 0 ? submission.tokens_out.toLocaleString() : '\u2014'}
+        />
         <StatCard
           label="Date"
           value={submission.created_at ? new Date(submission.created_at).toLocaleDateString() : '\u2014'}
@@ -138,14 +154,13 @@ export default function AttemptPage({ params }: PageProps) {
                   <th className="pb-3 pr-4 font-medium">Opponent</th>
                   <th className="pb-3 pr-4 font-medium">Their Tests</th>
                   <th className="pb-3 pr-4 font-medium">Their Time</th>
-                  <th className="pb-3 text-right font-medium">ELO Delta</th>
+                  <th className="pb-3 pl-4 text-right font-medium"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {submission.games.map((game, i) => {
                   const result = game.score === 1 ? 'WIN' : game.score === 0 ? 'LOSS' : 'DRAW'
-                  const delta = Math.round(game.delta)
-                  return (
+                  const row = (
                     <tr key={i} className="group transition-colors hover:bg-card/50">
                       <td className="py-3 pr-4">
                         <span className={cn(
@@ -172,16 +187,19 @@ export default function AttemptPage({ params }: PageProps) {
                       <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
                         {game.opponent_time != null ? fmtTime(game.opponent_time) : '\u2014'}
                       </td>
-                      <td className="py-3 text-right">
-                        <span className={cn(
-                          'font-mono text-sm font-medium',
-                          delta > 0 ? 'text-success' : delta < 0 ? 'text-destructive' : 'text-muted-foreground'
-                        )}>
-                          {delta > 0 ? '+' : ''}{delta}
-                        </span>
-                      </td>
+                      {game.id != null && (
+                        <td className="py-3 pl-4 text-right">
+                          <Link
+                            href={`/games/${game.id}`}
+                            className="text-xs text-muted-foreground hover:text-primary"
+                          >
+                            Details &rarr;
+                          </Link>
+                        </td>
+                      )}
                     </tr>
                   )
+                  return row
                 })}
               </tbody>
             </table>

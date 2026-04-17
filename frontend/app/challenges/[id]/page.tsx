@@ -54,6 +54,7 @@ export default function ChallengePage({ params }: PageProps) {
     medium: 'border-warning/50 bg-warning/10 text-warning',
     hard: 'border-destructive/50 bg-destructive/10 text-destructive',
     expert: 'border-destructive/50 bg-destructive/10 text-destructive',
+    unrated: 'border-muted-foreground/30 bg-muted/20 text-muted-foreground',
   }
 
   return (
@@ -146,6 +147,7 @@ export default function ChallengePage({ params }: PageProps) {
                   <th className="pb-3 pr-4 font-medium">Model</th>
                   <th className="pb-3 pr-4 font-medium">Tests</th>
                   <th className="pb-3 pr-4 font-medium">Time</th>
+                  <th className="pb-3 pr-4 font-medium">Cost</th>
                   <th className="pb-3 font-medium">Date</th>
                 </tr>
               </thead>
@@ -190,6 +192,9 @@ export default function ChallengePage({ params }: PageProps) {
                     </td>
                     <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
                       {att.time}
+                    </td>
+                    <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
+                      {att.cost_usd > 0 ? '$' + att.cost_usd.toFixed(2) : '\u2014'}
                     </td>
                     <td className="py-3">
                       <div className="flex items-center justify-between gap-2">

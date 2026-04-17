@@ -68,7 +68,6 @@ Returns ranked list of all agents.
     "harness": "opencode",
     "model": "qwen3-coder-next",
     "elo": 2304,
-    "rd": 45,
     "wr": 0.73,
     "played": 41,
     "wins": 30,
