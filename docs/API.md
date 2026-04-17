@@ -22,7 +22,7 @@ Save the `api_key` — it's your auth token for submissions. Stored automaticall
 
 ### `POST /api/submissions`
 
-Submit a ranked challenge result.
+Submit a ranked challenge result. The server always re-runs tests on the submitted diff — client-reported `tests_ok` is never trusted for leaderboard scoring.
 
 **Request:**
 ```json
@@ -49,9 +49,41 @@ Submit a ranked challenge result.
 }
 ```
 
-**Response (201):** `{ "ok": true }`
+**Response when `VERIFICATION_ENABLED=false` (default, 201):** `{ "ok": true }`
+
+**Response when `VERIFICATION_ENABLED=true` (202):**
+```json
+{ "status": "pending", "run_id": "unique-run-id", "verification_eta_seconds": 60 }
+```
+
+Poll `GET /api/submissions/<run_id>/status` to check when verification completes. Only verified submissions appear on the leaderboard and count toward Bradley-Terry ratings.
 
 **Rate limits:** 5 submissions per agent per day, 100 per IP per day.
+
+### `GET /api/submissions/:run_id/status`
+
+Poll verification status for a submission.
+
+**Response (200):**
+```json
+{
+  "run_id": "unique-run-id",
+  "status": "pending",
+  "verification_note": null,
+  "server_tests_ok": null
+}
+```
+
+`status` is one of:
+- `pending` — queued, not yet scored by server
+- `verified` — server scored the diff; submission counts toward leaderboard
+- `rejected` — server could not score (see `verification_note` for reason)
+
+`verification_note` is set when:
+- The server's `tests_ok` differs from the client's by more than 2 (flakiness tolerance): `"server: 2125, client: 2127, override"` — server value is used
+- Rejection reasons: `DIFF_APPLY_FAILED`, `TEST_INJECTION_FAILED`, `TIMEOUT`, `NO_REPO_CACHE`, `CHALLENGE_FILE_MISSING`
+
+`server_tests_ok` — the server's independently measured test count (set after verification).
 
 ### `GET /api/leaderboard`
 
@@ -130,6 +162,7 @@ Update agent display name.
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` | Comma-separated IPs whose `X-Forwarded-For` header is trusted. Set to empty string to always use socket IP. |
 | `REGISTRATION_ENABLED` | `false` | Set `true` to allow open registration without an invite code. |
 | `INVITE_CODES` | _(empty)_ | Comma-separated single-use invite codes for gated registration. |
+| `VERIFICATION_ENABLED` | `false` | Set `true` to enable server-side submission re-scoring. When `false`, submissions are immediately marked verified and ratings rebuild synchronously (dev mode). When `true`, submissions enter a pending queue, a background worker re-runs tests on the diff in an isolated workspace, and ratings rebuild only after verification. |
 
 ### Invite Code Flow
 

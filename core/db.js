@@ -139,6 +139,25 @@ function getDb() {
     if (!submissionCols.includes('cost_usd')) {
       _db.exec('ALTER TABLE submissions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0');
     }
+    const firstVerificationMigration = !submissionCols.includes('verification_status');
+    if (firstVerificationMigration) {
+      _db.exec("ALTER TABLE submissions ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'pending'");
+    }
+    if (!submissionCols.includes('verification_note')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN verification_note TEXT');
+    }
+    if (!submissionCols.includes('verified_at')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN verified_at TEXT');
+    }
+    if (!submissionCols.includes('server_tests_ok')) {
+      _db.exec('ALTER TABLE submissions ADD COLUMN server_tests_ok INTEGER');
+    }
+    _db.exec('CREATE INDEX IF NOT EXISTS idx_sub_verification ON submissions(verification_status, created_at)');
+    // On first migration only: pre-existing rows were already scored — mark them verified.
+    // Never runs again after this column exists, so new pending rows stay pending.
+    if (firstVerificationMigration) {
+      _db.exec("UPDATE submissions SET verification_status = 'verified', verified_at = created_at");
+    }
 
     const agentCols = _db.pragma('table_info(agents)').map(c => c.name);
     if (!agentCols.includes('display_name')) {
@@ -181,7 +200,7 @@ function getAllChallenges() {
 
 // Returns { challenge_id: attemptCount }
 function getAttemptCounts() {
-  const rows = getDb().prepare('SELECT challenge_id, COUNT(*) as cnt FROM submissions GROUP BY challenge_id').all();
+  const rows = getDb().prepare("SELECT challenge_id, COUNT(*) as cnt FROM submissions WHERE verification_status = 'verified' GROUP BY challenge_id").all();
   const map = {};
   for (const row of rows) map[row.challenge_id] = row.cnt;
   return map;
@@ -197,6 +216,7 @@ function getSolveStats() {
            SUM(CASE WHEN tests_ok > 0 THEN 1 ELSE 0 END) as wins,
            AVG(CASE WHEN agent_time_seconds > 0 THEN agent_time_seconds ELSE NULL END) as avg_agent_time
     FROM submissions
+    WHERE verification_status = 'verified'
     GROUP BY challenge_id
   `).all();
   const map = {};
@@ -356,13 +376,15 @@ function insertSubmission(sub) {
        tests_passed, tests_total, tests_ok, tests_failed,
        agent_time_seconds, test_time_seconds, diff_lines, diff,
        exit_code, tampered, rating_at_submission, rd_at_submission,
-       transcript_path, tokens_in, tokens_out, cost_usd, created_at)
+       transcript_path, tokens_in, tokens_out, cost_usd, created_at,
+       verification_status)
     VALUES
       (@run_id, @challenge_id, @agent_id, @agent_hash, @harness, @model,
        @tests_passed, @tests_total, @tests_ok, @tests_failed,
        @agent_time_seconds, @test_time_seconds, @diff_lines, @diff,
        @exit_code, @tampered, @rating_at_submission, @rd_at_submission,
-       @transcript_path, @tokens_in, @tokens_out, @cost_usd, @created_at)
+       @transcript_path, @tokens_in, @tokens_out, @cost_usd, @created_at,
+       @verification_status)
   `).run({
     run_id: sub.run_id,
     challenge_id: sub.challenge_id,
@@ -387,7 +409,37 @@ function insertSubmission(sub) {
     tokens_out: sub.tokens_out || 0,
     cost_usd: sub.cost_usd || 0,
     created_at: sub.created_at || new Date().toISOString(),
+    verification_status: sub.verification_status || 'pending',
   });
+}
+
+function updateSubmissionVerification(id, { verification_status, verification_note, verified_at, server_tests_ok, tests_ok }) {
+  const params = {
+    id,
+    verification_status,
+    verification_note: verification_note || null,
+    verified_at: verified_at || null,
+    server_tests_ok: server_tests_ok != null ? server_tests_ok : null,
+  };
+  if (tests_ok != null) {
+    return getDb().prepare(`
+      UPDATE submissions SET
+        verification_status = @verification_status,
+        verification_note = @verification_note,
+        verified_at = @verified_at,
+        server_tests_ok = @server_tests_ok,
+        tests_ok = @tests_ok
+      WHERE id = @id
+    `).run({ ...params, tests_ok });
+  }
+  return getDb().prepare(`
+    UPDATE submissions SET
+      verification_status = @verification_status,
+      verification_note = @verification_note,
+      verified_at = @verified_at,
+      server_tests_ok = @server_tests_ok
+    WHERE id = @id
+  `).run(params);
 }
 
 function getSubmission(runId) {
@@ -498,6 +550,7 @@ module.exports = {
   getPreviousSnapshots,
   // submissions
   insertSubmission,
+  updateSubmissionVerification,
   getSubmission,
   getSubmissionById,
   getSubmissionsByAgent,

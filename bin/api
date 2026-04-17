@@ -4,9 +4,11 @@
 const http   = require('http');
 const fs     = require('fs');
 const path   = require('path');
+const os     = require('os');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const db     = require('../core/db');
-const { stripTestFiles } = require('../core/scorer');
+const { stripTestFiles, score } = require('../core/scorer');
 const { computeScore, isPairwiseSubmissionExcluded, pickBetterSubmission } = require('../core/scoring');
 const { computeRatings } = require('../core/bradley-terry');
 
@@ -25,6 +27,8 @@ const TRUSTED_PROXIES = new Set(
 
 const REGISTRATION_ENABLED = process.env.REGISTRATION_ENABLED === 'true';
 const INVITE_CODES_ENV = (process.env.INVITE_CODES || '').split(',').map(c => c.trim()).filter(Boolean);
+const VERIFICATION_ENABLED = process.env.VERIFICATION_ENABLED === 'true';
+const CACHE_DIR = path.join(__dirname, '..', '.cache', 'repos');
 
 const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
 const SUBMISSION_LIMIT_IP_PER_DAY = 100;
@@ -39,6 +43,91 @@ if (ALLOWED_ORIGINS.includes('*')) {
 }
 
 const leaderboardCache = { data: null, minAgents: 0 };
+
+// ── Verification worker helpers ───────────────────────────────────────────────
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function slugify(str) {
+  return str.replace(/[\/\\.:\s]+/g, '-').replace(/[^a-zA-Z0-9-]/g, '').toLowerCase();
+}
+
+function normalizeChallenge(raw) {
+  return {
+    id: raw.id,
+    repo: raw.repoUrl || raw.repo,
+    commit: raw.buggyCommit || raw.commit,
+    fixCommit: raw.fixCommit,
+    fixDiff: raw.fixDiff,
+    title: raw.issue?.title || raw.title || raw.id,
+    body: raw.issue?.body || raw.body || '',
+    test_command: raw.testCommand || raw.test_command || 'npm test',
+    baseline_passing: raw.baseline_passing || 0,
+    broken_by_bug: raw.broken_by_bug || 0,
+  };
+}
+
+function createInstalledWorkspace(challenge) {
+  const repoSlug = slugify(challenge.repo.replace('https://github.com/', ''));
+  const cacheDir = path.join(CACHE_DIR, repoSlug);
+  if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) return null;
+
+  const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), `agentelo-verify-ws-${challenge.id}-`));
+  try {
+    execFileSync('cp', ['-R', cacheDir + '/.', wsDir + '/'], { stdio: 'pipe', timeout: 120000 });
+    execFileSync('git', ['checkout', '-f', challenge.commit], { cwd: wsDir, stdio: 'pipe' });
+    execFileSync('git', ['clean', '-fd'], { cwd: wsDir, stdio: 'pipe' });
+
+    if (fs.existsSync(path.join(wsDir, 'package.json'))) {
+      try {
+        execFileSync('npm', ['install', '--ignore-scripts'], { cwd: wsDir, stdio: 'pipe', timeout: 120000 });
+      } catch (_) {
+        try { execFileSync('npm', ['install'], { cwd: wsDir, stdio: 'pipe', timeout: 120000 }); } catch (_) {}
+      }
+    } else if (fs.existsSync(path.join(wsDir, 'pyproject.toml')) || fs.existsSync(path.join(wsDir, 'setup.py'))) {
+      const venvDir = path.join(wsDir, '.venv');
+      try {
+        execFileSync('uv', ['venv', '-p', '3.12', venvDir], { cwd: wsDir, stdio: 'pipe', timeout: 60000 });
+        const venvPython = path.join(venvDir, 'bin', 'python');
+        try { execFileSync('uv', ['pip', 'install', '.', '--python', venvPython], { cwd: wsDir, stdio: 'pipe', timeout: 300000 }); } catch (_) {}
+        for (const extra of ['.[tests]', '.[testing]', '.[dev,tests]', '.[dev]']) {
+          try { execFileSync('uv', ['pip', 'install', extra, '--python', venvPython], { cwd: wsDir, stdio: 'pipe', timeout: 300000 }); } catch (_) {}
+        }
+        try { execFileSync('uv', ['pip', 'install', 'pytest', '--python', venvPython], { cwd: wsDir, stdio: 'pipe', timeout: 30000 }); } catch (_) {}
+      } catch (_) {}
+    }
+
+    return wsDir;
+  } catch (err) {
+    try { fs.rmSync(wsDir, { recursive: true, force: true }); } catch (_) {}
+    throw err;
+  }
+}
+
+// ── BT rebuild debounce ───────────────────────────────────────────────────────
+
+let _btDebounceTimer = null;
+let _btPendingCount = 0;
+const BT_DEBOUNCE_MS = 5000;
+const BT_BATCH_TRIGGER = 10;
+
+function scheduleBtRebuild() {
+  _btPendingCount++;
+  if (_btPendingCount >= BT_BATCH_TRIGGER) {
+    _btPendingCount = 0;
+    if (_btDebounceTimer) { clearTimeout(_btDebounceTimer); _btDebounceTimer = null; }
+    rebuildBradleyTerry();
+    leaderboardCache.data = null;
+    return;
+  }
+  if (_btDebounceTimer) clearTimeout(_btDebounceTimer);
+  _btDebounceTimer = setTimeout(() => {
+    _btPendingCount = 0;
+    _btDebounceTimer = null;
+    rebuildBradleyTerry();
+    leaderboardCache.data = null;
+  }, BT_DEBOUNCE_MS);
+}
 
 // Build set of active challenge IDs from challenges-active/ directory
 function getActiveChallengeIds() {
@@ -235,8 +324,8 @@ function rebuildBradleyTerry() {
     });
   }
 
-  // Build pairwise outcomes
-  const allSubs = db.getDb().prepare('SELECT * FROM submissions ORDER BY created_at ASC').all()
+  // Build pairwise outcomes — only verified submissions count toward ratings
+  const allSubs = db.getDb().prepare("SELECT * FROM submissions WHERE verification_status = 'verified' ORDER BY created_at ASC").all()
     .filter(sub => !isPairwiseSubmissionExcluded(sub));
   const byChallenge = {};
   for (const s of allSubs) {
@@ -332,8 +421,8 @@ function buildChallengeEntry(row, stats) {
     let bl = 0;
     try { const m = JSON.parse(fs.readFileSync(chFile, 'utf8')); bl = m.baseline_passing || 0; } catch {}
     if (bl > 0) {
-      // Count submissions that fixed at least 1 test beyond baseline
-      const subs = db.getSubmissionsByChallenge(row.id);
+      // Count verified submissions that fixed at least 1 test beyond baseline
+      const subs = db.getSubmissionsByChallenge(row.id).filter(sub => sub.verification_status === 'verified');
       const solved = subs.filter(sub => (sub.tests_ok || 0) > bl).length;
       sr = solved / s.total;
     } else {
@@ -367,7 +456,7 @@ function buildAgentEntry(agent, rank, allAgents) {
   const baseRating = prevSnapshot ? prevSnapshot.rating : (snapshots.length > 0 ? snapshots[0].rating : agent.rating);
   const d7 = agent.rating - baseRating;
 
-  const subs   = db.getSubmissionsByAgent(agent.id).slice(0, 3);
+  const subs   = db.getSubmissionsByAgent(agent.id).filter(s => s.verification_status === 'verified').slice(0, 3);
   const recent = subs.map(s => {
     const ch = db.getChallenge(s.challenge_id);
     // Use tests_fixed (not raw tests_ok) for pass/fail status
@@ -453,7 +542,7 @@ async function processSubmission(body, authenticatedAgent) {
     });
   }
 
-  // 4. Insert submission
+  // 4. Insert submission — pending if server-side verification is enabled
   db.insertSubmission({
     run_id:             body.run_id,
     challenge_id:       body.challenge_id,
@@ -478,16 +567,150 @@ async function processSubmission(body, authenticatedAgent) {
     tokens_out:         body.tokens_out  || 0,
     cost_usd:           body.cost_usd    || 0,
     created_at:         body.finished_at || new Date().toISOString(),
+    verification_status: VERIFICATION_ENABLED ? 'pending' : 'verified',
   });
 
   // 5. Get inserted submission's integer id
   const mySub = db.getSubmission(body.run_id);
   if (!mySub) throw new Error('Failed to retrieve inserted submission');
 
-  // 6. Trigger full Bradley-Terry rebuild
-  //    BT solves all ratings simultaneously — no sequential game-by-game updates.
-  //    With ~150 agents and ~3000 submissions, rebuild takes <1 second.
-  rebuildBradleyTerry();
+  if (!VERIFICATION_ENABLED) {
+    // Immediate mode: rebuild ratings now, return 201 (same behavior as before)
+    rebuildBradleyTerry();
+    return { status: 201, body: { ok: true } };
+  }
+
+  // Verification enabled: worker will score and rebuild asynchronously
+  return { status: 202, body: { status: 'pending', run_id: body.run_id, verification_eta_seconds: 60 } };
+}
+
+// ── Verification worker ───────────────────────────────────────────────────────
+
+async function verifySubmission(sub) {
+  const now = new Date().toISOString();
+
+  const challengeFile = path.join(ACTIVE_DIR, `${sub.challenge_id}.json`);
+  let challengeMeta;
+  try {
+    challengeMeta = normalizeChallenge(JSON.parse(fs.readFileSync(challengeFile, 'utf8')));
+  } catch (_) {
+    db.updateSubmissionVerification(sub.id, { verification_status: 'rejected', verification_note: 'CHALLENGE_FILE_MISSING', verified_at: now });
+    return;
+  }
+
+  const repoSlug = slugify(challengeMeta.repo.replace('https://github.com/', ''));
+  const cacheDir = path.join(CACHE_DIR, repoSlug);
+  if (!fs.existsSync(path.join(cacheDir, '.git', 'HEAD'))) {
+    db.updateSubmissionVerification(sub.id, { verification_status: 'rejected', verification_note: 'NO_REPO_CACHE', verified_at: now });
+    return;
+  }
+
+  let wsDir;
+  try {
+    wsDir = createInstalledWorkspace(challengeMeta);
+  } catch (err) {
+    db.updateSubmissionVerification(sub.id, {
+      verification_status: 'rejected',
+      verification_note: `WORKSPACE_FAILED: ${(err.message || '').slice(0, 120)}`,
+      verified_at: now,
+    });
+    return;
+  }
+  if (!wsDir) {
+    db.updateSubmissionVerification(sub.id, { verification_status: 'rejected', verification_note: 'NO_REPO_CACHE', verified_at: now });
+    return;
+  }
+
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentelo-verify-'));
+  let result;
+  try {
+    execFileSync('cp', ['-R', wsDir + '/.', workDir + '/'], { stdio: 'pipe', timeout: 30000 });
+    let timeoutHandle;
+    const scorePromise = score(sub.diff || '', workDir, challengeMeta, null);
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error('TIMEOUT')), 180000);
+    });
+    try {
+      result = await Promise.race([scorePromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  } catch (err) {
+    const note = err.message === 'TIMEOUT' ? 'TIMEOUT' : `SCORE_ERROR: ${(err.message || '').slice(0, 100)}`;
+    db.updateSubmissionVerification(sub.id, { verification_status: 'rejected', verification_note: note, verified_at: now });
+    return;
+  } finally {
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(wsDir,   { recursive: true, force: true }); } catch (_) {}
+  }
+
+  const warnings = result.warnings || [];
+  const critical = warnings.filter(w => w === 'DIFF_APPLY_FAILED' || w === 'TEST_INJECTION_FAILED');
+  if (critical.length > 0) {
+    db.updateSubmissionVerification(sub.id, { verification_status: 'rejected', verification_note: critical.join(','), verified_at: now });
+    return;
+  }
+
+  const serverOk = result.tests_ok || 0;
+  const clientOk = sub.tests_ok || 0;
+
+  if (Math.abs(serverOk - clientOk) <= 2) {
+    db.updateSubmissionVerification(sub.id, {
+      verification_status: 'verified',
+      verified_at: now,
+      server_tests_ok: serverOk,
+    });
+  } else {
+    db.updateSubmissionVerification(sub.id, {
+      verification_status: 'verified',
+      verification_note: `server: ${serverOk}, client: ${clientOk}, override`,
+      verified_at: now,
+      server_tests_ok: serverOk,
+      tests_ok: serverOk,
+    });
+  }
+
+  console.log(`[verify] ${sub.run_id}: server=${serverOk} client=${clientOk} → verified`);
+  scheduleBtRebuild();
+}
+
+async function verificationWorker() {
+  console.log('[verify] worker started');
+  while (true) {
+    try {
+      let pending;
+      try {
+        pending = db.getDb().prepare(
+          "SELECT * FROM submissions WHERE verification_status = 'pending' ORDER BY created_at LIMIT 1"
+        ).get();
+      } catch (err) {
+        console.error('[verify] queue poll error:', err.message);
+        await sleep(5000);
+        continue;
+      }
+
+      if (!pending) {
+        await sleep(5000);
+        continue;
+      }
+
+      try {
+        await verifySubmission(pending);
+      } catch (err) {
+        console.error(`[verify] unhandled error for ${pending.run_id}:`, err.message);
+        try {
+          db.updateSubmissionVerification(pending.id, {
+            verification_status: 'rejected',
+            verification_note: `WORKER_ERROR: ${(err.message || '').slice(0, 100)}`,
+            verified_at: new Date().toISOString(),
+          });
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.error('[verify] fatal loop error, restarting in 10s:', err.message);
+      await sleep(10000);
+    }
+  }
 }
 
 // ── router ────────────────────────────────────────────────────────────────────
@@ -696,8 +919,8 @@ async function handleRequest(req, res) {
     }
 
     try {
-      await processSubmission(body, agent);
-      return json(res, 201, { ok: true });
+      const result = await processSubmission(body, agent);
+      return json(res, result.status, result.body);
     } catch (e) {
       const status = e.status || 500;
       if (status !== 500) return json(res, status, { error: e.message });
@@ -719,6 +942,19 @@ async function handleRequest(req, res) {
       }
     }
     return json(res, 200, leaderboardCache.data || []);
+  }
+
+  // GET /api/submissions/:run_id/status  (verification polling)
+  const subStatusMatch = pathname.match(/^\/api\/submissions\/([^/]+)\/status$/);
+  if (req.method === 'GET' && subStatusMatch) {
+    const sub = db.getSubmission(subStatusMatch[1]);
+    if (!sub) return json(res, 404, { error: 'Not found' });
+    return json(res, 200, {
+      run_id: sub.run_id,
+      status: sub.verification_status || 'verified',
+      verification_note: sub.verification_note || null,
+      server_tests_ok: sub.server_tests_ok != null ? sub.server_tests_ok : null,
+    });
   }
 
   // GET /api/submissions/:id
@@ -1202,4 +1438,9 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`[agentelo-api] listening on http://localhost:${PORT}`);
+  if (VERIFICATION_ENABLED) {
+    verificationWorker().catch(err => console.error('[verify] worker crashed:', err));
+  } else {
+    console.log('[agentelo-api] VERIFICATION_ENABLED=false — submissions verified immediately');
+  }
 });
