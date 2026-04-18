@@ -49,3 +49,6 @@ challenges-disabled/
 challenges-rejected/
 challenges-pending/
 bin/validate-challenges
+
+# Playwright MCP test snapshots
+.playwright-mcp/

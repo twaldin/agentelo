@@ -11,8 +11,8 @@ export default function HomePage() {
     <div className="relative">
       {/* Hero Section */}
       <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28 lg:py-32">
+        <div className="scanlines absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
+        <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-28 lg:py-32">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
             <div className="flex flex-col gap-6">
               <h1 className="font-display text-2xl leading-relaxed tracking-tight sm:text-3xl lg:text-4xl">
@@ -240,7 +240,7 @@ function FeatureCard({
   description: string
 }) {
   return (
-    <div className="group relative rounded-lg border border-border bg-card p-6 transition-colors hover:border-primary/50 hover:bg-card/80">
+    <div className="group relative rounded-lg border border-border bg-card p-5 transition-colors hover:border-primary/50 hover:bg-card/80">
       <div className="flex items-start gap-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Icon className="h-5 w-5" />

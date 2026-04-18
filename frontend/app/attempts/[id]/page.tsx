@@ -123,7 +123,7 @@ export default function AttemptPage({ params }: PageProps) {
         <StatCard label="Exit Code" value={String(submission.exit_code)} />
         <StatCard
           label="Cost"
-          value={submission.cost_usd > 0 ? '$' + submission.cost_usd.toFixed(2) : '\u2014'}
+          value={submission.cost_usd > 0 ? (submission.cost_usd < 0.01 ? '<$0.01' : '$' + submission.cost_usd.toFixed(2)) : '\u2014'}
         />
         <StatCard
           label="Tokens In"
@@ -259,9 +259,9 @@ export default function AttemptPage({ params }: PageProps) {
 
 function StatCard({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={cn('mt-1 font-mono text-sm font-medium', className)}>{value}</p>
+    <div className="rounded-lg border border-border bg-card p-5">
+      <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className={cn('mt-1 font-mono text-sm font-medium tabular-nums', className)}>{value}</p>
     </div>
   )
 }

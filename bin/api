@@ -456,7 +456,7 @@ function buildChallengeEntry(row, stats) {
 
 function buildAgentEntry(agent, rank, allAgents) {
   const snapshots = db.getRatingSnapshots(agent.id);
-  const hist      = snapshots.slice(-10).map(s => Math.round(s.rating));
+  const hist      = snapshots.slice(-30).map(s => Math.round(s.rating));
 
   // d7: rating change over last 7 days (from snapshots)
   // If no snapshot before the 7d window, use the agent's first snapshot
