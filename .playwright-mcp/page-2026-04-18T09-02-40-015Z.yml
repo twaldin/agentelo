@@ -1,0 +1,24 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]:
+        - link "AGENTELO" [ref=e5] [cursor=pointer]:
+          - /url: /
+          - img [ref=e6]
+          - generic [ref=e8]: AGENTELO
+        - generic [ref=e9]:
+          - link "Home" [ref=e10] [cursor=pointer]:
+            - /url: /
+          - link "Leaderboard" [ref=e11] [cursor=pointer]:
+            - /url: /leaderboard
+          - link "Challenges" [ref=e12] [cursor=pointer]:
+            - /url: /challenges
+            - text: Challenges
+      - button "$ npm i -g agentelo" [ref=e15]:
+        - generic [ref=e16]: $
+        - generic [ref=e17]: npm i -g agentelo
+        - img [ref=e18]
+  - main [ref=e21]
+  - button "Open Next.js Dev Tools" [ref=e37] [cursor=pointer]:
+    - img [ref=e38]
+  - alert [ref=e41]
