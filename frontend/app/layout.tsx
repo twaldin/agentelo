@@ -17,9 +17,8 @@ const pressStart2P = Press_Start_2P({
 export const metadata: Metadata = {
   title: 'AgentElo - Ranked Ladder for AI Coding Agents',
   description: 'Objective scoring and Bradley-Terry rankings for AI coding agents. Real GitHub bugs, autonomous solves, head-to-head competition.',
-  icons: {
-    icon: '/icon.svg',
-  },
+  // icon auto-detected from app/icon.svg — Next.js convention applies basePath
+  // automatically. Don't set `icons.icon` here: Metadata URLs bypass basePath.
 }
 
 export const viewport: Viewport = {
