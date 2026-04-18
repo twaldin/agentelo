@@ -14,6 +14,7 @@ import {
   type CompareChallengeEntry,
   type CompareChallengeSubmission,
 } from '@/lib/api'
+import AgentPicker from '@/components/AgentPicker'
 
 interface PageProps {
   params: Promise<{ agentA: string; agentB: string }>
@@ -50,7 +51,6 @@ export default function ComparePage({ params }: PageProps) {
   const [data, setData] = useState<CompareResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [compareInput, setCompareInput] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -131,26 +131,37 @@ export default function ComparePage({ params }: PageProps) {
     },
   ]
 
-  function handleCompareNavigate() {
-    const target = compareInput.trim()
-    if (!target) return
-    router.push(`/compare/${encodeURIComponent(agentA)}/${encodeURIComponent(target)}`)
-    setCompareInput('')
-  }
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
             Compare
           </p>
-          <h1 className="mt-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
-            {aName} vs {bName}
+          <h1 className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
+            <Link
+              href={`/agents/${encodeURIComponent(a.id)}`}
+              className="transition-colors hover:text-primary"
+            >
+              {aName}
+            </Link>
+            <span className="text-sm text-muted-foreground">vs</span>
+            <Link
+              href={`/agents/${encodeURIComponent(b.id)}`}
+              className="transition-colors hover:text-primary"
+            >
+              {bName}
+            </Link>
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <AgentPicker
+            currentAgentId={a.id}
+            currentElo={a.elo}
+            placeholder="Compare with…"
+            buildHref={(t) => `/compare/${encodeURIComponent(a.id)}/${encodeURIComponent(t)}`}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -162,88 +173,37 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Agent selector */}
-      <div className="mt-4 flex items-center gap-2">
-        <input
-          type="text"
-          placeholder="Compare with agent ID..."
-          value={compareInput}
-          onChange={e => setCompareInput(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') handleCompareNavigate()
-          }}
-          className="h-9 rounded-md border border-border bg-card px-3 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-        />
-        <Button variant="outline" size="sm" onClick={handleCompareNavigate}>
-          Go
-        </Button>
-      </div>
-
-      {/* Agent name badges linking to detail pages */}
-      <div className="mt-6 flex items-center justify-center gap-6">
-        <Link
-          href={`/agents/${encodeURIComponent(a.id)}`}
-          className="text-center transition-colors hover:text-primary"
-        >
-          <p className="font-mono text-lg font-medium text-foreground">{aName}</p>
-          <div className="mt-1 flex items-center justify-center gap-1.5">
-            <Badge variant="outline" className="text-xs">{a.harness}</Badge>
-            <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{a.model}</Badge>
-          </div>
-        </Link>
-        <span className="font-mono text-sm text-muted-foreground">vs</span>
-        <Link
-          href={`/agents/${encodeURIComponent(b.id)}`}
-          className="text-center transition-colors hover:text-primary"
-        >
-          <p className="font-mono text-lg font-medium text-foreground">{bName}</p>
-          <div className="mt-1 flex items-center justify-center gap-1.5">
-            <Badge variant="outline" className="text-xs">{b.harness}</Badge>
-            <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{b.model}</Badge>
-          </div>
-        </Link>
-      </div>
-
-      {/* Stats Comparison */}
-      <div className="mt-8 rounded-lg border border-border bg-card p-4">
-        <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
-          Stats
-        </h2>
-        <div className="mt-4 space-y-3">
-          {stats.map(s => (
-            <div key={s.label} className="grid grid-cols-3 items-center gap-4">
-              <div className="text-right">
-                <span
-                  className={cn(
-                    'font-mono text-sm font-medium',
-                    s.winner === 'a' ? 'text-success' : 'text-foreground'
-                  )}
-                >
-                  {s.aVal}
-                </span>
-              </div>
-              <div className="text-center">
-                <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
-                  {s.label}
-                </span>
-              </div>
-              <div className="text-left">
-                <span
-                  className={cn(
-                    'font-mono text-sm font-medium',
-                    s.winner === 'b' ? 'text-success' : 'text-foreground'
-                  )}
-                >
-                  {s.bVal}
-                </span>
-              </div>
+      {/* Compact stats row — one tile per metric, both values side by side, winner-tinted */}
+      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {stats.map(s => (
+          <div key={s.label} className="rounded-md border border-border bg-card px-3 py-2">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {s.label}
+            </p>
+            <div className="mt-1 flex items-baseline justify-between gap-2">
+              <span
+                className={cn(
+                  'font-mono text-sm',
+                  s.winner === 'a' ? 'font-semibold text-success' : 'text-muted-foreground'
+                )}
+              >
+                {s.aVal}
+              </span>
+              <span
+                className={cn(
+                  'font-mono text-sm',
+                  s.winner === 'b' ? 'font-semibold text-success' : 'text-muted-foreground'
+                )}
+              >
+                {s.bVal}
+              </span>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
 
       {/* Head-to-Head */}
-      <div className="mt-8 rounded-lg border border-border bg-card p-4">
+      <div className="mt-6 rounded-lg border border-border bg-card p-4">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Head-to-Head
         </h2>
@@ -252,60 +212,83 @@ export default function ComparePage({ params }: PageProps) {
         ) : (
           <>
             <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="font-mono font-medium text-foreground">
-                {h2h.a_wins}W
+              <div className="flex flex-col">
+                <span className="font-mono text-xs text-muted-foreground">{aName}</span>
+                <span className="font-mono text-base font-semibold text-success">
+                  {h2h.a_wins}W
+                </span>
+              </div>
+              <span className="font-mono text-xs text-muted-foreground">
+                {h2h.draws} draws
               </span>
-              <span className="font-mono text-muted-foreground">
-                {h2h.draws}D
-              </span>
-              <span className="font-mono font-medium text-foreground">
-                {h2h.b_wins}W
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="font-mono text-xs text-muted-foreground">{bName}</span>
+                <span className="font-mono text-base font-semibold text-destructive">
+                  {h2h.b_wins}W
+                </span>
+              </div>
             </div>
-            <div className="mt-2 flex h-4 overflow-hidden rounded-full">
+            <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-muted/30">
               {h2hAPct > 0 && (
                 <div
                   className="bg-success transition-all"
                   style={{ width: `${h2hAPct}%` }}
+                  title={`${aName}: ${h2h.a_wins}W (${h2hAPct.toFixed(0)}%)`}
                 />
               )}
               {h2hDrawPct > 0 && (
                 <div
-                  className="bg-muted-foreground/30 transition-all"
+                  className="bg-muted-foreground/40 transition-all"
                   style={{ width: `${h2hDrawPct}%` }}
+                  title={`${h2h.draws} draws`}
                 />
               )}
               {h2hBPct > 0 && (
                 <div
-                  className="bg-primary transition-all"
+                  className="bg-destructive transition-all"
                   style={{ width: `${h2hBPct}%` }}
+                  title={`${bName}: ${h2h.b_wins}W (${h2hBPct.toFixed(0)}%)`}
                 />
               )}
-            </div>
-            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-              <span>{aName}</span>
-              <span>{bName}</span>
             </div>
           </>
         )}
       </div>
 
       {/* Challenge-by-Challenge Table */}
-      <div className="mt-8">
+      <div className="mt-6">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenges ({challenges.length})
         </h2>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[800px]">
             <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+              {/* Group header: agent names span their 3 sub-columns */}
+              <tr className="text-xs uppercase tracking-wider text-muted-foreground">
+                <th className="pb-2 pr-4" />
+                <th
+                  colSpan={3}
+                  className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-success"
+                >
+                  {aName}
+                </th>
+                <th
+                  colSpan={3}
+                  className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-destructive"
+                >
+                  {bName}
+                </th>
+                <th className="pb-2" />
+              </tr>
+              {/* Sub-header: Tests / Time / Cost under each agent */}
+              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="pb-3 pr-4 font-medium">Challenge</th>
-                <th className="pb-3 pr-4 font-medium text-right">{aName} Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">{aName} Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">{aName} Cost</th>
-                <th className="pb-3 pr-4 font-medium text-right">{bName} Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">{bName} Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">{bName} Cost</th>
+                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
+                <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
+                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
+                <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
                 <th className="pb-3 font-medium text-right">Game</th>
               </tr>
             </thead>
@@ -374,7 +357,7 @@ function ChallengeRow({
         <span
           className={cn(
             'font-mono text-sm',
-            rowWinner === 'a' ? 'text-success' : 'text-foreground'
+            rowWinner === 'a' ? 'font-semibold text-success' : 'text-foreground'
           )}
         >
           {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
@@ -404,7 +387,7 @@ function ChallengeRow({
         <span
           className={cn(
             'font-mono text-sm',
-            rowWinner === 'b' ? 'text-success' : 'text-foreground'
+            rowWinner === 'b' ? 'font-semibold text-destructive' : 'text-foreground'
           )}
         >
           {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
@@ -414,7 +397,7 @@ function ChallengeRow({
         <span
           className={cn(
             'font-mono text-sm',
-            rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+            rowWinner === 'b' ? 'text-destructive' : 'text-muted-foreground'
           )}
         >
           {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
@@ -424,7 +407,7 @@ function ChallengeRow({
         <span
           className={cn(
             'font-mono text-sm',
-            rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+            rowWinner === 'b' ? 'text-destructive' : 'text-muted-foreground'
           )}
         >
           {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}
@@ -439,11 +422,11 @@ function ChallengeRow({
               rowWinner === 'a'
                 ? 'text-success'
                 : rowWinner === 'b'
-                  ? 'text-primary'
+                  ? 'text-destructive'
                   : 'text-muted-foreground'
             )}
           >
-            {ch.game.score === 1 ? aName : ch.game.score === 0 ? bName : 'Draw'}
+            {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '—'}
           </Link>
         ) : (
           <span className="font-mono text-sm text-muted-foreground">{'\u2014'}</span>

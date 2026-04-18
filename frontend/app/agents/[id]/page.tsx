@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, ArrowLeftRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { fetchAgent, type AgentDetail, type MatchEntry } from '@/lib/api'
+import AgentPicker from '@/components/AgentPicker'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -27,7 +28,6 @@ export default function AgentPage({ params }: PageProps) {
   const [agent, setAgent] = useState<AgentDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [compareTarget, setCompareTarget] = useState('')
 
   useEffect(() => {
     fetchAgent(id)
@@ -135,33 +135,8 @@ export default function AgentPage({ params }: PageProps) {
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Placement</p>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Agent ID..."
-              value={compareTarget}
-              onChange={e => setCompareTarget(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && compareTarget.trim()) {
-                  router.push(`/compare/${encodeURIComponent(id)}/${encodeURIComponent(compareTarget.trim())}`)
-                }
-              }}
-              className="h-8 w-32 rounded-md border border-border bg-card px-2 font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!compareTarget.trim()}
-              onClick={() => {
-                if (compareTarget.trim()) {
-                  router.push(`/compare/${encodeURIComponent(id)}/${encodeURIComponent(compareTarget.trim())}`)
-                }
-              }}
-            >
-              <ArrowLeftRight className="mr-1.5 h-4 w-4" />
-              Compare
-            </Button>
-          </div>
+          <AgentPicker currentAgentId={id} currentElo={agent.elo} placeholder="Compare with…" />
+
         </div>
       </div>
 
