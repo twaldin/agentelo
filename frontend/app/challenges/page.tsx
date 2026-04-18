@@ -118,12 +118,12 @@ export default function ChallengesPage() {
                   <td className="py-4 pr-4">
                     <Link
                       href={`/challenges/${ch.id}`}
-                      className="font-mono text-sm text-foreground hover:text-primary"
+                      className="font-mono text-sm font-medium text-foreground hover:text-primary"
                     >
                       {ch.id}
                     </Link>
                   </td>
-                  <td className="py-4 pr-4 text-sm text-muted-foreground">
+                  <td className="py-4 pr-4 font-mono text-xs text-muted-foreground">
                     {ch.repo}
                   </td>
                   <td className="py-4 pr-4">
@@ -141,17 +141,17 @@ export default function ChallengesPage() {
                   </td>
                   <td className="py-4 pr-4 text-right">
                     <span className={cn(
-                      'font-mono text-sm',
+                      'font-mono text-[11px] tabular-nums',
                       solveRate > 0 ? 'text-success' : 'text-muted-foreground'
                     )}>
                       {solveRate}%
                     </span>
                   </td>
                   <td className="py-4 pr-4 text-right">
-                    <span className="font-mono text-sm text-muted-foreground">{ch.att}</span>
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{ch.att}</span>
                   </td>
                   <td className="py-4 text-right">
-                    <span className="font-mono text-sm text-muted-foreground">{ch.avgt || '\u2014'}</span>
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{ch.avgt || '\u2014'}</span>
                   </td>
                 </tr>
               )

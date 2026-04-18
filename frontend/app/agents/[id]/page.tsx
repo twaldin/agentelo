@@ -22,6 +22,12 @@ function fmtTime(secs: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
+function fmtCost(usd: number): string {
+  if (!usd || usd === 0) return '\u2014'
+  if (usd < 0.01) return '<$0.01'
+  return '$' + usd.toFixed(2)
+}
+
 export default function AgentPage({ params }: PageProps) {
   const { id } = use(params)
   const router = useRouter()
@@ -61,8 +67,8 @@ export default function AgentPage({ params }: PageProps) {
   const winPct = Math.round(agent.wr * 100)
   const d7Rounded = Math.round(agent.d7)
   const displayName = (agent.display_name || agent.id).trim()
+  const inPlacement = agent.rank === null
 
-  // Transform rating history for chart — index-based X for even spacing
   const chartData = agent.ratingHistory.map((point, idx) => {
     const d = point.ts ? new Date(point.ts) : null
     return {
@@ -74,7 +80,6 @@ export default function AgentPage({ params }: PageProps) {
     }
   })
 
-  // Build day-boundary ticks: first index of each new date
   const dayTicks: number[] = []
   let lastDate = ''
   for (let i = 0; i < chartData.length; i++) {
@@ -89,10 +94,10 @@ export default function AgentPage({ params }: PageProps) {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
             {agent.harness}
           </p>
-          <h1 className="mt-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
+          <h1 className="mt-1 font-mono text-3xl font-bold tracking-tight text-foreground">
             {displayName}
           </h1>
           {displayName !== agent.id && (
@@ -104,66 +109,78 @@ export default function AgentPage({ params }: PageProps) {
             <Badge variant="outline" className="text-xs">
               {agent.harness}
             </Badge>
-            <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">
+            <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
               {agent.model}
             </Badge>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="font-mono text-5xl font-bold text-primary sm:text-6xl">
-              {agent.elo}
-            </span>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            ELO RATING
-          </p>
+
+          {/* ELO / Placement dominant stat */}
+          {inPlacement ? (
+            <>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span className="font-mono text-5xl font-bold tabular-nums text-primary sm:text-6xl">
+                  {agent.placement?.attempted ?? 0}/{agent.placement?.required ?? 10}
+                </span>
+              </div>
+              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                Placement Matches
+              </p>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="font-mono text-2xl tabular-nums text-muted-foreground">
+                  {agent.elo}
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">provisional ELO</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="mt-3 flex items-baseline gap-2">
+                <span className="font-mono text-5xl font-bold tabular-nums text-primary sm:text-6xl">
+                  {agent.elo}
+                </span>
+              </div>
+              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                ELO Rating
+              </p>
+            </>
+          )}
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          {agent.rank !== null ? (
+          {agent.rank !== null && (
             <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
-              <span className="font-mono text-2xl font-bold text-primary">#{agent.rank}</span>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Global</p>
-            </div>
-          ) : (
-            <div
-              className="rounded-lg border border-muted-foreground/30 bg-muted/20 px-4 py-2 text-center"
-              title={`Needs ${(agent.placement?.required ?? 10) - (agent.placement?.attempted ?? 0)} more challenges to be ranked`}
-            >
-              <span className="font-mono text-2xl font-bold text-muted-foreground">
-                {agent.placement?.attempted ?? 0}/{agent.placement?.required ?? 10}
-              </span>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">Placement</p>
+              <span className="font-mono text-2xl font-bold tabular-nums text-primary">#{agent.rank}</span>
+              <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Global</p>
             </div>
           )}
           <AgentPicker currentAgentId={id} currentElo={agent.elo} placeholder="Compare with…" />
-
         </div>
       </div>
 
       {/* Stats Row */}
-      <div className="mt-6 flex flex-wrap items-center gap-6 text-sm">
+      <div className="mt-6 flex flex-wrap items-center gap-6">
         <div>
-          <span className="text-muted-foreground">Record</span>{' '}
-          <span className="font-mono font-medium text-foreground">
+          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Record</span>{' '}
+          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">
             {agent.wins}W / {agent.losses}L / {agent.draws}D ({winPct}%)
           </span>
         </div>
         <div>
-          <span className="text-muted-foreground">7D</span>{' '}
+          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">7D</span>{' '}
           <span className={cn(
-            'font-mono font-medium',
-            d7Rounded > 0 ? 'text-success' : d7Rounded < 0 ? 'text-destructive' : 'text-muted-foreground'
+            'font-mono text-xl font-semibold tabular-nums',
+            d7Rounded > 0 ? 'text-success' : 'text-muted-foreground'
           )}>
             {d7Rounded > 0 ? '+' : ''}{d7Rounded}
           </span>
         </div>
         <div>
-          <span className="text-muted-foreground">Challenges</span>{' '}
-          <span className="font-mono text-foreground">{agent.matches?.length || 0}</span>
+          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Challenges</span>{' '}
+          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.matches?.length || 0}</span>
         </div>
         <div>
-          <span className="text-muted-foreground">Games</span>{' '}
-          <span className="font-mono text-foreground">{agent.played}</span>
+          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Games</span>{' '}
+          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.played}</span>
         </div>
       </div>
 
@@ -173,7 +190,7 @@ export default function AgentPage({ params }: PageProps) {
           <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
             Rating History
           </h2>
-          <div className="mt-4 rounded-lg border border-border bg-card p-4">
+          <div className="mt-4 rounded-lg border border-border bg-card p-5">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                 <XAxis
@@ -294,14 +311,14 @@ function MatchRow({ match }: { match: MatchEntry }) {
       <td className="py-4 pr-4">
         <Link
           href={`/challenges/${match.challenge_id}`}
-          className="font-mono text-sm text-foreground hover:text-primary"
+          className="font-mono text-sm font-medium text-foreground hover:text-primary"
         >
           {match.challenge_id}
         </Link>
       </td>
       <td className="py-4 pr-4">
         <span className={cn(
-          'font-mono text-sm',
+          'font-mono text-[11px] tabular-nums',
           match.tests_passed ? 'text-success' : 'text-destructive'
         )}>
           {match.tests_ok === 0 && match.tests_total === 0
@@ -311,23 +328,23 @@ function MatchRow({ match }: { match: MatchEntry }) {
               : `${match.tests_ok}/${match.tests_total}`}
         </span>
       </td>
-      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground">
+      <td className="py-4 pr-4 font-mono text-[11px] text-muted-foreground">
         {fmtTime(match.agent_time)}
       </td>
-      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground">
-        {match.cost_usd > 0 ? '$' + match.cost_usd.toFixed(2) : '\u2014'}
+      <td className="py-4 pr-4 font-mono text-[11px] text-muted-foreground">
+        {fmtCost(match.cost_usd)}
       </td>
       <td className="py-4 pr-4 text-right">
         <span className={cn(
-          'font-mono text-sm font-medium',
-          totalDelta > 0 ? 'text-success' : totalDelta < 0 ? 'text-destructive' : 'text-muted-foreground'
+          'font-mono text-sm font-semibold tabular-nums',
+          totalDelta > 0 ? 'text-success' : totalDelta < 0 ? 'text-muted-foreground' : 'text-muted-foreground'
         )}>
           {totalDelta > 0 ? '+' : ''}{totalDelta}
         </span>
       </td>
       <td className="py-4">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm text-muted-foreground">{date}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">{date}</span>
           <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
             <Link href={`/attempts/${match.run_id}`}>
               <ArrowRight className="h-4 w-4" />

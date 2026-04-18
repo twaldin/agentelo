@@ -29,7 +29,8 @@ function fmtTime(secs: number): string {
 
 function fmtCost(usd: number | null): string {
   if (usd == null || usd === 0) return '\u2014'
-  return `$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}`
+  if (usd < 0.01) return '<$0.01'
+  return `$${usd.toFixed(2)}`
 }
 
 function statWinner(
@@ -108,7 +109,6 @@ export default function ComparePage({ params }: PageProps) {
       label: 'Rank',
       aVal: a.rank !== null ? `#${a.rank}` : 'placement',
       bVal: b.rank !== null ? `#${b.rank}` : 'placement',
-      // Placement agents can't be compared on rank — call it a tie.
       winner: (a.rank === null || b.rank === null) ? 'tie' : statWinner(a.rank, b.rank, true),
     },
     {
@@ -136,7 +136,7 @@ export default function ComparePage({ params }: PageProps) {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
             Compare
           </p>
           <h1 className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
@@ -173,17 +173,17 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Compact stats row — one tile per metric, both values side by side, winner-tinted */}
+      {/* Stat tiles — label text-sm, value text-xl tabular-nums */}
       <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {stats.map(s => (
-          <div key={s.label} className="rounded-md border border-border bg-card px-3 py-2">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+          <div key={s.label} className="rounded-md border border-border bg-card p-5">
+            <p className="font-mono text-sm uppercase tracking-wider text-muted-foreground">
               {s.label}
             </p>
-            <div className="mt-1 flex items-baseline justify-between gap-2">
+            <div className="mt-2 flex items-baseline justify-between gap-2">
               <span
                 className={cn(
-                  'font-mono text-sm',
+                  'font-mono text-xl tabular-nums',
                   s.winner === 'a' ? 'font-semibold text-success' : 'text-muted-foreground'
                 )}
               >
@@ -191,7 +191,7 @@ export default function ComparePage({ params }: PageProps) {
               </span>
               <span
                 className={cn(
-                  'font-mono text-sm',
+                  'font-mono text-xl tabular-nums',
                   s.winner === 'b' ? 'font-semibold text-success' : 'text-muted-foreground'
                 )}
               >
@@ -203,7 +203,7 @@ export default function ComparePage({ params }: PageProps) {
       </div>
 
       {/* Head-to-Head */}
-      <div className="mt-6 rounded-lg border border-border bg-card p-4">
+      <div className="mt-6 rounded-lg border border-border bg-card p-5">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Head-to-Head
         </h2>
@@ -264,23 +264,23 @@ export default function ComparePage({ params }: PageProps) {
           <table className="w-full min-w-[800px]">
             <thead>
               {/* Group header: agent names span their 3 sub-columns */}
-              <tr className="text-xs uppercase tracking-wider text-muted-foreground">
+              <tr className="text-muted-foreground">
                 <th className="pb-2 pr-4" />
                 <th
                   colSpan={3}
-                  className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-success"
+                  className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-base font-medium text-success"
                 >
                   {aName}
                 </th>
                 <th
                   colSpan={3}
-                  className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-destructive"
+                  className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-base font-medium text-destructive"
                 >
                   {bName}
                 </th>
                 <th className="pb-2" />
               </tr>
-              {/* Sub-header: Tests / Time / Cost under each agent */}
+              {/* Sub-header: Tests / Time / Cost */}
               <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="pb-3 pr-4 font-medium">Challenge</th>
                 <th className="pb-3 pr-4 font-medium text-right">Tests</th>
@@ -335,7 +335,6 @@ function ChallengeRow({
   aName: string
   bName: string
 }) {
-  // score: 1 = agent A won, 0 = agent A lost (B won), 0.5 = draw
   let rowWinner: 'a' | 'b' | 'draw' | null = null
   if (ch.game) {
     if (ch.game.score === 1) rowWinner = 'a'
@@ -348,7 +347,7 @@ function ChallengeRow({
       <td className="py-3 pr-4">
         <Link
           href={`/challenges/${ch.challenge_id}`}
-          className="font-mono text-sm text-foreground hover:text-primary"
+          className="font-mono text-[13px] text-muted-foreground hover:text-primary"
         >
           {ch.title || ch.challenge_id}
         </Link>
@@ -356,8 +355,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'a' ? 'font-semibold text-success' : 'text-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
           )}
         >
           {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
@@ -366,8 +365,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
           )}
         >
           {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'}
@@ -376,8 +375,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
           )}
         >
           {ch.a ? fmtCost(ch.a.cost_usd) : '\u2014'}
@@ -386,8 +385,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'b' ? 'font-semibold text-destructive' : 'text-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
           )}
         >
           {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
@@ -396,8 +395,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'b' ? 'text-destructive' : 'text-muted-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
           )}
         >
           {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
@@ -406,8 +405,8 @@ function ChallengeRow({
       <td className="py-3 pr-4 text-right">
         <span
           className={cn(
-            'font-mono text-sm',
-            rowWinner === 'b' ? 'text-destructive' : 'text-muted-foreground'
+            'font-mono tabular-nums',
+            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
           )}
         >
           {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}

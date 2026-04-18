@@ -124,8 +124,10 @@ export default function ChallengePage({ params }: PageProps) {
           <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
             Issue Description
           </h2>
-          <div className="mt-4 rounded-lg border border-border bg-card p-4">
-            <pre className="whitespace-pre-wrap text-sm text-muted-foreground">{challenge.body}</pre>
+          <div className="mt-4 rounded-lg border border-border bg-card p-5">
+            <div className="border-l border-border pl-4">
+              <pre className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">{challenge.body}</pre>
+            </div>
           </div>
         </div>
       )}
@@ -194,7 +196,7 @@ export default function ChallengePage({ params }: PageProps) {
                       {att.time}
                     </td>
                     <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
-                      {att.cost_usd > 0 ? '$' + att.cost_usd.toFixed(2) : '\u2014'}
+                      {att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}
                     </td>
                     <td className="py-3">
                       <div className="flex items-center justify-between gap-2">

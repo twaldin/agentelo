@@ -21,7 +21,7 @@
   --accent-foreground: oklch(0.08 0.01 150);
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.95 0.01 150);
-  --border: oklch(0.22 0.02 150);
+  --border: oklch(0.26 0.02 150);
   --input: oklch(0.15 0.015 150);
   --ring: oklch(0.75 0.18 145);
   --chart-1: oklch(0.75 0.18 145);
@@ -36,11 +36,11 @@
   --sidebar-primary-foreground: oklch(0.08 0.01 150);
   --sidebar-accent: oklch(0.18 0.02 150);
   --sidebar-accent-foreground: oklch(0.95 0.01 150);
-  --sidebar-border: oklch(0.22 0.02 150);
+  --sidebar-border: oklch(0.26 0.02 150);
   --sidebar-ring: oklch(0.75 0.18 145);
   
   /* Custom semantic tokens */
-  --success: oklch(0.72 0.19 145);
+  --success: oklch(0.72 0.19 155);
   --success-foreground: oklch(0.08 0.01 150);
   --warning: oklch(0.78 0.16 85);
   --warning-foreground: oklch(0.15 0.02 85);
@@ -73,7 +73,7 @@
   --accent-foreground: oklch(0.08 0.01 150);
   --destructive: oklch(0.55 0.2 25);
   --destructive-foreground: oklch(0.95 0.01 150);
-  --border: oklch(0.22 0.02 150);
+  --border: oklch(0.26 0.02 150);
   --input: oklch(0.15 0.015 150);
   --ring: oklch(0.75 0.18 145);
   --chart-1: oklch(0.75 0.18 145);
@@ -87,7 +87,7 @@
   --sidebar-primary-foreground: oklch(0.08 0.01 150);
   --sidebar-accent: oklch(0.18 0.02 150);
   --sidebar-accent-foreground: oklch(0.95 0.01 150);
-  --sidebar-border: oklch(0.22 0.02 150);
+  --sidebar-border: oklch(0.26 0.02 150);
   --sidebar-ring: oklch(0.75 0.18 145);
 }
 

@@ -6,9 +6,16 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Circle } from 'lucide-react'
 import { fetchLeaderboard, type LeaderboardAgent } from '@/lib/api'
+import { Sparkline } from '@/components/Sparkline'
 
 type HarnessFilter = string  // 'all' or any harness name
 type ModelFilter = string    // 'all', family name, or specific model
+
+function fmtCost(usd: number | null): string {
+  if (usd == null || usd === 0) return '\u2014'
+  if (usd < 0.01) return '<$0.01'
+  return `$${usd.toFixed(2)}`
+}
 
 export default function LeaderboardPage() {
   const [agents, setAgents] = useState<LeaderboardAgent[]>([])
@@ -27,20 +34,15 @@ export default function LeaderboardPage() {
   // Derive unique harnesses and model families from data
   const harnesses = ['all', ...Array.from(new Set(agents.map(a => a.harness))).sort()]
 
-  // Normalize model name: strip provider prefixes for display/filtering
-  // "google/gemini-3.1-pro-preview" → "gemini-3.1-pro-preview"
-  // "openai/gpt-5.4" → "gpt-5.4"
-  // "openrouter/minimax/minimax-m2.5" → "minimax-m2.5"
   function normalizeModel(model: string): string {
     return model
-      .replace(/^openrouter\/[^/]+\//, '')  // openrouter/provider/model → model
-      .replace(/^openrouter\//, '')          // openrouter/model → model
-      .replace(/^google\//, '')              // google/model → model
-      .replace(/^openai\//, '')              // openai/model → model
-      .replace(/^ollama\//, '')              // ollama/model → model
+      .replace(/^openrouter\/[^/]+\//, '')
+      .replace(/^openrouter\//, '')
+      .replace(/^google\//, '')
+      .replace(/^openai\//, '')
+      .replace(/^ollama\//, '')
   }
 
-  // Categorize models into families
   function getModelFamily(model: string): string {
     const m = normalizeModel(model).toLowerCase()
     if (m.includes('claude')) return 'claude'
@@ -52,7 +54,6 @@ export default function LeaderboardPage() {
     return 'other'
   }
 
-  // Build model family → normalized unique models map
   const modelFamilies: Record<string, string[]> = {}
   for (const a of agents) {
     const family = getModelFamily(a.model)
@@ -66,7 +67,6 @@ export default function LeaderboardPage() {
 
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null)
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!expandedFamily) return
     const handler = (e: MouseEvent) => {
@@ -82,10 +82,8 @@ export default function LeaderboardPage() {
       const family = getModelFamily(agent.model)
       const norm = normalizeModel(agent.model)
       if (modelFamilies[modelFilter]) {
-        // It's a family filter
         if (family !== modelFilter) return false
       } else {
-        // It's a specific normalized model filter
         if (norm !== modelFilter) return false
       }
     }
@@ -122,14 +120,14 @@ export default function LeaderboardPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4">
-        <h1 className="font-mono text-2xl font-bold tracking-tight text-primary sm:text-3xl">
+        <h1 className="font-mono text-3xl font-bold tracking-tight text-primary">
           LEADERBOARD
         </h1>
         <div className="flex items-center gap-2 rounded-full border border-success/50 bg-success/10 px-3 py-1">
           <Circle className="h-2 w-2 animate-pulse fill-success text-success" />
           <span className="font-mono text-xs text-success">LIVE</span>
         </div>
-        <span className="text-sm text-muted-foreground">{agents.length} agents</span>
+        <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">{agents.length} agents</span>
       </div>
 
       {/* Filters */}
@@ -232,7 +230,7 @@ export default function LeaderboardPage() {
               <th className="pb-3 pr-4 font-medium">#</th>
               <th className="pb-3 pr-4 font-medium">Agent</th>
               <th className="pb-3 pr-4 text-right font-medium">ELO</th>
-              <th className="pb-3 pr-4 text-right font-medium">7D</th>
+              <th className="pb-3 pr-4 text-right font-medium">Trend</th>
               <th className="pb-3 pr-4 text-right font-medium">Win %</th>
               <th className="pb-3 pr-4 text-right font-medium">Played</th>
               <th className="pb-3 text-right font-medium">Avg Cost</th>
@@ -245,42 +243,48 @@ export default function LeaderboardPage() {
               return (
                 <tr key={agent.id} className="group transition-colors hover:bg-card/50">
                   <td className="py-4 pr-4">
-                    <span className={cn(
-                      'font-mono text-lg font-bold',
-                      agent.rank <= 3 ? 'text-primary' : 'text-muted-foreground'
-                    )}>
-                      {agent.rank}
-                    </span>
+                    {agent.rank <= 3 ? (
+                      <span className="font-display text-xs text-primary">
+                        [{' '}{String(agent.rank).padStart(2, '0')}{' '}]
+                      </span>
+                    ) : (
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground">
+                        {String(agent.rank).padStart(2, '0')}.
+                      </span>
+                    )}
                   </td>
                   <td className="py-4 pr-4">
                     <Link href={`/agents/${agent.id}`} className="block">
-                      <div className="font-mono text-sm font-medium text-foreground group-hover:text-primary">
+                      <div className="font-mono text-base font-medium text-foreground group-hover:text-primary">
                         {displayName}
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <Badge variant="outline" className="text-xs">
                           {agent.harness}
                         </Badge>
-                        <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">
+                        <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
                           {agent.model}
                         </Badge>
                       </div>
                     </Link>
                   </td>
                   <td className="py-4 pr-4 text-right">
-                    <div className="font-mono text-lg font-bold text-primary">{agent.elo}</div>
+                    <div className="font-mono text-xl font-semibold tabular-nums text-primary">{agent.elo}</div>
                   </td>
                   <td className="py-4 pr-4 text-right">
-                    <span className={cn(
-                      'font-mono text-sm font-medium',
-                      agent.d7 > 0 ? 'text-success' : agent.d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
-                    )}>
-                      {agent.d7 > 0 ? '+' : ''}{agent.d7}
-                    </span>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Sparkline data={agent.hist} />
+                      <span className={cn(
+                        'font-mono text-[11px] tabular-nums',
+                        agent.d7 > 0 ? 'text-success' : 'text-muted-foreground'
+                      )}>
+                        {agent.d7 > 0 ? '+' : ''}{agent.d7}
+                      </span>
+                    </div>
                   </td>
                   <td className="py-4 pr-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <span className="text-sm text-foreground">{winPct}%</span>
+                      <span className="font-mono text-sm tabular-nums text-foreground">{winPct}%</span>
                       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                         <div
                           className={cn(
@@ -293,11 +297,11 @@ export default function LeaderboardPage() {
                     </div>
                   </td>
                   <td className="py-4 pr-4 text-right">
-                    <span className="text-sm text-muted-foreground">{agent.played}</span>
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{agent.played}</span>
                   </td>
                   <td className="py-4 text-right">
-                    <span className="font-mono text-sm text-muted-foreground">
-                      {agent.avgCost != null ? `$${agent.avgCost < 0.01 ? agent.avgCost.toFixed(4) : agent.avgCost.toFixed(2)}` : '\u2014'}
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {fmtCost(agent.avgCost)}
                     </span>
                   </td>
                 </tr>
