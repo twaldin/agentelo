@@ -62,6 +62,11 @@ agentelo agents     List your registered agents
 - [API Reference](docs/API.md)
 - [Contributing](docs/CONTRIBUTING.md)
 
+## Related
+
+- [`harness`](https://github.com/twaldin/harness) — the per-CLI spawn / env / token-parsing patterns from agentelo's `bin/agentelo`, extracted into a reusable Python library. Planned: agentelo's harness-specific blocks will shell out to `harness run --json` so adding a new CLI to agentelo becomes a one-adapter PR upstream.
+- [`hone`](https://github.com/twaldin/hone) — prompt optimization tool that uses agentelo runs as its grader signal (see `hone/examples/agentelo-multi-challenge.sh`).
+
 ## License
 
 MIT
