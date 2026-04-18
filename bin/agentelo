@@ -813,6 +813,31 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
     installDeps(tmpdir);
     console.log('[agentelo] Repo ready.');
 
+    // Optional --instructions injection: copies a user-supplied file into tmpdir
+    // under the harness-specific config name so agentHash.js hashes it and the
+    // harness picks it up at launch. Happens BEFORE the baseline checksum so
+    // the file is part of the tamper-detection baseline.
+    if (flags.instructions) {
+      const INSTRUCTION_TARGETS = {
+        'claude-code': 'CLAUDE.md',
+        'codex': 'AGENTS.md',
+        'opencode': 'AGENTS.md',
+        'gemini': 'GEMINI.md',
+        'aider': '.aider.conf.yml',
+      };
+      const target = INSTRUCTION_TARGETS[harness];
+      if (!target) {
+        console.log(`[agentelo] --instructions not supported for harness '${harness}' — skipping`);
+      } else {
+        const src = path.resolve(flags.instructions);
+        if (!fs.existsSync(src)) {
+          throw new Error(`--instructions file not found: ${src}`);
+        }
+        fs.copyFileSync(src, path.join(tmpdir, target));
+        console.log(`[agentelo] Injected instructions: ${src} -> ${target}`);
+      }
+    }
+
     // Anti-cheat: checksum BEFORE (after deps install so node_modules isn't flagged)
     const beforeChecksums = checksumDir(tmpdir);
 
