@@ -15,6 +15,7 @@ import {
   type CompareChallengeSubmission,
 } from '@/lib/api'
 import AgentPicker from '@/components/AgentPicker'
+import { classifyFix, fixLabel, fixColor } from '@/lib/score'
 
 interface PageProps {
   params: Promise<{ agentA: string; agentB: string }>
@@ -93,41 +94,57 @@ export default function ComparePage({ params }: PageProps) {
   const h2hDrawPct = h2hTotal > 0 ? (h2h.draws / h2hTotal) * 100 : 0
   const h2hBPct = h2hTotal > 0 ? (h2h.b_wins / h2hTotal) * 100 : 0
 
-  const stats: {
-    label: string
-    aVal: string
-    bVal: string
-    winner: 'a' | 'b' | 'tie'
-  }[] = [
+  // Stat strip values (fix #6)
+  const eloWinner = statWinner(a.elo, b.elo)
+  const wrWinner = statWinner(a.wr, b.wr)
+  const costWinner = statWinner(a.avgCost, b.avgCost, true)
+
+  const eloDelta = a.elo - b.elo
+  const wrDeltaPp = Math.round(a.wr * 100) - Math.round(b.wr * 100)
+  const costDeltaPct = (a.avgCost != null && b.avgCost != null && b.avgCost > 0)
+    ? Math.round(((a.avgCost - b.avgCost) / b.avgCost) * 100)
+    : null
+
+  const stripStats = [
     {
       label: 'ELO',
-      aVal: String(a.elo),
-      bVal: String(b.elo),
-      winner: statWinner(a.elo, b.elo),
-    },
-    {
-      label: 'Rank',
-      aVal: a.rank !== null ? `#${a.rank}` : 'placement',
-      bVal: b.rank !== null ? `#${b.rank}` : 'placement',
-      winner: (a.rank === null || b.rank === null) ? 'tie' : statWinner(a.rank, b.rank, true),
+      aDisplay: String(a.elo),
+      bDisplay: String(b.elo),
+      aWins: eloWinner === 'a',
+      bWins: eloWinner === 'b',
+      deltaText: eloDelta === 0 ? 'tied'
+        : `${eloDelta > 0 ? '▲' : '▼'} ${Math.abs(eloDelta)}`,
+      deltaColor: eloWinner === 'a' ? 'text-success' : eloWinner === 'b' ? 'text-destructive' : 'text-muted-foreground',
     },
     {
       label: 'Win Rate',
-      aVal: `${Math.round(a.wr * 100)}%`,
-      bVal: `${Math.round(b.wr * 100)}%`,
-      winner: statWinner(a.wr, b.wr),
-    },
-    {
-      label: 'Games',
-      aVal: String(a.played),
-      bVal: String(b.played),
-      winner: statWinner(a.played, b.played),
+      aDisplay: `${Math.round(a.wr * 100)}%`,
+      bDisplay: `${Math.round(b.wr * 100)}%`,
+      aWins: wrWinner === 'a',
+      bWins: wrWinner === 'b',
+      deltaText: wrDeltaPp === 0 ? 'tied'
+        : `${wrDeltaPp > 0 ? '▲' : '▼'} ${Math.abs(wrDeltaPp)}pp`,
+      deltaColor: wrWinner === 'a' ? 'text-success' : wrWinner === 'b' ? 'text-destructive' : 'text-muted-foreground',
     },
     {
       label: 'Avg Cost',
-      aVal: fmtCost(a.avgCost),
-      bVal: fmtCost(b.avgCost),
-      winner: statWinner(a.avgCost, b.avgCost, true),
+      aDisplay: fmtCost(a.avgCost),
+      bDisplay: fmtCost(b.avgCost),
+      aWins: costWinner === 'a',
+      bWins: costWinner === 'b',
+      deltaText: costDeltaPct == null ? '\u2014'
+        : costDeltaPct === 0 ? 'tied'
+        : `${costDeltaPct < 0 ? '▼' : '▲'} ${Math.abs(costDeltaPct)}%`,
+      deltaColor: costWinner === 'a' ? 'text-success' : costWinner === 'b' ? 'text-destructive' : 'text-muted-foreground',
+    },
+    {
+      label: 'Games',
+      aDisplay: String(a.played),
+      bDisplay: String(b.played),
+      aWins: false,
+      bWins: false,
+      deltaText: '\u2500',
+      deltaColor: 'text-muted-foreground',
     },
   ]
 
@@ -173,33 +190,41 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Stat tiles — label text-sm, value text-xl tabular-nums */}
-      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        {stats.map(s => (
-          <div key={s.label} className="rounded-md border border-border bg-card p-5">
-            <p className="font-mono text-sm uppercase tracking-wider text-muted-foreground">
-              {s.label}
-            </p>
-            <div className="mt-2 flex items-baseline justify-between gap-2">
-              <span
-                className={cn(
-                  'font-mono text-xl tabular-nums',
-                  s.winner === 'a' ? 'font-semibold text-success' : 'text-muted-foreground'
-                )}
-              >
-                {s.aVal}
-              </span>
-              <span
-                className={cn(
-                  'font-mono text-xl tabular-nums',
-                  s.winner === 'b' ? 'font-semibold text-success' : 'text-muted-foreground'
-                )}
-              >
-                {s.bVal}
-              </span>
+      {/* Stat Strip (fix #6) */}
+      <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          {stripStats.map((stat, i) => (
+            <div
+              key={stat.label}
+              className={cn(
+                'flex flex-col gap-1 p-4',
+                i < stripStats.length - 1 && 'border-b border-border lg:border-b-0 lg:border-r sm:border-b lg:border-b-0'
+              )}
+            >
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                {stat.label}
+              </p>
+              <div className="flex items-baseline gap-1.5">
+                <span className={cn(
+                  'font-mono tabular-nums text-base',
+                  stat.aWins ? 'font-semibold text-success' : 'text-muted-foreground'
+                )}>
+                  {stat.aDisplay}
+                </span>
+                <span className="text-xs text-muted-foreground/50">vs</span>
+                <span className={cn(
+                  'font-mono tabular-nums text-base',
+                  stat.bWins ? 'font-semibold text-success' : 'text-muted-foreground'
+                )}>
+                  {stat.bDisplay}
+                </span>
+              </div>
+              <p className={cn('font-mono text-xs', stat.deltaColor)}>
+                {stat.deltaText}
+              </p>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Head-to-Head */}
@@ -260,49 +285,49 @@ export default function ComparePage({ params }: PageProps) {
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenges ({challenges.length})
         </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[800px]">
-            <thead>
-              {/* Group header: agent names span their 3 sub-columns */}
-              <tr className="text-muted-foreground">
-                <th className="pb-2 pr-4" />
-                <th
-                  colSpan={3}
-                  className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-base font-medium text-success"
-                >
-                  {aName}
-                </th>
-                <th
-                  colSpan={3}
-                  className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-base font-medium text-destructive"
-                >
-                  {bName}
-                </th>
-                <th className="pb-2" />
-              </tr>
-              {/* Sub-header: Tests / Time / Cost */}
-              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                <th className="pb-3 pr-4 font-medium">Challenge</th>
-                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
-                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
-                <th className="pb-3 font-medium text-right">Game</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {challenges.map(ch => (
-                <ChallengeRow
-                  key={ch.challenge_id}
-                  ch={ch}
-                  aName={aName}
-                  bName={bName}
-                />
-              ))}
-            </tbody>
-          </table>
+        <div className="relative mt-4 before:absolute before:right-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-l before:from-background before:to-transparent before:pointer-events-none sm:before:hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[920px]">
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="pb-2 pr-4" />
+                  <th
+                    colSpan={3}
+                    className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-base font-medium text-success"
+                  >
+                    {aName}
+                  </th>
+                  <th
+                    colSpan={3}
+                    className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-base font-medium text-destructive"
+                  >
+                    {bName}
+                  </th>
+                  <th className="pb-2" />
+                </tr>
+                <tr className="border-b border-border text-left text-[10px] text-muted-foreground">
+                  <th className="pb-3 pr-4 font-medium">Challenge</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Tests</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Cost</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Tests</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Time</th>
+                  <th className="pb-3 pr-4 font-medium text-right">Cost</th>
+                  <th className="pb-3 font-medium text-right">Game</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {challenges.map(ch => (
+                  <ChallengeRow
+                    key={ch.challenge_id}
+                    ch={ch}
+                    aName={aName}
+                    bName={bName}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
         {challenges.length === 0 && (
           <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
@@ -312,18 +337,6 @@ export default function ComparePage({ params }: PageProps) {
       </div>
     </div>
   )
-}
-
-function fmtTests(
-  sub: CompareChallengeSubmission | null,
-  baselinePassing: number | null,
-  brokenByBug: number | null
-): string {
-  if (!sub) return '\u2014'
-  if (brokenByBug != null && brokenByBug > 0 && baselinePassing != null) {
-    return `${sub.tests_fixed}/${brokenByBug} fixed`
-  }
-  return `${sub.tests_ok}/${sub.tests_total}`
 }
 
 function ChallengeRow({
@@ -342,6 +355,9 @@ function ChallengeRow({
     else rowWinner = 'draw'
   }
 
+  const aOutcome = classifyFix(ch.a?.tests_ok, ch.a?.tests_total, ch.baseline_passing, ch.broken_by_bug)
+  const bOutcome = classifyFix(ch.b?.tests_ok, ch.b?.tests_total, ch.baseline_passing, ch.broken_by_bug)
+
   return (
     <tr className="group transition-colors hover:bg-card/50">
       <td className="py-3 pr-4">
@@ -352,80 +368,67 @@ function ChallengeRow({
           {ch.title || ch.challenge_id}
         </Link>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
-          {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
+      {/* A: Tests */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn('font-mono text-sm tabular-nums', ch.a ? fixColor(aOutcome) : 'text-muted-foreground/50')}>
+          {ch.a ? fixLabel(aOutcome) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+      {/* A: Time */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn(
+          'font-mono text-sm tabular-nums',
+          rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+        )}>
           {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+      {/* A: Cost */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn(
+          'font-mono text-sm tabular-nums',
+          rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+        )}>
           {ch.a ? fmtCost(ch.a.cost_usd) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
-          {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
+      {/* B: Tests */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn('font-mono text-sm tabular-nums', ch.b ? fixColor(bOutcome) : 'text-muted-foreground/50')}>
+          {ch.b ? fixLabel(bOutcome) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+      {/* B: Time */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn(
+          'font-mono text-sm tabular-nums',
+          rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+        )}>
           {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+      {/* B: Cost */}
+      <td className="py-3 pr-4 text-right whitespace-nowrap">
+        <span className={cn(
+          'font-mono text-sm tabular-nums',
+          rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+        )}>
           {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}
         </span>
       </td>
-      <td className="py-3 text-right">
+      {/* Game winner */}
+      <td className="py-3 text-right whitespace-nowrap">
         {ch.game ? (
           <Link
             href={`/games/${ch.game.id}`}
             className={cn(
               'font-mono text-sm hover:underline',
-              rowWinner === 'a'
-                ? 'text-success'
-                : rowWinner === 'b'
-                  ? 'text-destructive'
-                  : 'text-muted-foreground'
+              rowWinner === 'a' ? 'text-success'
+                : rowWinner === 'b' ? 'text-destructive'
+                : 'text-muted-foreground'
             )}
           >
-            {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '—'}
+            {rowWinner === 'a' ? aName : rowWinner === 'b' ? bName : 'draw'}
           </Link>
         ) : (
           <span className="font-mono text-sm text-muted-foreground">{'\u2014'}</span>

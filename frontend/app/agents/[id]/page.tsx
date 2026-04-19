@@ -10,6 +10,7 @@ import { ArrowRight } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { fetchAgent, type AgentDetail, type MatchEntry } from '@/lib/api'
 import AgentPicker from '@/components/AgentPicker'
+import { classifyFix, fixLabel, fixColor } from '@/lib/score'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -89,6 +90,9 @@ export default function AgentPage({ params }: PageProps) {
     }
   }
 
+  const d7Glyph = d7Rounded > 0 ? '▲' : d7Rounded < 0 ? '▼' : '▬'
+  const d7Color = d7Rounded > 0 ? 'text-success' : d7Rounded < 0 ? 'text-destructive' : 'text-muted-foreground'
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Header */}
@@ -157,30 +161,33 @@ export default function AgentPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="mt-6 flex flex-wrap items-center gap-6">
-        <div>
-          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Record</span>{' '}
-          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">
-            {agent.wins}W / {agent.losses}L / {agent.draws}D ({winPct}%)
-          </span>
+      {/* Stats Grid — 4 cells with hairline dividers */}
+      <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+        <div className="bg-card p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Record</p>
+          <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+            {agent.wins}W · {agent.losses}L · {agent.draws}D
+          </p>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">{winPct}% win rate</p>
         </div>
-        <div>
-          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">7D</span>{' '}
-          <span className={cn(
-            'font-mono text-xl font-semibold tabular-nums',
-            d7Rounded > 0 ? 'text-success' : 'text-muted-foreground'
-          )}>
-            {d7Rounded > 0 ? '+' : ''}{d7Rounded}
-          </span>
+        <div className="bg-card p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">7-Day</p>
+          <p className={cn('mt-1 font-mono text-2xl font-semibold tabular-nums', d7Color)}>
+            {d7Glyph} {Math.abs(d7Rounded)}
+          </p>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">last week</p>
         </div>
-        <div>
-          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Challenges</span>{' '}
-          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.matches?.length || 0}</span>
+        <div className="bg-card p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Submissions</p>
+          <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+            {agent.matches?.length || 0}
+          </p>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">unique challenges</p>
         </div>
-        <div>
-          <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Games</span>{' '}
-          <span className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.played}</span>
+        <div className="bg-card p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Games</p>
+          <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">{agent.played}</p>
+          <p className="mt-1 font-mono text-[11px] text-muted-foreground">pairwise</p>
         </div>
       </div>
 
@@ -205,7 +212,7 @@ export default function AgentPage({ params }: PageProps) {
                 />
                 <YAxis
                   dataKey="y"
-                  domain={['dataMin - 50', 'dataMax + 50']}
+                  domain={[1300, 1900]}
                   tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={{ stroke: 'var(--border)' }}
                   tickLine={{ stroke: 'var(--border)' }}
@@ -252,27 +259,29 @@ export default function AgentPage({ params }: PageProps) {
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenge Submissions ({agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length})
         </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[600px]">
-            <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="pb-3 pr-4 font-medium">Result</th>
-                <th className="pb-3 pr-4 font-medium">Challenge</th>
-                <th className="pb-3 pr-4 font-medium">Tests</th>
-                <th className="pb-3 pr-4 font-medium">Time</th>
-                <th className="pb-3 pr-4 font-medium">Cost</th>
-                <th className="pb-3 pr-4 text-right font-medium">ELO +/-</th>
-                <th className="pb-3 font-medium">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {agent.matches
-                .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
-                .map((match) => (
-                <MatchRow key={match.submission_id} match={match} />
-              ))}
-            </tbody>
-          </table>
+        <div className="relative mt-4 before:absolute before:right-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-l before:from-background before:to-transparent before:pointer-events-none sm:before:hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[600px]">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                  <th className="pb-3 pr-4 font-medium">Result</th>
+                  <th className="pb-3 pr-4 font-medium">Challenge</th>
+                  <th className="pb-3 pr-4 font-medium">Tests</th>
+                  <th className="pb-3 pr-4 font-medium">Time</th>
+                  <th className="pb-3 pr-4 font-medium">Cost</th>
+                  <th className="pb-3 pr-4 text-right font-medium">ELO +/-</th>
+                  <th className="pb-3 font-medium">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {agent.matches
+                  .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
+                  .map((match) => (
+                  <MatchRow key={match.submission_id} match={match} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {agent.matches.length === 0 && (
@@ -292,6 +301,8 @@ function MatchRow({ match }: { match: MatchEntry }) {
     match.broken_by_bug != null && match.broken_by_bug > 0 && match.baseline_passing != null
       ? (match.tests_ok - match.baseline_passing) >= match.broken_by_bug
       : false
+
+  const outcome = classifyFix(match.tests_ok, match.tests_total, match.baseline_passing, match.broken_by_bug)
 
   return (
     <tr className="group transition-colors hover:bg-card/50">
@@ -316,22 +327,15 @@ function MatchRow({ match }: { match: MatchEntry }) {
           {match.challenge_id}
         </Link>
       </td>
-      <td className="py-4 pr-4">
-        <span className={cn(
-          'font-mono text-[11px] tabular-nums',
-          match.tests_passed ? 'text-success' : 'text-destructive'
-        )}>
-          {match.tests_ok === 0 && match.tests_total === 0
-            ? 'no score'
-            : match.baseline_passing != null && match.broken_by_bug != null && match.broken_by_bug > 0
-              ? `${match.tests_ok - match.baseline_passing}/${match.broken_by_bug} fixed`
-              : `${match.tests_ok}/${match.tests_total}`}
+      <td className="py-4 pr-4 whitespace-nowrap">
+        <span className={cn('font-mono text-[11px] tabular-nums', fixColor(outcome))}>
+          {fixLabel(outcome)}
         </span>
       </td>
-      <td className="py-4 pr-4 font-mono text-[11px] text-muted-foreground">
+      <td className="py-4 pr-4 font-mono text-[11px] whitespace-nowrap text-muted-foreground">
         {fmtTime(match.agent_time)}
       </td>
-      <td className="py-4 pr-4 font-mono text-[11px] text-muted-foreground">
+      <td className="py-4 pr-4 font-mono text-[11px] whitespace-nowrap text-muted-foreground">
         {fmtCost(match.cost_usd)}
       </td>
       <td className="py-4 pr-4 text-right">

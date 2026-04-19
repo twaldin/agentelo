@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -8,8 +8,8 @@ import { Circle } from 'lucide-react'
 import { fetchLeaderboard, type LeaderboardAgent } from '@/lib/api'
 import { Sparkline } from '@/components/Sparkline'
 
-type HarnessFilter = string  // 'all' or any harness name
-type ModelFilter = string    // 'all', family name, or specific model
+type HarnessFilter = string
+type ModelFilter = string
 
 function fmtCost(usd: number | null): string {
   if (usd == null || usd === 0) return '\u2014'
@@ -31,7 +31,6 @@ export default function LeaderboardPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Derive unique harnesses and model families from data
   const harnesses = ['all', ...Array.from(new Set(agents.map(a => a.harness))).sort()]
 
   function normalizeModel(model: string): string {
@@ -127,7 +126,7 @@ export default function LeaderboardPage() {
           <Circle className="h-2 w-2 animate-pulse fill-success text-success" />
           <span className="font-mono text-xs text-success">LIVE</span>
         </div>
-        <span className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">{agents.length} agents</span>
+        <span className="font-mono text-xs text-muted-foreground">{agents.length} agents</span>
       </div>
 
       {/* Filters */}
@@ -146,7 +145,7 @@ export default function LeaderboardPage() {
                     : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
                 )}
               >
-                {h === 'all' ? 'ALL' : h.toUpperCase()}
+                {h === 'all' ? 'All' : h}
               </button>
             ))}
           </div>
@@ -164,7 +163,7 @@ export default function LeaderboardPage() {
                   : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
               )}
             >
-              ALL
+              All
             </button>
             {Object.entries(modelFamilies).map(([family, models]) => (
               <div key={family} className="relative" data-model-dropdown>
@@ -184,7 +183,7 @@ export default function LeaderboardPage() {
                       : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
                   )}
                 >
-                  {family.toUpperCase()} ({models.length})
+                  {family} ({models.length})
                   <span className="ml-1 text-muted-foreground">{expandedFamily === family ? '\u25B4' : '\u25BE'}</span>
                 </button>
                 {expandedFamily === family && (
@@ -198,7 +197,7 @@ export default function LeaderboardPage() {
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                       )}
                     >
-                      All {family.toUpperCase()}
+                      All {family}
                     </button>
                     {models.map(m => (
                       <button
@@ -223,92 +222,94 @@ export default function LeaderboardPage() {
       </div>
 
       {/* Table */}
-      <div className="mt-8 overflow-x-auto">
-        <table className="w-full min-w-[700px]">
-          <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-              <th className="pb-3 pr-4 font-medium">#</th>
-              <th className="pb-3 pr-4 font-medium">Agent</th>
-              <th className="pb-3 pr-4 text-right font-medium">ELO</th>
-              <th className="pb-3 pr-4 text-right font-medium">Trend</th>
-              <th className="pb-3 pr-4 text-right font-medium">Win %</th>
-              <th className="pb-3 pr-4 text-right font-medium">Played</th>
-              <th className="pb-3 text-right font-medium">Avg Cost</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filteredAgents.map((agent) => {
-              const winPct = Math.round(agent.wr * 100)
-              const displayName = (agent.display_name || agent.name || agent.id).trim()
-              return (
-                <tr key={agent.id} className="group transition-colors hover:bg-card/50">
-                  <td className="py-4 pr-4">
-                    {agent.rank <= 3 ? (
-                      <span className="font-display text-xs text-primary">
-                        [{' '}{String(agent.rank).padStart(2, '0')}{' '}]
-                      </span>
-                    ) : (
-                      <span className="font-mono text-sm tabular-nums text-muted-foreground">
-                        {String(agent.rank).padStart(2, '0')}.
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 pr-4">
-                    <Link href={`/agents/${agent.id}`} className="block">
-                      <div className="font-mono text-base font-medium text-foreground group-hover:text-primary">
-                        {displayName}
+      <div className="relative mt-8 before:absolute before:right-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-l before:from-background before:to-transparent before:pointer-events-none sm:before:hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px]">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th className="pb-3 pr-4 font-medium">#</th>
+                <th className="pb-3 pr-4 font-medium">Agent</th>
+                <th className="pb-3 pr-4 text-right font-medium">ELO</th>
+                <th className="pb-3 pr-4 text-right font-medium">Trend</th>
+                <th className="pb-3 pr-4 text-right font-medium">Win %</th>
+                <th className="pb-3 pr-4 text-right font-medium">Played</th>
+                <th className="pb-3 text-right font-medium">Avg Cost</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredAgents.map((agent) => {
+                const winPct = Math.round(agent.wr * 100)
+                const displayName = (agent.display_name || agent.name || agent.id).trim()
+                const d7 = Math.round(agent.d7)
+                const d7Glyph = d7 > 0 ? '▲' : d7 < 0 ? '▼' : '▬'
+                const d7Color = d7 > 0 ? 'text-success' : d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
+                return (
+                  <tr key={agent.id} className="group transition-colors hover:bg-card/50">
+                    <td className="py-4 pr-4">
+                      {agent.rank <= 3 ? (
+                        <span className="font-display text-xs text-primary">
+                          [{' '}{String(agent.rank).padStart(2, '0')}{' '}]
+                        </span>
+                      ) : (
+                        <span className="font-mono text-sm tabular-nums text-muted-foreground">
+                          {String(agent.rank).padStart(2, '0')}.
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-4 pr-4">
+                      <Link href={`/agents/${agent.id}`} className="block">
+                        <div className="font-mono text-base font-medium text-foreground group-hover:text-primary">
+                          {displayName}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Badge variant="outline" className="text-xs">
+                            {agent.harness}
+                          </Badge>
+                          <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
+                            {agent.model}
+                          </Badge>
+                        </div>
+                      </Link>
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <div className="font-mono text-xl font-semibold tabular-nums text-primary">{agent.elo}</div>
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Sparkline data={agent.hist} isUp={d7 >= 0} />
+                        <span className={cn('font-mono text-[11px] tabular-nums whitespace-nowrap', d7Color)}>
+                          {d7Glyph} {Math.abs(d7)}
+                        </span>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Badge variant="outline" className="text-xs">
-                          {agent.harness}
-                        </Badge>
-                        <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
-                          {agent.model}
-                        </Badge>
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="font-mono text-sm tabular-nums text-foreground">{winPct}%</span>
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={cn(
+                              'h-full rounded-full',
+                              winPct >= 50 ? 'bg-success' : 'bg-warning'
+                            )}
+                            style={{ width: `${winPct}%` }}
+                          />
+                        </div>
                       </div>
-                    </Link>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <div className="font-mono text-xl font-semibold tabular-nums text-primary">{agent.elo}</div>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Sparkline data={agent.hist} />
-                      <span className={cn(
-                        'font-mono text-[11px] tabular-nums',
-                        agent.d7 > 0 ? 'text-success' : 'text-muted-foreground'
-                      )}>
-                        {agent.d7 > 0 ? '+' : ''}{agent.d7}
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{agent.played}</span>
+                    </td>
+                    <td className="py-4 text-right">
+                      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {fmtCost(agent.avgCost)}
                       </span>
-                    </div>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <span className="font-mono text-sm tabular-nums text-foreground">{winPct}%</span>
-                      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className={cn(
-                            'h-full rounded-full',
-                            winPct >= 50 ? 'bg-success' : 'bg-warning'
-                          )}
-                          style={{ width: `${winPct}%` }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{agent.played}</span>
-                  </td>
-                  <td className="py-4 text-right">
-                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {fmtCost(agent.avgCost)}
-                    </span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {filteredAgents.length === 0 && !loading && (

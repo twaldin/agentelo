@@ -902,8 +902,11 @@ async function handleRequest(req, res) {
       entry.testCommand  = meta.testCommand || meta.test_command || 'npm test';
       baseline_passing = meta.baseline_passing != null ? meta.baseline_passing : null;
       broken_by_bug    = meta.broken_by_bug    != null ? meta.broken_by_bug    : null;
+      entry.fixDiff    = meta.fixDiff    || '';
+      entry.fixCommit  = meta.fixCommit  || '';
     } catch (_) {}
     entry.broken_by_bug    = broken_by_bug;
+    entry.baseline_passing = baseline_passing;
 
     const subs = db.getSubmissionsByChallenge(chMatch[1]);
     entry.attempts = subs.map(s => {
@@ -921,6 +924,7 @@ async function handleRequest(req, res) {
         tests_ok:     s.tests_ok     || 0,
         tests_total:  s.tests_total  || 0,
         tests_failed: s.tests_failed || 0,
+        baseline_passing: baseline_passing,
         broken_by_bug:    broken_by_bug,
         cost_usd:     s.cost_usd || 0,
         agent_name:   agent ? (agent.display_name || agent.id) : s.model,
