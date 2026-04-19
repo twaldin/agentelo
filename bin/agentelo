@@ -10,6 +10,7 @@ const { execSync, execFileSync } = require('child_process');
 const { score } = require('../core/scorer');
 const { computeAgentHash } = require('../core/agentHash');
 const { normalizeAgentId } = require('../core/normalize');
+const { parseClaudeCodeCostAndTokens } = require('../core/agentelo-local/parsers/claude-code');
 const {
   loadResults,
   sortResultsByDate,
@@ -1417,30 +1418,12 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
       transcript = logContent;
       const stdoutText = Buffer.concat(stdoutChunks).toString();
 
-      // --- Claude Code: --output-format json → JSON result line in stdout ---
-      // Search from the end (JSON is always the last or first line) and also check the log file
+      // --- Claude Code: parse local adapter-style parser output ---
       if (harness === 'claude-code') {
-        const sources = [stdoutText, logContent];
-        for (const src of sources) {
-          if (tokensIn > 0) break;
-          // Search lines in reverse — JSON result is typically at start or end
-          const lines = src.split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i].trim();
-            if (!line.startsWith('{')) continue;
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.type === 'result' && parsed.usage) {
-                tokensIn = (parsed.usage.input_tokens || 0)
-                  + (parsed.usage.cache_creation_input_tokens || 0)
-                  + (parsed.usage.cache_read_input_tokens || 0);
-                tokensOut = parsed.usage.output_tokens || 0;
-                if (parsed.total_cost_usd) costUsd = parsed.total_cost_usd;
-                break;
-              }
-            } catch {}
-          }
-        }
+        const parsed = parseClaudeCodeCostAndTokens({ stdoutText, logContent });
+        tokensIn = parsed.tokensIn;
+        tokensOut = parsed.tokensOut;
+        costUsd = parsed.costUsd;
       }
 
       // --- Codex: --json → JSONL on stdout, sum turn.completed usage ---
