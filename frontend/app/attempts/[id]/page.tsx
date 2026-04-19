@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import { fetchSubmission, type SubmissionDetail } from '@/lib/api'
+import { classifyFix, fixLabel, fixColor } from '@/lib/score'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -57,6 +58,14 @@ export default function AttemptPage({ params }: PageProps) {
   const passed = submission.baseline_passing != null
     ? (submission.tests_ok - submission.baseline_passing) > 0
     : submission.tests_ok > 0
+
+  const ownOutcome = classifyFix(submission.tests_ok, submission.tests_total, submission.baseline_passing, submission.broken_by_bug)
+  const testsDisplay = (submission.tests_ok === 0 && submission.tests_total === 0)
+    ? 'no score'
+    : fixLabel(ownOutcome)
+  const testsColor = (submission.tests_ok === 0 && submission.tests_total === 0)
+    ? ''
+    : fixColor(ownOutcome)
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -111,12 +120,8 @@ export default function AttemptPage({ params }: PageProps) {
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
         <StatCard
           label="Tests"
-          value={
-            submission.baseline_passing != null && submission.broken_by_bug != null && submission.broken_by_bug > 0
-              ? `${Math.max(0, submission.tests_ok - submission.baseline_passing)}/${submission.broken_by_bug} fixed`
-              : `${submission.tests_ok}/${submission.tests_total}`
-          }
-          className={passed ? 'text-success' : 'text-destructive'}
+          value={testsDisplay}
+          className={testsColor}
         />
         <StatCard label="Agent Time" value={fmtTime(submission.agent_time_seconds)} />
         <StatCard label="Diff Lines" value={String(submission.diff_lines)} />
@@ -146,83 +151,80 @@ export default function AttemptPage({ params }: PageProps) {
           <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
             Head-to-Head Results ({submission.games.length})
           </h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[500px]">
-              <thead>
-                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="pb-3 pr-4 font-medium">Result</th>
-                  <th className="pb-3 pr-4 font-medium">Opponent</th>
-                  <th className="pb-3 pr-4 font-medium">Their Tests</th>
-                  <th className="pb-3 pr-4 font-medium">Their Time</th>
-                  <th className="pb-3 pl-4 text-right font-medium"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {submission.games.map((game, i) => {
-                  const result = game.score === 1 ? 'WIN' : game.score === 0 ? 'LOSS' : 'DRAW'
-                  const row = (
-                    <tr key={i} className="group transition-colors hover:bg-card/50">
-                      <td className="py-3 pr-4">
-                        <span className={cn(
-                          'font-mono text-sm font-medium',
-                          result === 'WIN' ? 'text-success' : result === 'LOSS' ? 'text-destructive' : 'text-muted-foreground'
-                        )}>
-                          {result}
-                        </span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        <Link
-                          href={`/agents/${game.opponent_id}`}
-                          className="font-mono text-sm text-foreground hover:text-primary"
-                        >
-                          {game.opponent_id}
-                        </Link>
-                        <span className="ml-2 text-xs text-muted-foreground">{game.opponent_model}</span>
-                      </td>
-                      <td className="py-3 pr-4">
-                        {(() => {
-                          const oppOk = game.opponent_tests_ok;
-                          const oppTotal = game.opponent_tests_total;
-                          if (oppOk == null || oppTotal == null) {
-                            return <span className="font-mono text-sm text-muted-foreground">&mdash;</span>;
-                          }
-                          const bl = submission.baseline_passing;
-                          const broken = submission.broken_by_bug;
-                          const passed = bl != null ? (oppOk - bl) > 0 : oppOk > 0;
-                          const label = (oppOk === 0 && oppTotal === 0)
-                            ? 'no score'
-                            : (bl != null && broken != null && broken > 0)
-                              ? `${oppOk - bl}/${broken} fixed`
-                              : `${oppOk}/${oppTotal}`;
-                          return (
-                            <span className={cn(
-                              'font-mono text-sm',
-                              passed ? 'text-success' : 'text-destructive'
-                            )}>
-                              {label}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-3 pr-4 font-mono text-sm text-muted-foreground">
-                        {game.opponent_time != null ? fmtTime(game.opponent_time) : '\u2014'}
-                      </td>
-                      {game.id != null && (
-                        <td className="py-3 pl-4 text-right">
-                          <Link
-                            href={`/games/${game.id}`}
-                            className="text-xs text-muted-foreground hover:text-primary"
-                          >
-                            Details &rarr;
-                          </Link>
+          <div className="relative mt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+                    <th className="pb-3 pr-4">Result</th>
+                    <th className="pb-3 pr-4">Opponent</th>
+                    <th className="pb-3 pr-4">Their Tests</th>
+                    <th className="pb-3 pr-4">Their Time</th>
+                    <th className="pb-3 pl-4 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {submission.games.map((game, i) => {
+                    const result = game.score === 1 ? 'WIN' : game.score === 0 ? 'LOSS' : 'DRAW'
+                    return (
+                      <tr key={i} className="group transition-colors hover:bg-card/50">
+                        <td className="py-3 pr-4">
+                          <span className={cn(
+                            'font-mono text-[15px] font-medium',
+                            result === 'WIN' ? 'text-success' : result === 'LOSS' ? 'text-destructive' : 'text-muted-foreground'
+                          )}>
+                            {result}
+                          </span>
                         </td>
-                      )}
-                    </tr>
-                  )
-                  return row
-                })}
-              </tbody>
-            </table>
+                        <td className="py-3 pr-4">
+                          <Link
+                            href={`/agents/${game.opponent_id}`}
+                            className="font-mono text-[15px] text-foreground hover:text-primary"
+                          >
+                            {game.opponent_id}
+                          </Link>
+                          <span className="ml-2 text-xs text-muted-foreground">{game.opponent_model}</span>
+                        </td>
+                        <td className="py-3 pr-4">
+                          {(() => {
+                            const oppOk = game.opponent_tests_ok
+                            const oppTotal = game.opponent_tests_total
+                            if (oppOk == null || oppTotal == null) {
+                              return <span className="font-mono text-[14px] text-muted-foreground tabular-nums">—</span>
+                            }
+                            if (oppOk === 0 && oppTotal === 0) {
+                              return <span className="font-mono text-[14px] text-muted-foreground">no score</span>
+                            }
+                            const bl = submission.baseline_passing
+                            const broken = submission.broken_by_bug
+                            const outcome = classifyFix(oppOk, oppTotal, bl, broken)
+                            return (
+                              <span className={cn('font-mono text-[14px] tabular-nums whitespace-nowrap', fixColor(outcome))}>
+                                {fixLabel(outcome)}
+                              </span>
+                            )
+                          })()}
+                        </td>
+                        <td className="py-3 pr-4 font-mono text-[14px] text-muted-foreground whitespace-nowrap">
+                          {game.opponent_time != null ? fmtTime(game.opponent_time) : '\u2014'}
+                        </td>
+                        {game.id != null && (
+                          <td className="py-3 pl-4 text-right">
+                            <Link
+                              href={`/games/${game.id}`}
+                              className="text-xs text-muted-foreground hover:text-primary"
+                            >
+                              Details &rarr;
+                            </Link>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
           </div>
         </div>
       )}
@@ -260,8 +262,8 @@ export default function AttemptPage({ params }: PageProps) {
 function StatCard({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
     <div className="rounded-lg border border-border bg-card p-5">
-      <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
-      <p className={cn('mt-1 font-mono text-sm font-medium tabular-nums', className)}>{value}</p>
+      <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
+      <p className={cn('mt-1 font-mono text-[15px] font-medium tabular-nums', className)}>{value}</p>
     </div>
   )
 }
