@@ -5,7 +5,7 @@
   "issue": {
     "number": 441,
     "title": "[Fix] `stringify`: with `arrayFormat: comma`, include an explicit `[]` on a single-item array",
-    "body": ""
+    "body": "\n\n--- Linked Issue #434: parse single value as array ---\nI was looking for a good query parser including URLSearchParams, query-string and qs. \r\nBut each is lacking a feature that at least one other has.\r\n\r\nSay, I have a query string `\"a=1\"` and another `\"a=1,2\"`.\r\nRight now, if I use a comma-separated query parser, then the output would be `{a:1}` and `{a:[1,2]}` respectively.\r\nBut I want my app to get an array regardless; like so `{a:[1]}` and `{a:[1,2]}` respectively. Sure, I could handle that in my app itself, but in real-world scenarios, I would likely have many query params; manually handling each one is not ideal, especially for something like this that should be handled by the parser.\r\n\r\nIn URLSearchParams, it's possible via getAll function instead of get, but it lacks so many other essential features like having support for comma separated parsing. \r\n\r\nIt would be great to have an option to force parse certain keys as arrays and not arrays, regardless of the default inferred format; it would be more code friendly rather than having to write exceptions for every little scenario."
   },
   "pr": {
     "number": 441,

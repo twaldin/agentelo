@@ -5,7 +5,7 @@
   "issue": {
     "number": 335,
     "title": "[fix] parsing a field that holds array of arrays",
-    "body": ""
+    "body": "\n\n--- Linked Issue #327: comma and bracket combined? ---\n```\r\nparse(\"foo[]=1,2,3&foo[]=4,5,6\", {comma: true})\r\n/*\r\nexpected { foo: [ [ 1, 2, 3 ], [4, 5, 6] ] }\r\nreceived { foo: [ 1, 2, 3, 4, 5, 6 ] }\r\n\r\n*/\r\n```\r\n\r\nuncertain if this is intentional or not"
   },
   "pr": {
     "number": 335,

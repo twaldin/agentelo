@@ -5,7 +5,7 @@
   "issue": {
     "number": 336,
     "title": "[fix] parsing comma delimited str with percent encoded comma",
-    "body": ""
+    "body": "changes on the default decoder to correctly parse comma delimited strings while having percent encoded comma\r\n\r\nFixes #311.\n\n--- Linked Issue #311: Comma-delimited array parsing fails when individual items contain commas ---\nComma-delimited array parsing fails when running something like this:\r\n\r\n```javascript\r\nQs.parse('things=a%2C%20b,c%2C%20d', {\r\n  comma: true\r\n});\r\n```\r\n\r\nExpected: `{ things: ['a, b', 'c, d'] }`\r\nActual: `{ things: ['a', ' b', 'c', ' d'] }`\r\n\r\nPer my understanding of RFC 3986, a percent-encoded comma should not be treated the same as a comma literal. Comma literal is a reserved character used for delimiting parameters and parameter values, but a percent-encoded comma is not.\r\n\r\nMy use case needs to deal with arbitrary user input within values, potentially including commas.\r\n\r\nI guess this can be fixed with a custom `decoder` function, but it seems like something that should work by default when `comma` is `true`.\r\n\r\nAs my use case is otherwise fairly simple and I don't need lots of custom features, I figured I'd just roll [my own query string parser/serializer](https://gist.github.com/lionel-rowe/abdf3a128e0c22a8f5123e9bb4007891). I'm linking to this strictly for reference and wouldn't recommend anyone to use it in production in its current state - it probably diverges from the RFC in a million other ways and fails for lots of edge cases that aren't relevant to my specific use case.\r\n\r\nRelated: #237 (but that deals with `stringify`, whereas this is about `parse`)."
   },
   "pr": {
     "number": 336,

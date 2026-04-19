@@ -5,7 +5,7 @@
   "issue": {
     "number": 201,
     "title": "fix: follow allowPrototypes during merge",
-    "body": ""
+    "body": "closes #200\n\n--- Linked Issue #200: prototype override protection bypass problem still exists. ---\nas the bug https://snyk.io/vuln/npm:qs:20170213 report fixed, but the other bypass\r\n\r\n```\r\na = qs.parse(\"[=toString\", {allowPrototypes: false})\r\n// { toString: true }\r\n```\r\n\r\nstill exists."
   },
   "pr": {
     "number": 201,

@@ -5,7 +5,7 @@
   "issue": {
     "number": 350,
     "title": "`stringify`: fix arrayFormat comma with empty array/objects",
-    "body": ""
+    "body": "Fixed #310 \r\n\r\ncontinued from PR #317\n\n--- Linked Issue #310: arrayformat as comma with empty array or objects ---\n```javascript\r\nconst options = {\r\n  encode: false,\r\n  strictNullHandling: true,\r\n  arrayFormat: 'comma',\r\n  allowDots: true,\r\n  addQueryPrefix: true\r\n};\r\n\r\nconst params = {\r\n  foo: [],\r\n  bar: [null],\r\n  baz: ['abc'],\r\n};\r\n\r\n// with arrayFormat: 'comma'\r\nqs.stringify(params, options);\r\n// = ?foo=&bar=&baz=abc\r\n\r\n// with arrayFormat: 'brackets'\r\n// = ?bar[]&baz[]=abc\r\n```\r\n\r\n`stringify` will produce `?foo=&bar=&baz=abc`. But using `brackets`, `indices`, `repeat` as array format will not concat `foo` cause it's an empty array. `comma` is the only one which keep foo. Is it a bug or a conception choice ?\r\n\r\nIn `lib/stringify.js`, line 67, maybe you could test if it's an array with values ?"
   },
   "pr": {
     "number": 350,

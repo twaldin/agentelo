@@ -5,7 +5,7 @@
   "issue": {
     "number": 334,
     "title": "[fix] comma option enabled value parsing to use strings only",
-    "body": ""
+    "body": "in case of comma enabled .. parsing should check for strings only when using indexOf(',')\r\n\r\nfixes: #328\n\n--- Linked Issue #328: parse: comma: true assumes string values limits use of decoder ---\nIf you want to decode numeric values as numbers, through the use of the decoder option, you could pass in the following decoder function:\r\n\r\n```javascript\r\ndecoder(value) {\r\n            if (/^(\\d+|\\d*\\.\\d+)$/.test(value)) {\r\n              return parseFloat(value);\r\n            }\r\n            return value;\r\n          }\r\n```\r\nHowever, when combined with comma: true, you will get an indexOf error due to the fact that the values have been decoded to numbers before being parsed by the code splitting them up via commas, thus breaking this parsing since it assumes all values are strings.\r\n\r\nThis could associated with splitting on commas should be run before decoding takes place, or there needs to be a check to see whether the value being checked for commas is actually a string."
   },
   "pr": {
     "number": 334,

@@ -5,7 +5,7 @@
   "issue": {
     "number": 506,
     "title": "fix: parse url-encoded square brackets",
-    "body": ""
+    "body": "I noticed that url-encoded square brackets, i.e. `%5B` and `%5D`, do not get correctly parsed in this case\r\n\r\n```javascript\r\nt.test(\r\n    'parses encoded brackets holds array of arrays when having two parts of strings with comma as array divider',\r\n    function (st) {\r\n        st.deepEqual(\r\n            // foo[]=1,2,3&foo[]=4,5,6\r\n            qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=4,5,6', { comma: true }), \r\n            { foo: [['1', '2', '3'], ['4', '5', '6']] }\r\n        );\r\n        st.deepEqual(\r\n            // foo[]=1,2,3&foo[]=\r\n            qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=', { comma: true }), \r\n            { foo: [['1', '2', '3'], ''] }\r\n        );\r\n        st.deepEqual(\r\n            // foo[]=1,2,3&foo[]=\r\n            qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=,', { comma: true }), \r\n            { foo: [['1', '2', '3'], ['', '']] }\r\n        );\r\n        st.deepEqual(\r\n            // foo[]=1,2,3&foo[]=a\r\n            qs.parse('foo%5B%5D=1,2,3&foo%5B%5D=a', { comma: true }),\r\n            { foo: [['1', '2', '3'], 'a'] }\r\n        );\r\n        st.end();\r\n    }\r\n);\r\n```\r\n\r\nThis PR fixes this by replacing `%5B` or `%5b` with `[` and `%5D` or `%5d` with `]` before splitting the string into delimited parts inside `parseQueryStringValues`.\r\n\r\nI've added the test mentioned above into into the parse test suite."
   },
   "pr": {
     "number": 506,

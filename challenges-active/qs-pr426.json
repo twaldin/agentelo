@@ -5,7 +5,7 @@
   "issue": {
     "number": 426,
     "title": "[Fix] `stringify`: actually fix cyclic references",
-    "body": ""
+    "body": "With all the testing, I think this is the ultimate solution for circular references.\r\n\r\nFixes #403.\n\n--- Linked Issue #403: qs.stringify Uncaught RangeError: Cyclic object value ---\nvar qs = require('qs');\r\nvar a = ['a'];\r\nqs.stringify({x:a,y:a});\r\n\r\n-> Uncaught RangeError: Cyclic object value"
   },
   "pr": {
     "number": 426,

@@ -5,7 +5,7 @@
   "issue": {
     "number": 224,
     "title": "Fix parsing & compacting very deep objects",
-    "body": ""
+    "body": "This is a change of the internal `compact` utility to use an iterative approach instead of recursion in order to better handle very, very deep objects without a stack overflow. It was noticed on CharkaCore because it has a much smaller maximum stack than v8 does, though it can still happen on v8 (which the test does).\r\n\r\n/cc @kunalspathak"
   },
   "pr": {
     "number": 224,
