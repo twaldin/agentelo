@@ -4,7 +4,6 @@ import { use, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ArrowLeftRight } from 'lucide-react'
 import {
@@ -15,6 +14,7 @@ import {
   type CompareChallengeSubmission,
 } from '@/lib/api'
 import AgentPicker from '@/components/AgentPicker'
+import { classifyFix, fixLabel, fixColor, type FixOutcome } from '@/lib/score'
 
 interface PageProps {
   params: Promise<{ agentA: string; agentB: string }>
@@ -44,6 +44,24 @@ function statWinner(
   if (aVal === bVal) return 'tie'
   if (lowerIsBetter) return aVal < bVal ? 'a' : 'b'
   return aVal > bVal ? 'a' : 'b'
+}
+
+// Derives a short display name from a full agent id
+function shortName(n: string): string {
+  const parts = n.split('-')
+  if (parts.length >= 3) return parts.slice(-2).join('-')
+  if (parts.length === 2) return parts[1]
+  return n.length > 8 ? n.slice(0, 7) + '\u2026' : n
+}
+
+function fmtTests(
+  sub: CompareChallengeSubmission | null,
+  baselinePassing: number | null,
+  brokenByBug: number | null
+): string {
+  if (!sub) return '\u2014'
+  const outcome = classifyFix(sub.tests_ok, sub.tests_total, baselinePassing, brokenByBug)
+  return fixLabel(outcome)
 }
 
 export default function ComparePage({ params }: PageProps) {
@@ -87,6 +105,8 @@ export default function ComparePage({ params }: PageProps) {
   const { a, b, h2h, challenges } = data
   const aName = (a.display_name || a.id).trim()
   const bName = (b.display_name || b.id).trim()
+  const shortA = shortName(aName)
+  const shortB = shortName(bName)
 
   const h2hTotal = h2h.a_wins + h2h.b_wins + h2h.draws
   const h2hAPct = h2hTotal > 0 ? (h2h.a_wins / h2hTotal) * 100 : 0
@@ -136,7 +156,7 @@ export default function ComparePage({ params }: PageProps) {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
+          <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
             Compare
           </p>
           <h1 className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
@@ -173,17 +193,17 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Stat tiles — label text-sm, value text-xl tabular-nums */}
+      {/* Stat tiles — L5 label (14px), L4 value (20px) */}
       <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {stats.map(s => (
           <div key={s.label} className="rounded-md border border-border bg-card p-5">
-            <p className="font-mono text-sm uppercase tracking-wider text-muted-foreground">
+            <p className="font-mono text-[14px] text-muted-foreground">
               {s.label}
             </p>
             <div className="mt-2 flex items-baseline justify-between gap-2">
               <span
                 className={cn(
-                  'font-mono text-xl tabular-nums',
+                  'font-mono text-xl tabular-nums whitespace-nowrap',
                   s.winner === 'a' ? 'font-semibold text-success' : 'text-muted-foreground'
                 )}
               >
@@ -191,7 +211,7 @@ export default function ComparePage({ params }: PageProps) {
               </span>
               <span
                 className={cn(
-                  'font-mono text-xl tabular-nums',
+                  'font-mono text-xl tabular-nums whitespace-nowrap',
                   s.winner === 'b' ? 'font-semibold text-success' : 'text-muted-foreground'
                 )}
               >
@@ -206,6 +226,7 @@ export default function ComparePage({ params }: PageProps) {
       <div className="mt-6 rounded-lg border border-border bg-card p-5">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Head-to-Head
+          <span className="ml-2 text-xs font-normal text-muted-foreground">(N={h2hTotal})</span>
         </h2>
         {h2hTotal === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">No head-to-head games yet.</p>
@@ -223,7 +244,7 @@ export default function ComparePage({ params }: PageProps) {
               </span>
               <div className="flex flex-col items-end">
                 <span className="font-mono text-xs text-muted-foreground">{bName}</span>
-                <span className="font-mono text-base font-semibold text-destructive">
+                <span className="font-mono text-base font-semibold text-muted-foreground">
                   {h2h.b_wins}W
                 </span>
               </div>
@@ -245,7 +266,7 @@ export default function ComparePage({ params }: PageProps) {
               )}
               {h2hBPct > 0 && (
                 <div
-                  className="bg-destructive transition-all"
+                  className="bg-muted-foreground/50 transition-all"
                   style={{ width: `${h2hBPct}%` }}
                   title={`${bName}: ${h2h.b_wins}W (${h2hBPct.toFixed(0)}%)`}
                 />
@@ -255,54 +276,57 @@ export default function ComparePage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Challenge-by-Challenge Table */}
+      {/* Challenge-by-Challenge Table — single header row */}
       <div className="mt-6">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenges ({challenges.length})
         </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[800px]">
-            <thead>
-              {/* Group header: agent names span their 3 sub-columns */}
-              <tr className="text-muted-foreground">
-                <th className="pb-2 pr-4" />
-                <th
-                  colSpan={3}
-                  className="border-b-2 border-success/40 pb-2 pr-4 text-center font-mono text-base font-medium text-success"
-                >
-                  {aName}
-                </th>
-                <th
-                  colSpan={3}
-                  className="border-b-2 border-destructive/40 pb-2 pr-4 text-center font-mono text-base font-medium text-destructive"
-                >
-                  {bName}
-                </th>
-                <th className="pb-2" />
-              </tr>
-              {/* Sub-header: Tests / Time / Cost */}
-              <tr className="border-b border-border text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                <th className="pb-3 pr-4 font-medium">Challenge</th>
-                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
-                <th className="pb-3 pr-4 font-medium text-right">Tests</th>
-                <th className="pb-3 pr-4 font-medium text-right">Time</th>
-                <th className="pb-3 pr-4 font-medium text-right">Cost</th>
-                <th className="pb-3 font-medium text-right">Game</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {challenges.map(ch => (
-                <ChallengeRow
-                  key={ch.challenge_id}
-                  ch={ch}
-                  aName={aName}
-                  bName={bName}
-                />
-              ))}
-            </tbody>
-          </table>
+        <div className="relative mt-4">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+                  <th className="pb-3 pr-4">Challenge</th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    {' Tests'}
+                  </th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    {' Time'}
+                  </th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    {' Cost'}
+                  </th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
+                    {' Tests'}
+                  </th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
+                    {' Time'}
+                  </th>
+                  <th className="pb-3 pr-4 text-right">
+                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
+                    {' Cost'}
+                  </th>
+                  <th className="pb-3 text-right">Winner</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {challenges.map(ch => (
+                  <ChallengeRow
+                    key={ch.challenge_id}
+                    ch={ch}
+                    aName={aName}
+                    bName={bName}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
         </div>
         {challenges.length === 0 && (
           <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
@@ -312,18 +336,6 @@ export default function ComparePage({ params }: PageProps) {
       </div>
     </div>
   )
-}
-
-function fmtTests(
-  sub: CompareChallengeSubmission | null,
-  baselinePassing: number | null,
-  brokenByBug: number | null
-): string {
-  if (!sub) return '\u2014'
-  if (brokenByBug != null && brokenByBug > 0 && baselinePassing != null) {
-    return `${sub.tests_fixed}/${brokenByBug} fixed`
-  }
-  return `${sub.tests_ok}/${sub.tests_total}`
 }
 
 function ChallengeRow({
@@ -342,73 +354,65 @@ function ChallengeRow({
     else rowWinner = 'draw'
   }
 
+  // Classify each side's test outcome to detect regressions
+  const aOutcome: FixOutcome = ch.a
+    ? classifyFix(ch.a.tests_ok, ch.a.tests_total, ch.baseline_passing, ch.broken_by_bug)
+    : { kind: 'no-data' }
+  const bOutcome: FixOutcome = ch.b
+    ? classifyFix(ch.b.tests_ok, ch.b.tests_total, ch.baseline_passing, ch.broken_by_bug)
+    : { kind: 'no-data' }
+
+  // Test cell: destructive if regressed, success if row winner, muted otherwise
+  const aTestColor = aOutcome.kind === 'regression'
+    ? 'text-destructive'
+    : rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+  const bTestColor = bOutcome.kind === 'regression'
+    ? 'text-destructive'
+    : rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+
+  // Time and cost: success if row winner, muted otherwise (no regression concept)
+  const aColor = rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+  const bColor = rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+
+  const cellBase = 'font-mono text-[15px] tabular-nums whitespace-nowrap'
+
   return (
     <tr className="group transition-colors hover:bg-card/50">
       <td className="py-3 pr-4">
         <Link
           href={`/challenges/${ch.challenge_id}`}
-          className="font-mono text-[13px] text-muted-foreground hover:text-primary"
+          className="font-mono text-[14px] text-muted-foreground hover:text-primary"
         >
           {ch.title || ch.challenge_id}
         </Link>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, aTestColor)}>
           {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
         </span>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, aColor)}>
           {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'}
         </span>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'a' ? 'text-base font-semibold text-success' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, aColor)}>
           {ch.a ? fmtCost(ch.a.cost_usd) : '\u2014'}
         </span>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, bTestColor)}>
           {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
         </span>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, bColor)}>
           {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
         </span>
       </td>
       <td className="py-3 pr-4 text-right">
-        <span
-          className={cn(
-            'font-mono tabular-nums',
-            rowWinner === 'b' ? 'text-base font-semibold text-destructive' : 'text-sm text-muted-foreground/70'
-          )}
-        >
+        <span className={cn(cellBase, bColor)}>
           {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}
         </span>
       </td>
@@ -417,18 +421,18 @@ function ChallengeRow({
           <Link
             href={`/games/${ch.game.id}`}
             className={cn(
-              'font-mono text-sm hover:underline',
+              'font-mono text-[15px] hover:underline',
               rowWinner === 'a'
                 ? 'text-success'
                 : rowWinner === 'b'
-                  ? 'text-destructive'
+                  ? 'text-muted-foreground'
                   : 'text-muted-foreground'
             )}
           >
-            {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '—'}
+            {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '\u2014'}
           </Link>
         ) : (
-          <span className="font-mono text-sm text-muted-foreground">{'\u2014'}</span>
+          <span className="font-mono text-[15px] text-muted-foreground">{'\u2014'}</span>
         )}
       </td>
     </tr>

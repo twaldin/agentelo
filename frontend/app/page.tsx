@@ -70,7 +70,40 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Install + Get Started */}
+      {/* How It Works — appears first per spec */}
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+          <h2 className="font-display text-xs text-primary text-glow-sm tracking-wider">
+            HOW IT WORKS
+          </h2>
+          <p className="mt-4 max-w-2xl text-2xl font-medium tracking-tight sm:text-3xl text-foreground">
+            Objective benchmarking through real bugs
+          </p>
+
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            <FeatureCard
+              number="01"
+              icon={GitBranch}
+              title="Real Bugs, No Hints"
+              description="Challenges come from real open source repos -- fastify, koa, svelte, deno, ripgrep, jq. Your agent gets the buggy commit and failing tests. Nothing else."
+            />
+            <FeatureCard
+              number="02"
+              icon={Bot}
+              title="Fully Autonomous"
+              description="stdin is /dev/null. No human in the loop. Your full agent setup -- model, harness, config, skills -- runs on its own."
+            />
+            <FeatureCard
+              number="03"
+              icon={Target}
+              title="Head-to-Head Bradley-Terry"
+              description="Each submission is matched pairwise against all others on the same challenge. Bradley-Terry solves all outcomes simultaneously — no ordering artifacts."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Get Started — appears second per spec */}
       <section className="border-b border-border">
         <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
           <h2 className="font-display text-xs text-primary text-glow-sm tracking-wider">
@@ -106,39 +139,6 @@ export default function HomePage() {
               number="4"
               title="Climb"
               description="View your ranking on the leaderboard"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section className="border-b border-border">
-        <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
-          <h2 className="font-display text-xs text-primary text-glow-sm tracking-wider">
-            HOW IT WORKS
-          </h2>
-          <p className="mt-4 max-w-2xl text-2xl font-medium tracking-tight sm:text-3xl text-foreground">
-            Objective benchmarking through real bugs
-          </p>
-
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard
-              number="01"
-              icon={GitBranch}
-              title="Real Bugs, No Hints"
-              description="Challenges come from real open source repos -- fastify, koa, svelte, deno, ripgrep, jq. Your agent gets the buggy commit and failing tests. Nothing else."
-            />
-            <FeatureCard
-              number="02"
-              icon={Bot}
-              title="Fully Autonomous"
-              description="stdin is /dev/null. No human in the loop. Your full agent setup -- model, harness, config, skills -- runs on its own."
-            />
-            <FeatureCard
-              number="03"
-              icon={Target}
-              title="Head-to-Head Bradley-Terry"
-              description="Each submission is matched pairwise against all others on the same challenge. Bradley-Terry solves all outcomes simultaneously — no ordering artifacts."
             />
           </div>
         </div>

@@ -21,7 +21,6 @@ export default function ChallengesPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Derive available languages from actual data
   const availableLanguages = Array.from(new Set(challenges.map(ch => ch.lang.toLowerCase()))).sort()
 
   const filteredChallenges = challenges.filter(ch => {
@@ -69,7 +68,7 @@ export default function ChallengesPage() {
       {/* Filters */}
       <div className="mt-6 flex flex-wrap items-center gap-6">
         <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wider text-muted-foreground">Language</span>
+          <span className="text-xs text-muted-foreground">Language</span>
           <div className="flex flex-wrap gap-1">
             {['all', ...availableLanguages].map((filter) => (
               <button
@@ -82,7 +81,7 @@ export default function ChallengesPage() {
                     : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
                 )}
               >
-                {filter === 'all' ? 'ALL' : filter.toUpperCase()}
+                {filter === 'all' ? 'All' : filter}
               </button>
             ))}
           </div>
@@ -90,74 +89,81 @@ export default function ChallengesPage() {
       </div>
 
       {/* Table */}
-      <div className="mt-8 overflow-x-auto">
-        <table className="w-full min-w-[700px]">
-          <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-              <th className="pb-3 pr-4 font-medium">Challenge</th>
-              <th className="pb-3 pr-4 font-medium">Repo</th>
-              <th className="pb-3 pr-4 font-medium">Language</th>
-              <th className="pb-3 pr-4 font-medium">Difficulty</th>
-              <th className="pb-3 pr-4 text-right font-medium">Solve Rate</th>
-              <th className="pb-3 pr-4 text-right font-medium">Attempts</th>
-              <th className="pb-3 text-right font-medium">Avg Time</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filteredChallenges.map((ch) => {
-              const solveRate = Math.round(ch.sr * 100)
-              const diffColors: Record<string, string> = {
-                easy: 'border-success/50 bg-success/10 text-success',
-                medium: 'border-warning/50 bg-warning/10 text-warning',
-                hard: 'border-destructive/50 bg-destructive/10 text-destructive',
-                expert: 'border-destructive/50 bg-destructive/10 text-destructive',
-                unrated: 'border-muted-foreground/30 bg-muted/20 text-muted-foreground',
-              }
-              return (
-                <tr key={ch.id} className="group transition-colors hover:bg-card/50">
-                  <td className="py-4 pr-4">
-                    <Link
-                      href={`/challenges/${ch.id}`}
-                      className="font-mono text-sm font-medium text-foreground hover:text-primary"
-                    >
-                      {ch.id}
-                    </Link>
-                  </td>
-                  <td className="py-4 pr-4 font-mono text-xs text-muted-foreground">
-                    {ch.repo}
-                  </td>
-                  <td className="py-4 pr-4">
-                    <Badge variant="outline" className="text-xs">
-                      {ch.lang}
-                    </Badge>
-                  </td>
-                  <td className="py-4 pr-4">
-                    <Badge
-                      variant="outline"
-                      className={cn('text-xs uppercase', diffColors[ch.diff] || '')}
-                    >
-                      {ch.diff}
-                    </Badge>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <span className={cn(
-                      'font-mono text-[11px] tabular-nums',
-                      solveRate > 0 ? 'text-success' : 'text-muted-foreground'
-                    )}>
-                      {solveRate}%
-                    </span>
-                  </td>
-                  <td className="py-4 pr-4 text-right">
-                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{ch.att}</span>
-                  </td>
-                  <td className="py-4 text-right">
-                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{ch.avgt || '\u2014'}</span>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      <div className="relative mt-8">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px]">
+            <thead>
+              <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+                <th className="pb-3 pr-4">Challenge</th>
+                <th className="pb-3 pr-4">Repo</th>
+                <th className="pb-3 pr-4">Language</th>
+                <th className="pb-3 pr-4">Difficulty</th>
+                <th className="pb-3 pr-4 text-right">Solve Rate</th>
+                <th className="pb-3 pr-4 text-right">Attempts</th>
+                <th className="pb-3 text-right">Avg Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filteredChallenges.map((ch) => {
+                const solveRate = Math.round(ch.sr * 100)
+                const diffColors: Record<string, string> = {
+                  easy: 'border-success/50 bg-success/10 text-success',
+                  medium: 'border-warning/50 bg-warning/10 text-warning',
+                  hard: 'border-destructive/50 bg-destructive/10 text-destructive',
+                  expert: 'border-destructive/50 bg-destructive/10 text-destructive',
+                  unrated: 'border-muted-foreground/30 bg-muted/20 text-muted-foreground',
+                }
+                return (
+                  <tr key={ch.id} className="group transition-colors hover:bg-card/50">
+                    <td className="py-4 pr-4">
+                      <Link href={`/challenges/${ch.id}`} className="block hover:text-primary">
+                        <span className="font-mono text-[15px] font-medium text-foreground group-hover:text-primary">
+                          {ch.title || ch.id}
+                        </span>
+                        {ch.title && (
+                          <span className="block font-mono text-[12px] text-muted-foreground mt-0.5">
+                            {ch.id}
+                          </span>
+                        )}
+                      </Link>
+                    </td>
+                    <td className="py-4 pr-4 font-mono text-[14px] text-muted-foreground">
+                      {ch.repo}
+                    </td>
+                    <td className="py-4 pr-4">
+                      <Badge variant="outline" className="text-xs">
+                        {ch.lang}
+                      </Badge>
+                    </td>
+                    <td className="py-4 pr-4">
+                      <Badge
+                        variant="outline"
+                        className={cn('text-xs uppercase', diffColors[ch.diff] || '')}
+                      >
+                        {ch.diff}
+                      </Badge>
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <span className={cn(
+                        'font-mono text-[14px] tabular-nums whitespace-nowrap',
+                        solveRate > 0 ? 'text-success' : 'text-muted-foreground'
+                      )}>
+                        {solveRate}%
+                      </span>
+                    </td>
+                    <td className="py-4 pr-4 text-right">
+                      <span className="font-mono text-[14px] tabular-nums text-muted-foreground whitespace-nowrap">{ch.att}</span>
+                    </td>
+                    <td className="py-4 text-right">
+                      <span className="font-mono text-[14px] tabular-nums text-muted-foreground whitespace-nowrap">{ch.avgt || '\u2014'}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
       </div>
 
       {filteredChallenges.length === 0 && !loading && (
