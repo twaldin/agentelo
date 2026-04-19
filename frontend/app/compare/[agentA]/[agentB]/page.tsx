@@ -288,15 +288,15 @@ export default function ComparePage({ params }: PageProps) {
                 <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
                   <th className="pb-3 pr-4">Challenge</th>
                   <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    <span className="text-success" style={{ opacity: 0.7 }}>{shortA}</span>
                     {' Tests'}
                   </th>
                   <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    <span className="text-success" style={{ opacity: 0.7 }}>{shortA}</span>
                     {' Time'}
                   </th>
                   <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
+                    <span className="text-success" style={{ opacity: 0.7 }}>{shortA}</span>
                     {' Cost'}
                   </th>
                   <th className="pb-3 pr-4 text-right">
