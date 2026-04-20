@@ -10,7 +10,6 @@ const { execSync, execFileSync } = require('child_process');
 const { score } = require('../core/scorer');
 const { computeAgentHash } = require('../core/agentHash');
 const { normalizeAgentId } = require('../core/normalize');
-const { parseClaudeCodeCostAndTokens } = require('../core/agentelo-local/parsers/claude-code');
 const {
   loadResults,
   sortResultsByDate,
@@ -94,6 +93,125 @@ function getGcloudToken() {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Harness model remapping — translates agentelo model IDs to harness-ts spec.model
+// Vertex/litellm prefix conventions are agentelo-owned, not harness-ts concerns.
+// ---------------------------------------------------------------------------
+function remapModelForHarness(harness, model, vertexInfo, vertexModel) {
+  if (harness === 'opencode' && vertexInfo && vertexInfo.api === 'openai') {
+    const regionProvider = { 'global': 'vertex', 'us-east5': 'vertex-east5', 'us-central1': 'vertex-central1', 'us-west2': 'vertex-west2' };
+    const provider = regionProvider[vertexInfo.location] || 'vertex';
+    return provider + '/' + vertexModel;
+  }
+  if (harness === 'aider' && vertexInfo && vertexInfo.api === 'openai') {
+    return 'openai/' + vertexModel;
+  }
+  if (harness === 'swe-agent') {
+    if (vertexInfo && vertexInfo.api === 'openai') return 'openai/' + vertexModel;
+    // openrouter/ models: keep as-is — litellm handles openrouter/ prefix natively
+    if (!model.startsWith('openrouter/') && (model.startsWith('gpt-') || model.startsWith('claude-'))) {
+      return model.startsWith('gpt-') ? 'openai/' + model : 'anthropic/' + model;
+    }
+  }
+  return model;
+}
+
+// ---------------------------------------------------------------------------
+// Harness env building — agentelo-owned shims: vertex OAuth, proxy, safety vars
+// These go into RunSpec.env so harness-ts merges them onto process.env at exec.
+// ---------------------------------------------------------------------------
+function buildSharedEnv(harness, model, vertexInfo, vertexModel, tmpdir, fakeHome) {
+  const env = {};
+  // Prevent agents from installing packages globally / opening browser / verbose logs
+  env.PIP_REQUIRE_VIRTUALENV = '1';
+  env.BROWSER = 'echo';
+  env.LITELLM_LOG = 'ERROR';
+  // Prevent CWD from shadowing agent's own installed deps (e.g. click/jinja in challenge repos)
+  env.PYTHONSAFEPATH = '1';
+  // Gemini CLI: route through Vertex ($300 credits) not AI Studio (charges card)
+  env.GOOGLE_GENAI_USE_VERTEXAI = 'true';
+  env.GOOGLE_CLOUD_PROJECT = VERTEX_PROJECT;
+
+  // Add .venv/bin to PATH — but NOT for swe-agent (it uses system python3 + minisweagent)
+  if (harness !== 'swe-agent') {
+    const venvBin = path.join(tmpdir, '.venv', 'bin');
+    if (fs.existsSync(venvBin)) {
+      env.PATH = `${venvBin}:${process.env.PATH}`;
+      env.VIRTUAL_ENV = path.join(tmpdir, '.venv');
+    }
+  }
+
+  if (harness === 'aider') {
+    // Keep aider stateless — no stale chat/config from operator's home dir
+    env.HOME = fakeHome || tmpdir;
+    if (vertexInfo && vertexInfo.api === 'openai') {
+      const token = getGcloudToken();
+      if (token) {
+        env.OPENAI_API_BASE = getVertexOpenAIBaseUrl(vertexInfo.location);
+        env.OPENAI_API_KEY = token;
+      }
+    } else if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
+      // Local ChatGPT OAuth proxy (free, subscription-based)
+      env.OPENAI_API_BASE = 'http://127.0.0.1:10531/v1';
+      env.OPENAI_API_KEY = 'unused';
+    }
+  }
+
+  if (harness === 'swe-agent') {
+    // Tell harness-ts where the agentelo headless wrapper lives
+    env.SWE_WRAPPER = path.resolve(__dirname, 'run-mini-swe.py');
+    if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
+      env.OPENAI_BASE_URL = 'http://127.0.0.1:10531/v1';
+      env.OPENAI_API_KEY = 'unused';
+    }
+  }
+
+  if (model.startsWith('gemini/') && !process.env.GEMINI_API_KEY) {
+    try {
+      const envFile = fs.readFileSync(path.join(os.homedir(), '.env'), 'utf8');
+      const match = envFile.match(/GEMINI_API_KEY=(.+)/);
+      if (match) env.GEMINI_API_KEY = match[1].trim();
+    } catch {}
+  }
+
+  if (model.startsWith('openrouter/') && !process.env.OPENROUTER_API_KEY) {
+    try {
+      const envFile = fs.readFileSync(path.join(os.homedir(), '.agentelo', '.env'), 'utf8');
+      const match = envFile.match(/OPENROUTER_API_KEY=(.+)/);
+      if (match) env.OPENROUTER_API_KEY = match[1].trim();
+    } catch {}
+  }
+
+  if (vertexInfo) {
+    env.VERTEXAI_PROJECT = VERTEX_PROJECT;
+    env.VERTEXAI_LOCATION = vertexInfo.location;
+    if (vertexInfo.api === 'openai' && harness === 'swe-agent') {
+      const token = getGcloudToken();
+      if (token) {
+        env.OPENAI_API_BASE = getVertexOpenAIBaseUrl(vertexInfo.location);
+        env.OPENAI_BASE_URL = getVertexOpenAIBaseUrl(vertexInfo.location);
+        env.OPENAI_API_KEY = token;
+      }
+    }
+    if (vertexInfo.api === 'openai' && harness === 'opencode') {
+      const token = getGcloudToken();
+      if (token) env.VERTEX_API_KEY = token;
+      env.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = '8192';
+    }
+    if (harness === 'opencode') {
+      env.VERTEXAI_PROJECT = VERTEX_PROJECT;
+      env.VERTEXAI_LOCATION = vertexInfo.location;
+    }
+  }
+
+  if (model.startsWith('vertex_ai/')) {
+    env.VERTEXAI_PROJECT = VERTEX_PROJECT;
+    env.VERTEXAI_LOCATION = 'us-central1';
+  }
+
+  return env;
 }
 
 function getOpenCodeSessionStatus(tmpdir) {
@@ -892,323 +1010,34 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
       `The repo is in your current working directory. Run tests with: ${challenge.test_command}.`;
 
     const startedAt = new Date().toISOString();
-    const aiderConfigFile = path.join(tmpdir, '.agentelo-aider.yml');
-    const aiderChatHistoryFile = path.join(tmpdir, '.agentelo-aider-chat.history.md');
-    const aiderInputHistoryFile = path.join(tmpdir, '.agentelo-aider-input.history');
-    fs.writeFileSync(aiderConfigFile, '{}\n', 'utf8');
 
-    // Build harness command — direct subprocess, no OpenFleet
-    let cmd, cmdArgs;
-    switch (harness) {
-      case 'claude-code':
-        cmd = 'claude';
-        // Use --output-format json to capture token usage and cost
-        cmdArgs = ['-p', prompt, '--dangerously-skip-permissions', '--model', model, '--output-format', 'json'];
-        break;
-      case 'opencode': {
-        cmd = 'opencode';
-        let ocModel;
-        if (vertexInfo && vertexInfo.api === 'openai') {
-          // OpenCode uses regional vertex providers configured in opencode.json
-          // ALL models (including Gemini) route through Vertex to use $300 credits, not AI Studio
-          const regionProvider = {
-            'global': 'vertex',
-            'us-east5': 'vertex-east5',
-            'us-central1': 'vertex-central1',
-            'us-west2': 'vertex-west2',
-          };
-          const provider = regionProvider[vertexInfo.location] || 'vertex';
-          ocModel = provider + '/' + vertexModel;
-        } else {
-          ocModel = model;
-        }
-        cmdArgs = ['run', '--dir', tmpdir, '--model', ocModel, prompt];
-        break;
-      }
-      case 'codex':
-        cmd = 'codex';
-        cmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '--json', '-C', tmpdir, prompt];
-        break;
-      case 'gemini':
-        cmd = 'gemini';
-        cmdArgs = ['-p', prompt, '-y', '-m', model, '--output-format', 'json'];
-        break;
-      case 'aider': {
-        cmd = 'aider';
-        // Aider uses diff-based editing — no tool use, model writes edit blocks.
-        // Let aider discover files from the git repo (tmpdir has .git).
-        let aiderModel;
-        if (vertexInfo && vertexInfo.api === 'openai') {
-          // Vertex OpenAI-compat models: use openai-compat base URL
-          aiderModel = `openai/${vertexModel}`;
-        } else if (model.startsWith('openrouter/')) {
-          aiderModel = `openrouter/${model.replace('openrouter/', '')}`;
-        } else {
-          aiderModel = model;
-        }
-        cmdArgs = [
-          '--config', aiderConfigFile,
-          '--no-restore-chat-history',
-          '--chat-history-file', aiderChatHistoryFile,
-          '--input-history-file', aiderInputHistoryFile,
-          '--model', aiderModel,
-          '--message', prompt,
-          '--yes-always',
-          '--no-auto-commits',
-          '--no-analytics',
-          '--no-show-model-warnings',
-        ];
-        // Vertex OpenAI-compat: set base URL and auth token
-        if (vertexInfo && vertexInfo.api === 'openai') {
-          const token = getGcloudToken();
-          if (token) {
-            cmdArgs.push('--openai-api-base', getVertexOpenAIBaseUrl(vertexInfo.location));
-            cmdArgs.push('--openai-api-key', token);
-          }
-        }
-        // For OpenAI models: use local OAuth proxy (free, subscription-based)
-        if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
-          cmdArgs.push('--openai-api-base', 'http://127.0.0.1:10531/v1');
-          cmdArgs.push('--openai-api-key', 'unused');
-          cmdArgs.push('--no-stream');
-        }
-        break;
-      }
-      case 'swe-agent': {
-        cmd = 'python3';
-        // Headless wrapper around mini-swe-agent Python API (bypasses Textual TUI)
-        let sweModel;
-        if (vertexInfo && vertexInfo.api === 'openai') {
-          // litellm: openai/ prefix = use OpenAI-compat endpoint, then strips prefix
-          // So openai/openai/gpt-oss-120b-maas → sends "openai/gpt-oss-120b-maas" to API
-          // openai/deepseek-ai/deepseek-v3.2-maas → sends "deepseek-ai/deepseek-v3.2-maas"
-          sweModel = 'openai/' + vertexModel;
-        } else if (model.startsWith('openrouter/')) {
-          sweModel = model.replace('openrouter/', '');
-        } else if (model.startsWith('gpt-') || model.startsWith('claude-')) {
-          // litellm needs openai/ prefix for GPT models, anthropic/ for Claude
-          sweModel = model.startsWith('gpt-') ? 'openai/' + model : 'anthropic/' + model;
-        } else {
-          sweModel = model;
-        }
-        const trajFile = path.join(RESULTS_DIR, `${runId}.traj.json`);
-        cmdArgs = [
-          path.resolve(__dirname, 'run-mini-swe.py'),
-          '--model', sweModel,
-          '--task', prompt,
-          '--cwd', tmpdir,
-          '--cost-limit', '10.0',
-          '--output', trajFile,
-        ];
-        if (vertexInfo && vertexInfo.api === 'openai') {
-          cmdArgs.push('--model-class', 'vertex');
-        } else if (model.startsWith('openrouter/')) {
-          cmdArgs.push('--model-class', 'openrouter');
-        }
-        break;
-      }
-      default:
-        throw new Error(`Unsupported harness: ${harness}`);
-    }
+    // Build harness RunSpec — vertex/OAuth/proxy shims live here, not in harness-ts
+    const sharedEnv = buildSharedEnv(harness, model, vertexInfo, vertexModel, tmpdir, fakeHome);
+    const harnessModel = remapModelForHarness(harness, model, vertexInfo, vertexModel);
+    const spec = {
+      harness,
+      prompt,
+      workdir: tmpdir,
+      model: harnessModel,
+      timeoutSeconds: 30 * 60,
+      env: sharedEnv,
+    };
 
-    // Set up environment
-    const runEnv = { ...process.env };
-    // Prevent agents from running `pip install` globally (protects system click/jinja2/litellm)
-    // This only affects the AGENT subprocess, not the scorer (which uses its own venv pip)
-    runEnv.PIP_REQUIRE_VIRTUALENV = '1';
-    // Prevent litellm from opening browser on errors (spams Provider List URL)
-    runEnv.BROWSER = 'echo';
-    runEnv.LITELLM_LOG = 'ERROR';
-    // Prevent Python from adding CWD to sys.path (equiv. to python -P).
-    // Without this, challenge repos like click/flask/jinja shadow aider's own
-    // installed dependencies, causing "No module named 'click'" crashes.
-    runEnv.PYTHONSAFEPATH = '1';
-    // Gemini CLI: use Vertex AI (uses $300 credits) instead of AI Studio (charges card)
-    runEnv.GOOGLE_GENAI_USE_VERTEXAI = 'true';
-    runEnv.GOOGLE_CLOUD_PROJECT = VERTEX_PROJECT;
-    // Add .venv/bin to PATH so agents find the venv's python/pytest
-    // But NOT for swe-agent — it uses system python3 which has minisweagent installed.
-    // Prepending venv breaks swe-agent's import of minisweagent.
-    if (harness !== 'swe-agent') {
-      const venvBin = path.join(tmpdir, '.venv', 'bin');
-      if (fs.existsSync(venvBin)) {
-        runEnv.PATH = `${venvBin}:${runEnv.PATH}`;
-        runEnv.VIRTUAL_ENV = path.join(tmpdir, '.venv');
-      }
-    }
-    if (harness === 'aider') {
-      // Keep aider fully stateless for benchmark runs so it cannot inherit
-      // stale chat/config state from the operator's home directory.
-      runEnv.HOME = fakeHome || tmpdir;
-    }
-    // NOTE: not overriding HOME — all harnesses need auth from user's home dir.
-    // Baseline isolation comes from the clean workdir (no .claude/, .opencode/, etc)
-
-    // For swe-agent with OpenAI models: use local OAuth proxy (free, subscription)
-    if (!vertexInfo && harness === 'swe-agent' && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
-      runEnv.OPENAI_BASE_URL = 'http://127.0.0.1:10531/v1';
-      runEnv.OPENAI_API_KEY = 'unused';
-    }
-    // Ensure GEMINI_API_KEY is available for gemini/ models in aider/swe-agent
-    if (model.startsWith('gemini/') && !runEnv.GEMINI_API_KEY) {
-      try {
-        const envFile = fs.readFileSync(path.join(os.homedir(), '.env'), 'utf8');
-        const match = envFile.match(/GEMINI_API_KEY=(.+)/);
-        if (match) runEnv.GEMINI_API_KEY = match[1].trim();
-      } catch {}
-    }
-    // Ensure OPENROUTER_API_KEY is available for openrouter/ models
-    if (model.startsWith('openrouter/') && !runEnv.OPENROUTER_API_KEY) {
-      try {
-        const envFile = fs.readFileSync(path.join(os.homedir(), '.agentelo', '.env'), 'utf8');
-        const match = envFile.match(/OPENROUTER_API_KEY=(.+)/);
-        if (match) runEnv.OPENROUTER_API_KEY = match[1].trim();
-      } catch {}
-    }
-    // Vertex AI: set env for swe-agent and opencode
-    if (vertexInfo) {
-      runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
-      runEnv.VERTEXAI_LOCATION = vertexInfo.location;
-      if (vertexInfo.api === 'openai' && harness === 'swe-agent') {
-        const token = getGcloudToken();
-        if (token) {
-          runEnv.OPENAI_API_BASE = getVertexOpenAIBaseUrl(vertexInfo.location);
-          runEnv.OPENAI_BASE_URL = getVertexOpenAIBaseUrl(vertexInfo.location);
-          runEnv.OPENAI_API_KEY = token;
-        }
-      }
-      if (vertexInfo.api === 'openai' && harness === 'opencode') {
-        const token = getGcloudToken();
-        if (token) {
-          // OpenCode uses custom 'vertex' provider — needs VERTEX_API_KEY env
-          runEnv.VERTEX_API_KEY = token;
-        }
-        // Cap output tokens for Vertex models (many have limits < opencode's 32000 default)
-        runEnv.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = '8192';
-      }
-      if (harness === 'opencode') {
-        // OpenCode uses GOOGLE_APPLICATION_CREDENTIALS for Vertex
-        runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
-        runEnv.VERTEXAI_LOCATION = vertexInfo.location;
-      }
-    }
-    // Legacy vertex_ai/ prefix (litellm)
-    if (model.startsWith('vertex_ai/')) {
-      runEnv.VERTEXAI_PROJECT = VERTEX_PROJECT;
-      runEnv.VERTEXAI_LOCATION = 'us-central1';
-    }
-
-    console.log(`[agentelo] Running: ${cmd} ${cmdArgs[0]}... (stdin closed, 30min timeout)`);
+    // NOTE: harness-ts run() uses spawnSync (blocking). Real-time output piping
+    // and the inactivity watchdog are lost vs the old spawn() approach. Hard
+    // timeout is preserved. Watchdog is a harness-ts follow-up (TODO).
+    const { run: harnessRun } = await import('@twaldin/harness-ts');
+    console.log(`[agentelo] Running: ${harness}/${harnessModel} (30min timeout)`);
     console.log(`[agentelo] Log: ${logFile}`);
+    const harnessResult = await harnessRun(spec);
+    const timedOut = harnessResult.timedOut;
+    // Write combined output to log file for scoring and debugging
+    fs.writeFileSync(logFile, harnessResult.stdout + harnessResult.stderr, 'utf8');
+    console.log(`\n[agentelo] Agent exited (code ${harnessResult.exitCode}) after ${Math.round(harnessResult.durationSeconds)}s`);
 
-    // Run as subprocess — stdin closed, stdout/stderr captured to log
-    const logStream = fs.createWriteStream(logFile);
-    let timedOut = false;
-    const stdoutChunks = []; // Collect stdout separately for JSON/token parsing
-
-    const startMs = Date.now();
-    const INACTIVITY_TIMEOUT = 20 * 60 * 1000; // 20 min no output = dead agent
-    await new Promise((resolve) => {
-      const child = require('child_process').spawn(cmd, cmdArgs, {
-        cwd: tmpdir,
-        env: runEnv,
-        stdio: ['pipe', 'pipe', 'pipe'],  // stdin=pipe (we close it), stdout+stderr=pipe
-        timeout: 30 * 60 * 1000,
-      });
-      // Close stdin immediately — no human input
-      child.stdin.end();
-
-      // Inactivity watchdog — kill agent if no output for 5 minutes
-      // Catches: model hangs, silent failures
-      let lastActivity = Date.now();
-      let apiErrorCount = 0;
-      const API_ERROR_LIMIT = 5; // Kill after 5 consecutive API errors
-      const API_ERROR_PATTERNS = [
-        /Attempt \d+ failed with status (429|503|500)/,
-        /RESOURCE_EXHAUSTED/,
-        /UNAVAILABLE/,
-        /rate.?limit/i,
-      ];
-      const killChild = (reason) => {
-        timedOut = true;
-        console.log(`\n[agentelo] ${reason}. Killing agent.`);
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5000);
-        clearInterval(activityCheck);
-      };
-      const activityCheck = setInterval(() => {
-        if (harness === 'opencode') {
-          const ocSession = getOpenCodeSessionStatus(tmpdir);
-          // opencode failures on the OAuth-backed GPT path can wedge after the
-          // initial "build" banner with no further session/message activity.
-          // Kill these early rather than donating the full 20 minute watchdog.
-          const buildOnlyStall =
-            ocSession &&
-            ocSession.messageCount <= 2 &&
-            ocSession.lastMode === 'build' &&
-            ocSession.lastTokensIn === 0 &&
-            ocSession.lastTokensOut === 0 &&
-            Date.now() - startMs > 90 * 1000 &&
-            Date.now() - ocSession.timeUpdated > 60 * 1000;
-          const genericFirstTurnStall =
-            ocSession &&
-            Date.now() - startMs > 5 * 60 * 1000 &&
-            ocSession.messageCount <= 2 &&
-            Date.now() - ocSession.timeUpdated > 3 * 60 * 1000;
-          if (buildOnlyStall || genericFirstTurnStall) {
-            const idleSeconds = Math.round((Date.now() - ocSession.timeUpdated) / 1000);
-            const reason = buildOnlyStall
-              ? `OpenCode stalled in build phase before first real turn (${idleSeconds}s since session activity)`
-              : `OpenCode stalled before first real turn (${idleSeconds}s since session activity)`;
-            killChild(reason);
-            return;
-          }
-        }
-        if (Date.now() - lastActivity > INACTIVITY_TIMEOUT) {
-          const idle = Math.round((Date.now() - lastActivity) / 1000);
-          killChild(`Inactivity timeout (${idle}s no output)`);
-        }
-      }, 30000); // check every 30s
-
-      // Capture output + track activity + detect API error loops
-      const checkOutput = (chunk) => {
-        lastActivity = Date.now();
-        const text = chunk.toString();
-        if (API_ERROR_PATTERNS.some(p => p.test(text))) {
-          apiErrorCount++;
-          if (apiErrorCount >= API_ERROR_LIMIT) {
-            killChild(`API error loop detected (${apiErrorCount} errors)`);
-          }
-        }
-      };
-      child.stdout.on('data', (chunk) => {
-        checkOutput(chunk);
-        stdoutChunks.push(chunk);
-      });
-      child.stderr.on('data', checkOutput);
-      child.stdout.pipe(logStream);
-      child.stderr.pipe(logStream);
-      child.stdout.pipe(process.stdout);
-      child.stderr.pipe(process.stderr);
-      // Timeout
-      const timer = setTimeout(() => {
-        timedOut = true;
-        console.log('\n[agentelo] Timeout (30 min). Killing agent.');
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5000);
-      }, 30 * 60 * 1000);
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        clearInterval(activityCheck);
-        logStream.end();
-        const elapsed = Math.round((Date.now() - startMs) / 1000);
-        console.log(`\n[agentelo] Agent exited (code ${code}) after ${elapsed}s`);
-        resolve();
-      });
-    });
 
     const finishedAt = new Date().toISOString();
-    const agentTimeSeconds = (new Date(finishedAt) - new Date(startedAt)) / 1000;
+    const agentTimeSeconds = harnessResult.durationSeconds;
 
     // Clean up tmux viewer if any
     try {
@@ -1341,59 +1170,11 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
         'Fix the remaining issues. The repo is in your current working directory. ' +
         'Run tests with: ' + challenge.test_command;
 
-      // Run agent again with retry prompt
+      // Run agent again with retry prompt via harness-ts
       console.log('[agentelo] Running retry...');
       const retryLogFile = logFile.replace('.log', '-retry.log');
-      const retryLogStream = fs.createWriteStream(retryLogFile);
-      await new Promise((resolve) => {
-        // Build retry args — prompt position varies by harness
-        let retryCmdArgs;
-        switch (harness) {
-          case 'claude-code':
-            retryCmdArgs = ['-p', retryPrompt, '--dangerously-skip-permissions', '--model', model];
-            break;
-          case 'opencode':
-            retryCmdArgs = ['run', '--dir', tmpdir, '--model', model, retryPrompt];
-            break;
-          case 'codex':
-            retryCmdArgs = ['exec', '-m', model, '--dangerously-bypass-approvals-and-sandbox', '-C', tmpdir, retryPrompt];
-            break;
-          case 'aider':
-            retryCmdArgs = cmdArgs.map(a => a === prompt ? retryPrompt : a);
-            break;
-          case 'swe-agent':
-            retryCmdArgs = cmdArgs.map(a => a === prompt ? retryPrompt : a);
-            break;
-          default:
-            retryCmdArgs = [...cmdArgs.slice(0, -1), retryPrompt];
-        }
-        const child = require('child_process').spawn(cmd, retryCmdArgs, {
-          cwd: tmpdir,
-          env: runEnv,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          timeout: 15 * 60 * 1000, // 15 min for retry (half the original)
-        });
-        child.stdin.end();
-        // Inactivity watchdog for retry too
-        let retryLastActivity = Date.now();
-        const retryActivityCheck = setInterval(() => {
-          if (Date.now() - retryLastActivity > INACTIVITY_TIMEOUT) {
-            const idle = Math.round((Date.now() - retryLastActivity) / 1000);
-            console.log(`\n[agentelo] Retry inactivity timeout (${idle}s no output). Killing.`);
-            child.kill('SIGTERM');
-            setTimeout(() => child.kill('SIGKILL'), 5000);
-            clearInterval(retryActivityCheck);
-          }
-        }, 30000);
-        child.stdout.on('data', () => { retryLastActivity = Date.now(); });
-        child.stderr.on('data', () => { retryLastActivity = Date.now(); });
-        child.stdout.pipe(retryLogStream);
-        child.stderr.pipe(retryLogStream);
-        child.stdout.pipe(process.stdout);
-        child.stderr.pipe(process.stderr);
-        const retryTimer = setTimeout(() => { child.kill('SIGTERM'); }, 15 * 60 * 1000);
-        child.on('close', () => { clearTimeout(retryTimer); clearInterval(retryActivityCheck); retryLogStream.end(); resolve(); });
-      });
+      const retryResult = await harnessRun({ ...spec, prompt: retryPrompt, timeoutSeconds: 15 * 60 });
+      fs.writeFileSync(retryLogFile, retryResult.stdout + retryResult.stderr, 'utf8');
 
       // Re-collect diff after retry (exclude build artifacts)
       try {
@@ -1450,126 +1231,10 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
       configFiles = hashResult.configFiles;
     }
 
-    // Extract token usage from agent output
-    // Use stdoutChunks (captured separately) for reliable JSON parsing
-    let tokensIn = 0, tokensOut = 0, costUsd = 0;
-    let transcript = '';
-    try {
-      const logContent = fs.readFileSync(logFile, 'utf8');
-      transcript = logContent;
-      const stdoutText = Buffer.concat(stdoutChunks).toString();
-
-      // --- Claude Code: parse local adapter-style parser output ---
-      if (harness === 'claude-code') {
-        const parsed = parseClaudeCodeCostAndTokens({ stdoutText, logContent });
-        tokensIn = parsed.tokensIn;
-        tokensOut = parsed.tokensOut;
-        costUsd = parsed.costUsd;
-      }
-
-      // --- Codex: --json → JSONL on stdout, sum turn.completed usage ---
-      if (harness === 'codex') {
-        for (const line of stdoutText.split('\n')) {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.type === 'turn.completed' && parsed.usage) {
-              tokensIn += parsed.usage.input_tokens || 0;
-              tokensOut += parsed.usage.output_tokens || 0;
-            }
-          } catch {}
-        }
-      }
-
-      // --- Gemini CLI: --output-format json → JSON on stdout, search both sources ---
-      if (harness === 'gemini' && tokensIn === 0) {
-        for (const src of [stdoutText, logContent]) {
-          if (tokensIn > 0) break;
-          // Try whole source as JSON
-          try {
-            const parsed = JSON.parse(src.trim());
-            if (parsed.stats?.models) {
-              for (const mStats of Object.values(parsed.stats.models)) {
-                if (mStats.tokens) { tokensIn += mStats.tokens.input || 0; tokensOut += mStats.tokens.candidates || 0; }
-              }
-            }
-          } catch {
-            // Search for JSON object starting with { in lines (reverse for speed)
-            for (const line of src.split('\n').reverse()) {
-              if (tokensIn > 0) break;
-              const trimmed = line.trim();
-              if (!trimmed.startsWith('{') || trimmed.length < 20) continue;
-              try {
-                const parsed = JSON.parse(trimmed);
-                if (parsed.stats?.models) {
-                  for (const mStats of Object.values(parsed.stats.models)) {
-                    if (mStats.tokens) { tokensIn += mStats.tokens.input || 0; tokensOut += mStats.tokens.candidates || 0; }
-                  }
-                }
-              } catch {}
-            }
-          }
-        }
-      }
-
-      // --- OpenCode: query session DB by directory match ---
-      if (harness === 'opencode' && tokensIn === 0) {
-        try {
-          const ocDb = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
-          if (fs.existsSync(ocDb)) {
-            const { execSync: ex } = require('child_process');
-            // Match session by tmpdir path in the directory column
-            const tmpdirResolved = fs.realpathSync(tmpdir);
-            const result = ex(`sqlite3 "${ocDb}" "SELECT SUM(json_extract(data, '$.tokens.input')), SUM(json_extract(data, '$.tokens.output')), SUM(json_extract(data, '$.cost')) FROM message WHERE session_id IN (SELECT id FROM session WHERE directory LIKE '%${path.basename(tmpdir)}%' ORDER BY time_updated DESC LIMIT 1)"`, { encoding: 'utf8', timeout: 5000 }).trim();
-            const parts = result.split('|');
-            if (parts[0] && Number(parts[0]) > 0) tokensIn = Number(parts[0]);
-            if (parts[1] && Number(parts[1]) > 0) tokensOut = Number(parts[1]);
-            if (parts[2] && Number(parts[2]) > 0) costUsd = Number(parts[2]);
-          }
-        } catch {}
-      }
-
-      // --- mini-swe-agent: parse trajectory JSON for cost/tokens ---
-      if (harness === 'swe-agent' && tokensIn === 0) {
-        try {
-          const trajFile = path.join(RESULTS_DIR, `${runId}.traj.json`);
-          if (fs.existsSync(trajFile)) {
-            const traj = JSON.parse(fs.readFileSync(trajFile, 'utf8'));
-            const stats = traj.info?.model_stats || {};
-            costUsd = stats.instance_cost || 0;
-            // Sum tokens from messages
-            for (const msg of (traj.messages || [])) {
-              const usage = msg.extra?.response?.usage;
-              if (usage) {
-                tokensIn += usage.prompt_tokens || usage.input_tokens || 0;
-                tokensOut += usage.completion_tokens || usage.output_tokens || 0;
-              }
-            }
-          }
-        } catch {}
-      }
-
-      // --- Aider: parse "Tokens: N sent, M received." from output ---
-      // Aider uses "35k" format for thousands
-      if (harness === 'aider' && tokensIn === 0) {
-        const tokenMatch = logContent.match(/Tokens:\s+([\d,.]+k?)\s+sent,\s+([\d,.]+k?)\s+received/);
-        if (tokenMatch) {
-          const parseAiderNum = (s) => {
-            s = s.replace(/,/g, '');
-            if (s.endsWith('k')) return Math.round(parseFloat(s) * 1000);
-            return parseInt(s);
-          };
-          tokensIn = parseAiderNum(tokenMatch[1]);
-          tokensOut = parseAiderNum(tokenMatch[2]);
-        }
-      }
-
-      // --- OpenRouter cost from HTTP headers (captured by OpenCode in response) ---
-      // Also try parsing x-openrouter-cost from log if available
-      if (tokensIn === 0 && model.startsWith('openrouter/')) {
-        const costMatch = logContent.match(/x-openrouter-cost[:\s]+([0-9.]+)/i);
-        if (costMatch) costUsd = parseFloat(costMatch[1]);
-      }
-    } catch (e) { console.log(`[agentelo] Token parse error: ${e.message}`); }
+    // Token usage — provided by @twaldin/harness-ts adapters
+    let tokensIn = harnessResult.tokensIn || 0;
+    let tokensOut = harnessResult.tokensOut || 0;
+    let costUsd = harnessResult.costUsd || 0;
 
     // Calculate cost from tokens + model pricing if we have tokens but no cost
     if (tokensIn > 0 && costUsd === 0) {
