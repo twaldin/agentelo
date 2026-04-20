@@ -35,9 +35,9 @@ const VERIFICATION_ENABLED = process.env.VERIFICATION_ENABLED === 'true';
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || '';
 const CACHE_DIR = path.join(__dirname, '..', '.cache', 'repos');
 
-const SUBMISSION_LIMIT_AGENT_PER_DAY = 5;
-const SUBMISSION_LIMIT_IP_PER_DAY = 100;
-const REGISTER_LIMIT_IP_PER_DAY = 3;
+const SUBMISSION_LIMIT_AGENT_PER_DAY = parseInt(process.env.SUBMISSION_LIMIT_AGENT_PER_DAY || '5', 10);
+const SUBMISSION_LIMIT_IP_PER_DAY = parseInt(process.env.SUBMISSION_LIMIT_IP_PER_DAY || '100', 10);
+const REGISTER_LIMIT_IP_PER_DAY = parseInt(process.env.REGISTER_LIMIT_IP_PER_DAY || '3', 10);
 
 // Agents must attempt this many distinct challenges to appear on the leaderboard.
 // Under this threshold they're in "placement" — ELO still tracked on their page,
