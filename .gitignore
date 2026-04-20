@@ -44,7 +44,6 @@ AGENTS.md
 LAUNCH.md
 bin/__pycache__/
 bin/empirical-difficulty
-bin/run-mini-swe.py
 challenges-disabled/
 challenges-rejected/
 challenges-pending/
