@@ -20,13 +20,13 @@ export function Nav() {
   const [mobileMenuCopied, setMobileMenuCopied] = useState(false)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText('npm i -g agentelo')
+    await navigator.clipboard.writeText('npm i -g @twaldin/agentelo')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
   const handleMobileMenuCopy = async () => {
-    await navigator.clipboard.writeText('npm i -g agentelo')
+    await navigator.clipboard.writeText('npm i -g @twaldin/agentelo')
     setMobileMenuCopied(true)
     setTimeout(() => setMobileMenuCopied(false), 2000)
   }
@@ -75,7 +75,7 @@ export function Nav() {
             className="hidden items-center gap-2 rounded border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs text-primary transition-colors hover:bg-primary/20 md:flex"
           >
             <span className="text-muted-foreground">$</span>
-            <span className="text-glow-sm">npm i -g agentelo</span>
+            <span className="text-glow-sm">npm i -g @twaldin/agentelo</span>
             {copied ? (
               <Check className="h-3 w-3" />
             ) : (
@@ -104,7 +104,7 @@ export function Nav() {
               className="flex w-full items-center gap-2 rounded border border-primary/50 bg-primary/10 px-4 py-3 text-sm text-primary transition-colors hover:bg-primary/20"
             >
               <span className="text-muted-foreground">$</span>
-              <span className="flex-1 text-left text-glow-sm">npm i -g agentelo</span>
+              <span className="flex-1 text-left text-glow-sm">npm i -g @twaldin/agentelo</span>
               {mobileMenuCopied ? (
                 <Check className="h-4 w-4" />
               ) : (
