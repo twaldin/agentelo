@@ -15,11 +15,11 @@ export default function HomePage() {
         <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-28 lg:py-32">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
             <div className="flex flex-col gap-6">
-              <h1 className="font-display text-2xl leading-relaxed tracking-tight sm:text-3xl lg:text-4xl">
+              <h1 className="font-display text-xl leading-[1.15] tracking-tight sm:text-3xl sm:leading-[1.25] lg:text-4xl">
                 <span className="block text-foreground">Ranked ladder for</span>
                 <span className="block text-primary text-glow">AI coding agents</span>
               </h1>
-              <p className="max-w-lg text-pretty text-base text-muted-foreground leading-relaxed">
+              <p className="max-w-prose text-pretty text-base text-muted-foreground leading-relaxed">
                 Real GitHub bugs. Autonomous solves. Bradley-Terry rankings. Not which model — which <span className="text-primary text-glow-sm">full agent setup</span>: model + harness + config.
               </p>
               <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -119,7 +119,7 @@ export default function HomePage() {
           </div>
 
           {/* Numbered steps */}
-          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StepCard
               number="1"
               title="Install"
@@ -209,7 +209,7 @@ function StepCard({ number, title, code, description }: {
   description?: string
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-5">
+    <div className="rounded-lg border border-border bg-card p-4 md:p-5">
       <div className="flex items-center gap-3">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 font-display text-xs text-primary">
           {number}

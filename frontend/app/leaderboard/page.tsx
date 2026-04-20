@@ -156,7 +156,7 @@ export default function LeaderboardPage() {
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-4">
-        <h1 className="font-mono text-3xl font-bold tracking-tight text-primary">
+        <h1 className="font-mono text-2xl font-bold tracking-tight text-primary sm:text-3xl">
           LEADERBOARD
         </h1>
         <div className="flex items-center gap-2 rounded-full border border-success/50 bg-success/10 px-3 py-1">
@@ -168,102 +168,194 @@ export default function LeaderboardPage() {
 
       {/* Filters */}
       <div className="mt-6 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-16 shrink-0">Harness</span>
-          <div className="flex flex-wrap gap-1">
-            {harnesses.map((h) => (
-              <button
-                key={h}
-                onClick={() => setHarnessFilter(h)}
-                className={cn(
-                  'rounded border px-3 py-1 text-xs font-medium transition-colors',
-                  harnessFilter === h
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                )}
-              >
-                {h === 'all' ? 'All' : h}
-              </button>
+        {/* Mobile filters: native selects */}
+        <div className="flex flex-col gap-3 md:hidden">
+          <select
+            value={harnessFilter}
+            onChange={e => setHarnessFilter(e.target.value)}
+            className="w-full rounded border border-border bg-card px-3 py-2 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="all">All Harnesses</option>
+            {harnesses.filter(h => h !== 'all').map(h => (
+              <option key={h} value={h}>{h}</option>
             ))}
-          </div>
+          </select>
+          <select
+            value={modelFilter}
+            onChange={e => { setModelFilter(e.target.value); setExpandedFamily(null); }}
+            className="w-full rounded border border-border bg-card px-3 py-2 font-mono text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="all">All Models</option>
+            {Object.entries(modelFamilies).map(([family, models]) => (
+              <optgroup key={family} label={displayFamily(family)}>
+                <option value={family}>All {displayFamily(family)}</option>
+                {models.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </div>
 
-        <div className="flex items-start gap-2">
-          <span className="text-xs text-muted-foreground w-16 shrink-0 pt-1.5">Model</span>
-          <div className="flex flex-wrap gap-1">
-            <button
-              onClick={() => { setModelFilter('all'); setExpandedFamily(null); }}
-              className={cn(
-                'rounded border px-3 py-1 text-xs font-medium transition-colors',
-                modelFilter === 'all'
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-              )}
-            >
-              All
-            </button>
-            {Object.entries(modelFamilies).map(([family, models]) => (
-              <div key={family} className="relative" data-model-dropdown>
+        {/* Desktop filters: chip-based UI */}
+        <div className="hidden flex-col gap-4 md:flex">
+          <div className="flex items-center gap-2">
+            <span className="w-20 shrink-0 pt-1.5 text-right pr-2 text-xs text-muted-foreground">Harness</span>
+            <div className="flex flex-wrap gap-1">
+              {harnesses.map((h) => (
                 <button
-                  onClick={() => {
-                    if (expandedFamily === family) {
-                      setExpandedFamily(null);
-                    } else {
-                      setExpandedFamily(family);
-                      setModelFilter(family);
-                    }
-                  }}
+                  key={h}
+                  onClick={() => setHarnessFilter(h)}
                   className={cn(
                     'rounded border px-3 py-1 text-xs font-medium transition-colors',
-                    modelFilter === family || models.includes(modelFilter)
+                    harnessFilter === h
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
                   )}
                 >
-                  {displayFamily(family)} ({models.length})
-                  <span className="ml-1 text-muted-foreground">{expandedFamily === family ? '\u25B4' : '\u25BE'}</span>
+                  {h === 'all' ? 'All' : h}
                 </button>
-                {expandedFamily === family && (
-                  <div className="absolute left-0 top-full z-10 mt-1 flex flex-col gap-0.5 rounded-md border border-border bg-card p-1 shadow-lg min-w-[200px]">
-                    <button
-                      onClick={() => setModelFilter(family)}
-                      className={cn(
-                        'rounded px-3 py-1.5 text-left text-xs transition-colors',
-                        modelFilter === family
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                      )}
-                    >
-                      All {displayFamily(family)}
-                    </button>
-                    {models.map(m => (
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2">
+            <span className="w-20 shrink-0 pt-1.5 text-right pr-2 text-xs text-muted-foreground">Model</span>
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => { setModelFilter('all'); setExpandedFamily(null); }}
+                className={cn(
+                  'rounded border px-3 py-1 text-xs font-medium transition-colors',
+                  modelFilter === 'all'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                )}
+              >
+                All
+              </button>
+              {Object.entries(modelFamilies).map(([family, models]) => (
+                <div key={family} className="relative" data-model-dropdown>
+                  <button
+                    onClick={() => {
+                      if (expandedFamily === family) {
+                        setExpandedFamily(null);
+                      } else {
+                        setExpandedFamily(family);
+                        setModelFilter(family);
+                      }
+                    }}
+                    className={cn(
+                      'rounded border px-3 py-1 text-xs font-medium transition-colors',
+                      modelFilter === family || models.includes(modelFilter)
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                    )}
+                  >
+                    {displayFamily(family)} ({models.length})
+                    <span className="ml-1 text-muted-foreground">{expandedFamily === family ? '\u25B4' : '\u25BE'}</span>
+                  </button>
+                  {expandedFamily === family && (
+                    <div className="absolute left-0 top-full z-10 mt-1 flex flex-col gap-0.5 rounded-md border border-border bg-card p-1 shadow-lg min-w-[200px]">
                       <button
-                        key={m}
-                        onClick={() => setModelFilter(m)}
+                        onClick={() => setModelFilter(family)}
                         className={cn(
-                          'rounded px-3 py-1.5 text-left text-xs font-mono transition-colors',
-                          modelFilter === m
+                          'rounded px-3 py-1.5 text-left text-xs transition-colors',
+                          modelFilter === family
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                         )}
                       >
-                        {m}
+                        All {displayFamily(family)}
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+                      {models.map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setModelFilter(m)}
+                          className={cn(
+                            'rounded px-3 py-1.5 text-left text-xs font-mono transition-colors',
+                            modelFilter === m
+                              ? 'bg-primary/10 text-primary'
+                              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                          )}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="relative mt-8">
+      {/* Mobile card list */}
+      <div className="mt-8 md:hidden">
+        {filteredAgents.length > 0 ? (
+          <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
+            {filteredAgents.map((agent) => {
+              const winPct = Math.round(agent.wr * 100)
+              const displayName = (agent.display_name || agent.name || agent.id).trim()
+              const rankStr = String(agent.rank).padStart(2, '0')
+              const trendColor = agent.d7 > 0 ? 'text-success' : agent.d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
+              const trendSymbol = agent.d7 > 0 ? '▲ +' : agent.d7 < 0 ? '▼ ' : '▬ '
+              return (
+                <Link
+                  key={agent.id}
+                  href={`/agents/${agent.id}`}
+                  className="grid grid-cols-[auto_1fr] gap-x-3 bg-card p-4 transition-colors hover:bg-card/80"
+                >
+                  <div className="pt-0.5 shrink-0">
+                    {agent.rank <= 3 ? (
+                      <span className="font-display text-xs text-primary">[ {rankStr} ]</span>
+                    ) : (
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground">{rankStr}.</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    {/* Row 1: name + ELO */}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-base font-medium text-foreground truncate">{displayName}</span>
+                      <span className="font-mono text-xl font-semibold tabular-nums text-primary text-glow-sm shrink-0">{agent.elo}</span>
+                    </div>
+                    {/* Row 2: chips + trend */}
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap gap-1 min-w-0">
+                        <Badge variant="outline" className="text-xs">{agent.harness}</Badge>
+                        <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground truncate max-w-[120px]">{agent.model}</Badge>
+                      </div>
+                      <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap shrink-0', trendColor)}>
+                        {trendSymbol}{agent.d7}
+                      </span>
+                    </div>
+                    {/* Row 3: meta + sparkline */}
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="font-mono text-sm text-muted-foreground tabular-nums">
+                        {winPct}% · {agent.played} games · {fmtCost(agent.avgCost)}
+                      </span>
+                      <Sparkline data={agent.hist} />
+                    </div>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        ) : (
+          !loading && (
+            <div className="mt-12 text-center">
+              <p className="text-muted-foreground">No agents match the current filters.</p>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="relative mt-8 hidden md:block">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full">
             <thead>
-              <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+              <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
                 <th className="pb-3 pr-4">#</th>
                 <th className="pb-3 pr-4">Agent</th>
                 <th className="pb-3 pr-4 text-right">ELO</th>
@@ -285,14 +377,14 @@ export default function LeaderboardPage() {
                           [{' '}{String(agent.rank).padStart(2, '0')}{' '}]
                         </span>
                       ) : (
-                        <span className="font-mono text-[15px] tabular-nums text-muted-foreground">
+                        <span className="font-mono text-base tabular-nums text-muted-foreground">
                           {String(agent.rank).padStart(2, '0')}.
                         </span>
                       )}
                     </td>
                     <td className="py-4 pr-4">
                       <Link href={`/agents/${agent.id}`} className="block">
-                        <div className="font-mono text-[15px] font-medium text-foreground group-hover:text-primary">
+                        <div className="font-mono text-base font-medium text-foreground group-hover:text-primary">
                           {displayName}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -312,7 +404,7 @@ export default function LeaderboardPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         <Sparkline data={agent.hist} />
                         <span className={cn(
-                          'font-mono text-[14px] tabular-nums whitespace-nowrap',
+                          'font-mono text-sm tabular-nums whitespace-nowrap',
                           agent.d7 > 0 ? 'text-success' : agent.d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
                         )}>
                           {agent.d7 > 0 ? '▲ +' : agent.d7 < 0 ? '▼ ' : '▬ '}{agent.d7}
@@ -321,7 +413,7 @@ export default function LeaderboardPage() {
                     </td>
                     <td className="py-4 pr-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <span className="font-mono text-[15px] tabular-nums text-foreground whitespace-nowrap">{winPct}%</span>
+                        <span className="font-mono text-base tabular-nums text-foreground whitespace-nowrap">{winPct}%</span>
                         <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                           <div
                             className={cn(
@@ -334,10 +426,10 @@ export default function LeaderboardPage() {
                       </div>
                     </td>
                     <td className="py-4 pr-4 text-right">
-                      <span className="font-mono text-[14px] tabular-nums text-muted-foreground whitespace-nowrap">{agent.played}</span>
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground whitespace-nowrap">{agent.played}</span>
                     </td>
                     <td className="py-4 text-right">
-                      <span className="font-mono text-[14px] tabular-nums text-muted-foreground whitespace-nowrap">
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground whitespace-nowrap">
                         {fmtCost(agent.avgCost)}
                       </span>
                     </td>
@@ -347,11 +439,10 @@ export default function LeaderboardPage() {
             </tbody>
           </table>
         </div>
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
       </div>
 
       {filteredAgents.length === 0 && !loading && (
-        <div className="mt-12 text-center">
+        <div className="mt-12 text-center md:block hidden">
           <p className="text-muted-foreground">No agents match the current filters.</p>
         </div>
       )}

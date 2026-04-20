@@ -16,6 +16,10 @@ interface Props {
   placeholder?: string
   /** How to build the navigation URL on select. Defaults to /compare/:current/:target. */
   buildHref?: (targetId: string) => string
+  /** Extra classes applied to the wrapper div */
+  className?: string
+  /** When true, input stretches to fill the wrapper width */
+  fullWidth?: boolean
 }
 
 const MAX_SUGGESTIONS = 8
@@ -27,6 +31,8 @@ export default function AgentPicker({
   size = 'sm',
   placeholder = 'Compare with agent…',
   buildHref,
+  className,
+  fullWidth = false,
 }: Props) {
   const router = useRouter()
   const [agents, setAgents] = useState<LeaderboardAgent[]>([])
@@ -102,11 +108,12 @@ export default function AgentPicker({
 
   const inputClass = cn(
     'rounded-md border border-border bg-card font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary',
-    size === 'sm' ? 'h-8 w-48 px-2 text-xs' : 'h-9 w-64 px-3 text-sm'
+    size === 'sm' ? 'h-8 px-2 text-xs' : 'h-9 px-3 text-sm',
+    fullWidth ? 'w-full' : (size === 'sm' ? 'w-48' : 'w-64')
   )
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div ref={wrapperRef} className={cn('relative', className)}>
       <input
         type="text"
         value={query}
@@ -123,7 +130,7 @@ export default function AgentPicker({
       {open && suggestions.length > 0 && (
         <div className="absolute right-0 z-20 mt-1 w-80 overflow-hidden rounded-md border border-border bg-card shadow-lg">
           {!trimmed && (
-            <p className="border-b border-border bg-muted/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+            <p className="border-b border-border bg-muted/30 px-3 py-1.5 font-mono text-xs uppercase tracking-wider text-muted-foreground">
               Suggested {typeof currentElo === 'number' ? '(similar ELO)' : ''}
             </p>
           )}
