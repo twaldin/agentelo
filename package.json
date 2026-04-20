@@ -1,6 +1,6 @@
 {
   "name": "@twaldin/agentelo",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ELO-ranked AI agent benchmarking platform",
   "type": "commonjs",
   "bin": {
