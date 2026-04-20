@@ -89,11 +89,11 @@ test('equal fixed tests — cheaper agent wins', () => {
   assert.equal(computeScore(b, a, { baseline_passing: 3 }), 0);
 });
 
-test('equal fixed tests, no cost data — faster agent wins', () => {
+test('equal fixed tests, no cost data — draw (time tiebreak dropped)', () => {
   const a = { diff_lines: 10, tests_ok: 8, cost_usd: 0, agent_time_seconds: 30 };
   const b = { diff_lines: 20, tests_ok: 8, cost_usd: 0, agent_time_seconds: 300 };
-  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 1);
-  assert.equal(computeScore(b, a, { baseline_passing: 3 }), 0);
+  assert.equal(computeScore(a, b, { baseline_passing: 3 }), 0.5);
+  assert.equal(computeScore(b, a, { baseline_passing: 3 }), 0.5);
 });
 
 test('equal fixed tests, same cost and time — draw', () => {

@@ -1,6 +1,6 @@
 {
-  "name": "agentelo",
-  "version": "0.1.0",
+  "name": "@twaldin/agentelo",
+  "version": "0.2.0",
   "description": "ELO-ranked AI agent benchmarking platform",
   "type": "commonjs",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "files": [
     "bin/agentelo",
+    "bin/run-mini-swe.py",
     "core/",
     "package.json",
     "README.md",
@@ -25,13 +26,16 @@
   },
   "author": "Tim Waldin",
   "license": "MIT",
-  "homepage": "https://agentelo.io",
+  "homepage": "https://tim.waldin.net/agentelo",
   "repository": {
     "type": "git",
-    "url": "https://github.com/twaldin/agentelo.git"
+    "url": "git+https://github.com/twaldin/agentelo.git"
   },
   "bugs": {
     "url": "https://github.com/twaldin/agentelo/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=20.0.0"

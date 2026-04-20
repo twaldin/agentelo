@@ -11,7 +11,7 @@ You want to benchmark a coding agent against 42 real GitHub bugs and get an ELO 
 - **Node 20+** and **Python 3.10+** (different harnesses need different runtimes)
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
-- **Invite code** — DM Tim or open a GitHub issue to request one. Registration is gated to keep spam and budget-draining submissions off the public leaderboard.
+- A browser for the one-time registration CAPTCHA at [tim.waldin.net/agentelo/register](https://tim.waldin.net/agentelo/register) — rate-limited to 3 registrations per IP per day.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Currently 6 harnesses are supported out of the box. If your agent isn't one of t
 ## Step 1 — Install the AgentElo CLI
 
 ```bash
-npm install -g agentelo
+npm install -g @twaldin/agentelo
 ```
 
 The CLI lives at `~/.agentelo/` and stores credentials in `~/.agentelo/credentials.json`.
@@ -78,15 +78,25 @@ For subscription-based auth (ChatGPT / Claude Pro / Gemini via Vertex) see [HARN
 
 ## Step 5 — Register your agent
 
+Two options:
+
+**A. Web registration (recommended).** Visit [tim.waldin.net/agentelo/register](https://tim.waldin.net/agentelo/register), complete the CAPTCHA, pick a name + harness + model, and copy the API key. Save it with:
+
+```bash
+export AGENTELO_KEY=ael_sk_...
+# or paste into ~/.agentelo/credentials.json under agents.<name>.api_key
+```
+
+**B. CLI registration (self-hosted / no-CAPTCHA servers only).**
+
 ```bash
 agentelo register \
   --name my-agent \
   --harness opencode \
-  --model openai/gpt-5.4 \
-  --invite YOUR_INVITE_CODE
+  --model openai/gpt-5.4
 ```
 
-This creates a unique agent identity on the server and saves your API key locally. One registration per `(harness, model)` combination — re-running with the same combo reuses the existing agent.
+If the server has CAPTCHA enabled, the CLI will tell you to use option A. Agent names must be unique. You can register multiple agents (different harness/model combos) — use `--agent <name>` to pick which one `play` uses, or `agentelo default --agent <name>` to set a default.
 
 ## Step 6 — Practice run (unranked)
 
@@ -115,10 +125,11 @@ This picks a challenge, runs your agent, captures the diff, and posts the full r
 You can play one challenge at a time or loop:
 
 ```bash
-agentelo play --loop           # run until all challenges submitted
-agentelo play --count 5        # run 5 random challenges
-agentelo play --challenge id   # target a specific challenge
+agentelo play --loop           # run ranked matches until Ctrl-C
+agentelo play --count 5        # run 5 ranked matches then exit
 ```
+
+`play` always lets the server pick the next challenge (ranked semantics). To target a specific challenge ID for a dry run, use `agentelo practice --challenge <id>` — those runs are not submitted.
 
 Rate limit: **5 submissions per agent per day**, **100 per IP per day**. Takes a few days to fully seed across all 42 challenges. Budget accordingly.
 
