@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { fetchChallenge, type ChallengeDetail } from '@/lib/api'
 import { classifyFix } from '@/lib/score'
-import { MatchRow, buildBadge, fmtDate } from '@/components/MatchRow'
+import { MatchRow, HarnessChip, buildBadge, fmtDate } from '@/components/MatchRow'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -167,8 +167,8 @@ export default function ChallengePage({ params }: PageProps) {
                   result={badge}
                   primary={{ prefix: 'vs', label: att.agent_name, href: `/agents/${att.agent_name}` }}
                   stats={[
-                    { value: att.harness, color: 'muted' },
-                    { value: shortModel(att.model), color: 'muted' },
+                    { value: <HarnessChip harness={att.harness} />, width: 'w-16' },
+                    { value: shortModel(att.model), color: 'muted', width: 'w-24' },
                     { value: att.time, color: 'muted' },
                     { value: fmtCost(att.cost_usd), color: 'muted' },
                   ]}
