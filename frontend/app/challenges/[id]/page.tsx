@@ -4,12 +4,28 @@ import { use, useState, useEffect } from 'react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import { Check, X, ArrowRight } from 'lucide-react'
 import { fetchChallenge, type ChallengeDetail } from '@/lib/api'
-import { classifyFix, fixLabel, fixColor } from '@/lib/score'
+import { classifyFix } from '@/lib/score'
+import { MatchRow, buildBadge, fmtDate } from '@/components/MatchRow'
 
 interface PageProps {
   params: Promise<{ id: string }>
+}
+
+function fmtCost(usd: number): string {
+  if (!usd || usd === 0) return '\u2014'
+  if (usd < 0.01) return '<$0.01'
+  return '$' + usd.toFixed(2)
+}
+
+function shortModel(model: string): string {
+  return model
+    .replace(/^openrouter\/[^/]+\//, '')
+    .replace(/^openrouter\//, '')
+    .replace(/^google\//, '')
+    .replace(/^openai\//, '')
+    .replace(/^anthropic\//, '')
+    .replace(/^ollama\//, '')
 }
 
 export default function ChallengePage({ params }: PageProps) {
@@ -88,7 +104,7 @@ export default function ChallengePage({ params }: PageProps) {
         <div className="bg-card p-4">
           <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">TESTS TO FIX</p>
           <p className="font-mono text-xl font-semibold tabular-nums text-foreground">
-            {brokenByBug > 0 ? brokenByBug : '—'}
+            {brokenByBug > 0 ? brokenByBug : '\u2014'}
           </p>
           {baselinePassing > 0 && brokenByBug > 0 && (
             <p className="font-mono text-xs text-muted-foreground">of {baselinePassing + brokenByBug} total</p>
@@ -110,7 +126,7 @@ export default function ChallengePage({ params }: PageProps) {
         <div className="bg-card p-4">
           <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">AVG TIME</p>
           <p className="font-mono text-xl font-semibold tabular-nums text-foreground whitespace-nowrap">
-            {challenge.avgt || '—'}
+            {challenge.avgt || '\u2014'}
           </p>
           {challenge.test_command && (
             <p className="font-mono text-xs text-muted-foreground truncate" title={challenge.test_command}>
@@ -141,135 +157,27 @@ export default function ChallengePage({ params }: PageProps) {
         </h2>
 
         {challenge.attempts.length > 0 ? (
-          <>
-            {/* Mobile cards */}
-            <div className="mt-4 md:hidden">
-              <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
-                {challenge.attempts.map((att) => {
-                  const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
-                  const testsLabel = (att.tests_ok === 0 && att.tests_total === 0) ? 'no score' : fixLabel(outcome)
-                  const testsColor = (att.tests_ok === 0 && att.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
-                  return (
-                    <Link
-                      key={att.run_id}
-                      href={`/attempts/${att.run_id}`}
-                      className="block bg-card p-4 transition-colors hover:bg-card/80"
-                    >
-                      {/* Status + agent name */}
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded shrink-0',
-                          att.passed ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
-                        )}>
-                          {att.passed ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                        </div>
-                        <span className="font-mono text-base font-medium text-foreground truncate">
-                          {att.agent_name}
-                        </span>
-                      </div>
-                      {/* Badges */}
-                      <div className="mt-1.5 ml-9 flex flex-wrap gap-1">
-                        <Badge variant="outline" className="text-xs">{att.harness}</Badge>
-                        <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{att.model}</Badge>
-                      </div>
-                      {/* Meta + link arrow */}
-                      <div className="mt-1.5 ml-9 flex items-center justify-between gap-2">
-                        <span className="font-mono text-sm text-muted-foreground">
-                          <span className={cn('tabular-nums', testsColor)}>{testsLabel}</span>
-                          <span> · </span>
-                          <span className="tabular-nums">{att.time}</span>
-                          <span> · </span>
-                          <span className="tabular-nums">{att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}</span>
-                          <span> · </span>
-                          <span>{att.created_at ? new Date(att.created_at).toLocaleDateString() : '\u2014'}</span>
-                        </span>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Desktop table */}
-            <div className="relative mt-4 hidden md:block">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
-                      <th className="pb-3 pr-4">Status</th>
-                      <th className="pb-3 pr-4">Agent</th>
-                      <th className="pb-3 pr-4">Harness</th>
-                      <th className="pb-3 pr-4">Model</th>
-                      <th className="pb-3 pr-4">Tests</th>
-                      <th className="pb-3 pr-4">Time</th>
-                      <th className="pb-3 pr-4">Cost</th>
-                      <th className="pb-3">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {challenge.attempts.map((att) => {
-                      const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
-                      const testsLabel = (att.tests_ok === 0 && att.tests_total === 0) ? 'no score' : fixLabel(outcome)
-                      const testsColor = (att.tests_ok === 0 && att.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
-                      return (
-                        <tr key={att.run_id} className="group transition-colors hover:bg-card/50">
-                          <td className="py-3 pr-4">
-                            <div className={cn(
-                              'flex h-6 w-6 items-center justify-center rounded',
-                              att.passed
-                                ? 'bg-success/10 text-success'
-                                : 'bg-destructive/10 text-destructive'
-                            )}>
-                              {att.passed ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                            </div>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <Link
-                              href={`/agents/${att.agent_name}`}
-                              className="font-mono text-base text-foreground hover:text-primary"
-                            >
-                              {att.agent_name}
-                            </Link>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <Badge variant="outline" className="text-xs">{att.harness}</Badge>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{att.model}</Badge>
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', testsColor)}>
-                              {testsLabel}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
-                            {att.time}
-                          </td>
-                          <td className="py-3 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
-                            {att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}
-                          </td>
-                          <td className="py-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {att.created_at ? new Date(att.created_at).toLocaleDateString() : '\u2014'}
-                              </span>
-                              <Link
-                                href={`/attempts/${att.run_id}`}
-                                className="text-muted-foreground hover:text-primary"
-                              >
-                                <ArrowRight className="h-4 w-4" />
-                              </Link>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
+          <div className="mt-4 divide-y divide-border rounded-lg border border-border overflow-hidden">
+            {challenge.attempts.map(att => {
+              const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
+              const badge = buildBadge(outcome)
+              return (
+                <MatchRow
+                  key={att.run_id}
+                  result={badge}
+                  primary={{ prefix: 'vs', label: att.agent_name, href: `/agents/${att.agent_name}` }}
+                  stats={[
+                    { value: att.harness, color: 'muted' },
+                    { value: shortModel(att.model), color: 'muted' },
+                    { value: att.time, color: 'muted' },
+                    { value: fmtCost(att.cost_usd), color: 'muted' },
+                  ]}
+                  date={fmtDate(att.created_at)}
+                  href={`/attempts/${att.run_id}`}
+                />
+              )
+            })}
+          </div>
         ) : (
           <div className="mt-4 rounded-lg border border-border bg-card p-8 text-center">
             <p className="text-muted-foreground">No submissions yet</p>
@@ -277,7 +185,7 @@ export default function ChallengePage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Reference Fix Diff — collapsed by default */}
+      {/* Reference Fix Diff */}
       {challenge.fixDiff && (
         <div className="mt-10">
           <details>
