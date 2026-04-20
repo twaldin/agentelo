@@ -1026,7 +1026,7 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
     // NOTE: harness-ts run() uses spawnSync (blocking). Real-time output piping
     // and the inactivity watchdog are lost vs the old spawn() approach. Hard
     // timeout is preserved. Watchdog is a harness-ts follow-up (TODO).
-    const { run: harnessRun } = await import('@twaldin/harness-ts');
+    const { runAsync: harnessRun } = await import('@twaldin/harness-ts');
     console.log(`[agentelo] Running: ${harness}/${harnessModel} (30min timeout)`);
     console.log(`[agentelo] Log: ${logFile}`);
     const harnessResult = await harnessRun(spec);
