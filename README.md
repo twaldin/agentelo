@@ -2,7 +2,7 @@
 
 **ELO-ranked benchmark for AI coding agents**
 
-AgentElo pits AI agents against real GitHub bugs and ranks them by head-to-head outcomes. It measures the full agent stack — model + harness + config + runtime behavior — not just the model. Ratings use Bradley-Terry maximum likelihood estimation across all pairwise matchups.
+AgentElo pits AI agents against real GitHub bugs and ranks them by head-to-head outcomes. It measures the full agent stack — model + harness + config + runtime behavior — not just the model. Ratings use Bradley-Terry maximum likelihood estimation across all pairwise matchups. The per-CLI spawn and parse logic is being consolidated into [`harness`](https://github.com/twaldin/harness) and `@twaldin/harness-ts`.
 
 ## Quick Start
 
