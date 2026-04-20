@@ -1,16 +1,17 @@
 'use client'
 
+import { type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { type FixOutcome } from '@/lib/score'
 
-export type ResultKind = 'pass' | 'fail' | 'draw' | 'regression' | 'partial' | 'no-data'
+export type ResultKind = 'pass' | 'fail' | 'draw' | 'no-data'
 
 export type MatchRowProps = {
   result: { kind: ResultKind; label: string }
   primary: { prefix?: string; label: string; href?: string }
-  stats: Array<{ value: string; color?: 'success' | 'destructive' | 'muted' }>
+  stats: Array<{ value: string | ReactNode; color?: 'success' | 'destructive' | 'muted'; width?: string }>
   date?: string
   delta?: { value: string; unit: string; kind: 'gain' | 'loss' | 'neutral' }
   href?: string
@@ -49,13 +50,11 @@ export function ResultBadge({ kind, label }: { kind: ResultKind; label: string }
   return (
     <div
       className={cn(
-        'flex items-center justify-center min-w-[5.5rem] px-3 py-2 shrink-0',
+        'flex items-center justify-center min-w-[5rem] px-3 py-1.5 shrink-0',
         'font-mono text-xs font-bold uppercase tracking-wider',
         kind === 'pass' && 'bg-success/15 text-success border-y border-l border-success/50',
         kind === 'fail' && 'bg-destructive/15 text-destructive border-y border-l border-destructive/50',
         kind === 'draw' && 'bg-warning/15 text-warning border-y border-l border-warning/50',
-        kind === 'regression' && 'bg-destructive/25 text-destructive border-y border-l border-destructive border-dashed',
-        kind === 'partial' && 'bg-warning/15 text-warning border-y border-l border-warning/50',
         kind === 'no-data' && 'bg-muted/20 text-muted-foreground border-y border-l border-border',
       )}
       style={{ clipPath: 'polygon(0 0, 100% 0, calc(100% - 0.75rem) 100%, 0 100%)' }}
@@ -68,19 +67,18 @@ export function ResultBadge({ kind, label }: { kind: ResultKind; label: string }
 export function buildBadge(outcome: FixOutcome): { kind: ResultKind; label: string } {
   switch (outcome.kind) {
     case 'full':
-      return { kind: 'pass', label: `PASS ${outcome.delta}\u2014${outcome.goal}` }
+      return { kind: 'pass', label: `PASS ${outcome.delta}/${outcome.goal}` }
     case 'partial':
-      return { kind: 'partial', label: `PART ${outcome.delta}\u2014${outcome.goal}` }
-    case 'no-progress':
-      return { kind: 'fail', label: `FAIL 0\u2014${outcome.goal}` }
     case 'regression':
-      return { kind: 'regression', label: 'REGR' }
+      return { kind: 'fail', label: `FAIL ${outcome.delta}/${outcome.goal}` }
+    case 'no-progress':
+      return { kind: 'fail', label: `FAIL 0/${outcome.goal}` }
     case 'no-data':
       return { kind: 'no-data', label: '\u2014' }
     case 'unbaselined':
-      return outcome.ok > 0
-        ? { kind: 'pass', label: `PASS ${outcome.ok}\u2014${outcome.total}` }
-        : { kind: 'fail', label: `FAIL ${outcome.ok}\u2014${outcome.total}` }
+      return outcome.ok >= outcome.total
+        ? { kind: 'pass', label: `PASS ${outcome.ok}/${outcome.total}` }
+        : { kind: 'fail', label: `FAIL ${outcome.ok}/${outcome.total}` }
   }
 }
 
@@ -93,7 +91,7 @@ export function fmtDate(iso: string | null | undefined): string {
 export function MatchRow({ result, primary, stats, date, delta, href }: MatchRowProps) {
   const router = useRouter()
   const inner = (
-    <div className="flex items-stretch gap-3 py-2 transition-colors group-hover:bg-card/50">
+    <div className="flex items-stretch gap-4 px-4 py-2.5 transition-colors group-hover:bg-card/50">
       <ResultBadge kind={result.kind} label={result.label} />
 
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -117,44 +115,57 @@ export function MatchRow({ result, primary, stats, date, delta, href }: MatchRow
         )}
       </div>
 
-      <div className="hidden items-center gap-4 md:flex">
-        {stats.map((s, i) => (
-          <span
-            key={i}
-            className={cn(
-              'font-mono text-sm tabular-nums whitespace-nowrap',
-              s.color === 'success' && 'text-success',
-              s.color === 'destructive' && 'text-destructive',
-              s.color === 'muted' && 'text-muted-foreground',
-              !s.color && 'text-foreground'
-            )}
-          >
-            {s.value}
+      {/* Trailing cells — fixed widths so columns align across rows */}
+      <div className="hidden items-center md:flex shrink-0">
+        {stats.map((s, i) => {
+          const w = s.width ?? 'w-20'
+          const isNode = typeof s.value !== 'string'
+          if (isNode) {
+            return (
+              <div key={i} className={cn('flex items-center justify-end', w)}>
+                {s.value}
+              </div>
+            )
+          }
+          return (
+            <span
+              key={i}
+              className={cn(
+                'font-mono text-sm tabular-nums whitespace-nowrap text-right',
+                w,
+                s.color === 'success' && 'text-success',
+                s.color === 'destructive' && 'text-destructive',
+                s.color === 'muted' && 'text-muted-foreground',
+                !s.color && 'text-foreground'
+              )}
+            >
+              {s.value as string}
+            </span>
+          )
+        })}
+        {date && (
+          <span className="w-20 text-right font-mono text-xs tabular-nums text-muted-foreground whitespace-nowrap self-center">
+            {date}
           </span>
-        ))}
-      </div>
-
-      {date && (
-        <span className="hidden font-mono text-xs tabular-nums text-muted-foreground whitespace-nowrap self-center md:block">
-          {date}
-        </span>
-      )}
-
-      {delta && (
-        <span
-          className={cn(
-            'font-mono text-sm tabular-nums whitespace-nowrap self-center shrink-0',
+        )}
+        {delta && (
+          <span className={cn(
+            'w-24 text-right font-mono text-sm tabular-nums whitespace-nowrap self-center',
             delta.kind === 'gain' && 'text-success',
             delta.kind === 'loss' && 'text-destructive',
             delta.kind === 'neutral' && 'text-muted-foreground'
-          )}
-        >
-          {delta.value}{' '}
-          <span className="text-muted-foreground text-xs">{delta.unit}</span>
+          )}>
+            {delta.value}{' '}
+            <span className="text-muted-foreground text-xs">{delta.unit}</span>
+          </span>
+        )}
+        <span className="w-6 text-right self-center font-mono text-xs text-muted-foreground group-hover:text-primary">
+          →
         </span>
-      )}
+      </div>
 
-      <span className="self-center font-mono text-xs text-muted-foreground group-hover:text-primary shrink-0">
+      {/* Mobile: just the arrow */}
+      <span className="self-center font-mono text-xs text-muted-foreground group-hover:text-primary shrink-0 md:hidden">
         →
       </span>
     </div>
