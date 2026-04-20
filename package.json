@@ -41,6 +41,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@twaldin/harness-ts": "^0.1.0",
     "better-sqlite3": "^12.8.0"
   },
   "devDependencies": {
