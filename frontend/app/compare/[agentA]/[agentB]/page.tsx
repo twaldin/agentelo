@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { ArrowLeftRight } from 'lucide-react'
+import { ArrowLeftRight, ArrowRight } from 'lucide-react'
 import {
   fetchCompare,
   type CompareResult,
@@ -153,34 +153,38 @@ export default function ComparePage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      {/* Header — stacks vertically on mobile, side-by-side on md+ */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
+          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
             Compare
           </p>
-          <h1 className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-xl font-medium text-foreground sm:text-2xl">
+          {/* Agent names: vertical on mobile, horizontal on md+ */}
+          <h1 className="mt-1 flex flex-col gap-1 font-mono text-lg font-medium text-foreground md:flex-row md:flex-wrap md:items-baseline md:gap-x-3 md:gap-y-1 sm:text-xl md:text-2xl">
             <Link
               href={`/agents/${encodeURIComponent(a.id)}`}
-              className="transition-colors hover:text-primary"
+              className="whitespace-nowrap transition-colors hover:text-primary"
             >
               {aName}
             </Link>
             <span className="text-sm text-muted-foreground">vs</span>
             <Link
               href={`/agents/${encodeURIComponent(b.id)}`}
-              className="transition-colors hover:text-primary"
+              className="whitespace-nowrap transition-colors hover:text-primary"
             >
               {bName}
             </Link>
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Picker + Swap: full-width on mobile, auto on md+ */}
+        <div className="flex w-full flex-row items-center gap-2 md:w-auto">
           <AgentPicker
             currentAgentId={a.id}
             currentElo={a.elo}
             placeholder="Compare with…"
             buildHref={(t) => `/compare/${encodeURIComponent(a.id)}/${encodeURIComponent(t)}`}
+            className="flex-1 md:flex-none"
+            fullWidth
           />
           <Button
             variant="outline"
@@ -193,11 +197,11 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Stat tiles — L5 label (14px), L4 value (20px) */}
-      <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Stat tiles — 1 col mobile, 3 col md, 5 col lg */}
+      <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-3 lg:grid-cols-5">
         {stats.map(s => (
-          <div key={s.label} className="rounded-md border border-border bg-card p-5">
-            <p className="font-mono text-[14px] text-muted-foreground">
+          <div key={s.label} className="rounded-md border border-border bg-card p-4 md:p-5">
+            <p className="font-mono text-sm text-muted-foreground">
               {s.label}
             </p>
             <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -276,16 +280,38 @@ export default function ComparePage({ params }: PageProps) {
         )}
       </div>
 
-      {/* Challenge-by-Challenge Table — single header row */}
+      {/* Challenge-by-Challenge */}
       <div className="mt-6">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenges ({challenges.length})
         </h2>
-        <div className="relative mt-4">
+
+        {/* Mobile card stack */}
+        <div className="mt-4 md:hidden">
+          {challenges.length > 0 ? (
+            <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
+              {challenges.map(ch => (
+                <MobileChallengeCard
+                  key={ch.challenge_id}
+                  ch={ch}
+                  aName={aName}
+                  bName={bName}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
+              <p className="text-muted-foreground">No shared challenges.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="relative mt-4 hidden md:block">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px]">
+            <table className="w-full">
               <thead>
-                <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+                <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
                   <th className="pb-3 pr-4">Challenge</th>
                   <th className="pb-3 pr-4 text-right">
                     <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
@@ -326,14 +352,111 @@ export default function ComparePage({ params }: PageProps) {
               </tbody>
             </table>
           </div>
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
+          {challenges.length === 0 && (
+            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
+              <p className="text-muted-foreground">No shared challenges.</p>
+            </div>
+          )}
         </div>
-        {challenges.length === 0 && (
-          <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
-            <p className="text-muted-foreground">No shared challenges.</p>
-          </div>
+      </div>
+    </div>
+  )
+}
+
+function MobileChallengeCard({
+  ch,
+  aName,
+  bName,
+}: {
+  ch: CompareChallengeEntry
+  aName: string
+  bName: string
+}) {
+  let rowWinner: 'a' | 'b' | 'draw' | null = null
+  if (ch.game) {
+    if (ch.game.score === 1) rowWinner = 'a'
+    else if (ch.game.score === 0) rowWinner = 'b'
+    else rowWinner = 'draw'
+  }
+
+  const aOutcome: FixOutcome = ch.a
+    ? classifyFix(ch.a.tests_ok, ch.a.tests_total, ch.baseline_passing, ch.broken_by_bug)
+    : { kind: 'no-data' }
+  const bOutcome: FixOutcome = ch.b
+    ? classifyFix(ch.b.tests_ok, ch.b.tests_total, ch.baseline_passing, ch.broken_by_bug)
+    : { kind: 'no-data' }
+
+  const aTestColor = aOutcome.kind === 'regression'
+    ? 'text-destructive'
+    : rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
+  const bTestColor = bOutcome.kind === 'regression'
+    ? 'text-destructive'
+    : rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
+
+  return (
+    <div className="bg-card p-4">
+      {/* Title row */}
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          href={`/challenges/${ch.challenge_id}`}
+          className="font-mono text-sm text-muted-foreground hover:text-primary truncate"
+        >
+          {ch.title || ch.challenge_id}
+        </Link>
+        {ch.game && (
+          <Link href={`/games/${ch.game.id}`} className="shrink-0 text-muted-foreground hover:text-primary">
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         )}
       </div>
+
+      <div className="mt-2 border-t border-border/50" />
+
+      {/* Agent A row */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className={cn('font-mono text-xs truncate', rowWinner === 'a' ? 'text-success font-medium' : 'text-muted-foreground')}>
+          {shortName(aName)}
+        </span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={cn('font-mono text-xs tabular-nums', aTestColor)}>
+            {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
+          </span>
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'}
+          </span>
+        </div>
+      </div>
+
+      {/* Agent B row */}
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className={cn('font-mono text-xs truncate', rowWinner === 'b' ? 'text-success font-medium' : 'text-muted-foreground')}>
+          {shortName(bName)}
+        </span>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={cn('font-mono text-xs tabular-nums', bTestColor)}>
+            {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
+          </span>
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
+          </span>
+        </div>
+      </div>
+
+      {/* Winner badge */}
+      {ch.game && (
+        <div className="mt-2 flex justify-end">
+          <span className={cn(
+            'font-mono text-xs px-2 py-0.5 rounded border',
+            rowWinner === 'a'
+              ? 'border-success/50 bg-success/10 text-success'
+              : rowWinner === 'b'
+                ? 'border-muted-foreground/30 bg-muted/20 text-muted-foreground'
+                : 'border-muted-foreground/30 bg-muted/20 text-muted-foreground'
+          )}>
+            {rowWinner === 'a' ? 'A wins' : rowWinner === 'b' ? 'B wins' : 'Draw'}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -354,7 +477,6 @@ function ChallengeRow({
     else rowWinner = 'draw'
   }
 
-  // Classify each side's test outcome to detect regressions
   const aOutcome: FixOutcome = ch.a
     ? classifyFix(ch.a.tests_ok, ch.a.tests_total, ch.baseline_passing, ch.broken_by_bug)
     : { kind: 'no-data' }
@@ -362,7 +484,6 @@ function ChallengeRow({
     ? classifyFix(ch.b.tests_ok, ch.b.tests_total, ch.baseline_passing, ch.broken_by_bug)
     : { kind: 'no-data' }
 
-  // Test cell: destructive if regressed, success if row winner, muted otherwise
   const aTestColor = aOutcome.kind === 'regression'
     ? 'text-destructive'
     : rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
@@ -370,18 +491,17 @@ function ChallengeRow({
     ? 'text-destructive'
     : rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
 
-  // Time and cost: success if row winner, muted otherwise (no regression concept)
   const aColor = rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
   const bColor = rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
 
-  const cellBase = 'font-mono text-[15px] tabular-nums whitespace-nowrap'
+  const cellBase = 'font-mono text-base tabular-nums whitespace-nowrap'
 
   return (
     <tr className="group transition-colors hover:bg-card/50">
       <td className="py-3 pr-4">
         <Link
           href={`/challenges/${ch.challenge_id}`}
-          className="font-mono text-[14px] text-muted-foreground hover:text-primary"
+          className="font-mono text-sm text-muted-foreground hover:text-primary"
         >
           {ch.title || ch.challenge_id}
         </Link>
@@ -421,7 +541,7 @@ function ChallengeRow({
           <Link
             href={`/games/${ch.game.id}`}
             className={cn(
-              'font-mono text-[15px] hover:underline',
+              'font-mono text-base hover:underline',
               rowWinner === 'a'
                 ? 'text-success'
                 : rowWinner === 'b'
@@ -432,7 +552,7 @@ function ChallengeRow({
             {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '\u2014'}
           </Link>
         ) : (
-          <span className="font-mono text-[15px] text-muted-foreground">{'\u2014'}</span>
+          <span className="font-mono text-base text-muted-foreground">{'\u2014'}</span>
         )}
       </td>
     </tr>

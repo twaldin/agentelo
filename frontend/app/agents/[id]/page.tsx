@@ -90,19 +90,26 @@ export default function AgentPage({ params }: PageProps) {
     }
   }
 
+  const rankPill = agent.rank !== null && (
+    <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
+      <span className="font-mono text-2xl font-bold tabular-nums text-primary">#{agent.rank}</span>
+      <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Global</p>
+    </div>
+  )
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      {/* Header — single column on mobile, split on md+ */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
+          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
             {agent.harness}
           </p>
-          <h1 className="mt-1 font-mono text-3xl font-bold tracking-tight text-foreground">
+          <h1 className="mt-1 font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             {displayName}
           </h1>
           {displayName !== agent.id && (
-            <p className="mt-1 font-mono text-[12px] text-muted-foreground">
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
               {agent.id}
             </p>
           )}
@@ -115,6 +122,18 @@ export default function AgentPage({ params }: PageProps) {
             </Badge>
           </div>
 
+          {/* Rank pill + picker: visible on mobile only (between chips and ELO) */}
+          <div className="mt-3 flex flex-wrap items-center gap-2 md:hidden">
+            {rankPill}
+            <AgentPicker
+              currentAgentId={id}
+              currentElo={agent.elo}
+              placeholder="Compare with…"
+              className="flex-1"
+              fullWidth
+            />
+          </div>
+
           {/* ELO / Placement dominant stat */}
           {inPlacement ? (
             <>
@@ -123,7 +142,7 @@ export default function AgentPage({ params }: PageProps) {
                   {agent.placement?.attempted ?? 0}/{agent.placement?.required ?? 10}
                 </span>
               </div>
-              <p className="mt-1 font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
+              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 Placement Matches
               </p>
               <div className="mt-3 flex items-baseline gap-2">
@@ -140,54 +159,50 @@ export default function AgentPage({ params }: PageProps) {
                   {agent.elo}
                 </span>
               </div>
-              <p className="mt-1 font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">
+              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
                 ELO Rating
               </p>
             </>
           )}
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          {agent.rank !== null && (
-            <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
-              <span className="font-mono text-2xl font-bold tabular-nums text-primary">#{agent.rank}</span>
-              <p className="font-mono text-[12px] uppercase tracking-[0.12em] text-muted-foreground">Global</p>
-            </div>
-          )}
+        {/* Desktop right column */}
+        <div className="hidden flex-col items-end gap-2 md:flex">
+          {rankPill}
           <AgentPicker currentAgentId={id} currentElo={agent.elo} placeholder="Compare with…" />
         </div>
       </div>
 
-      {/* Stats Grid — 4 cells, 14/20/12 px hierarchy */}
+      {/* Stats Grid */}
       <div className="mt-6 grid grid-cols-2 gap-px sm:grid-cols-4 bg-border rounded-lg overflow-hidden border border-border">
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">RECORD</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground whitespace-nowrap">
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">RECORD</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground whitespace-nowrap">
             {agent.wins}W·{agent.losses}L·{agent.draws}D
           </p>
-          <p className="font-mono text-[12px] text-muted-foreground">{winPct}% win rate</p>
+          <p className="font-mono text-xs text-muted-foreground">{winPct}% win rate</p>
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">7-DAY</p>
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">7-DAY</p>
           <p className={cn(
-            'font-mono text-[20px] font-semibold tabular-nums whitespace-nowrap',
+            'font-mono text-xl font-semibold tabular-nums whitespace-nowrap',
             d7Rounded > 0 ? 'text-success' : d7Rounded < 0 ? 'text-destructive' : 'text-muted-foreground'
           )}>
             {d7Rounded > 0 ? `▲ +${d7Rounded}` : d7Rounded < 0 ? `▼ ${d7Rounded}` : '▬ 0'}
           </p>
-          <p className="font-mono text-[12px] text-muted-foreground">last week</p>
+          <p className="font-mono text-xs text-muted-foreground">last week</p>
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">SUBMISSIONS</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground">
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">SUBMISSIONS</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">
             {agent.matches?.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length || 0}
           </p>
-          <p className="font-mono text-[12px] text-muted-foreground">unique</p>
+          <p className="font-mono text-xs text-muted-foreground">unique</p>
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">GAMES</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground">{agent.played}</p>
-          <p className="font-mono text-[12px] text-muted-foreground">pairwise</p>
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">GAMES</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.played}</p>
+          <p className="font-mono text-xs text-muted-foreground">pairwise</p>
         </div>
       </div>
 
@@ -259,11 +274,30 @@ export default function AgentPage({ params }: PageProps) {
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
           Challenge Submissions ({agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length})
         </h2>
-        <div className="relative mt-4">
+
+        {/* Mobile cards */}
+        <div className="mt-4 md:hidden">
+          {agent.matches.filter((m) => !(m.tests_ok === 0 && m.tests_total === 0)).length > 0 ? (
+            <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
+              {agent.matches
+                .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
+                .map((match) => (
+                  <MobileMatchCard key={match.submission_id} match={match} />
+                ))}
+            </div>
+          ) : (
+            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
+              <p className="text-muted-foreground">No matches yet.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="relative mt-4 hidden md:block">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px]">
+            <table className="w-full">
               <thead>
-                <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
+                <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
                   <th className="pb-3 pr-4">Result</th>
                   <th className="pb-3 pr-4">Challenge</th>
                   <th className="pb-3 pr-4">Tests</th>
@@ -282,16 +316,69 @@ export default function AgentPage({ params }: PageProps) {
               </tbody>
             </table>
           </div>
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
-        </div>
 
-        {agent.matches.length === 0 && (
-          <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
-            <p className="text-muted-foreground">No matches yet.</p>
-          </div>
-        )}
+          {agent.matches.length === 0 && (
+            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
+              <p className="text-muted-foreground">No matches yet.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  )
+}
+
+function MobileMatchCard({ match }: { match: MatchEntry }) {
+  const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
+  const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
+  const isPerfect =
+    match.broken_by_bug != null && match.broken_by_bug > 0 && match.baseline_passing != null
+      ? (match.tests_ok - match.baseline_passing) >= match.broken_by_bug
+      : false
+
+  const outcome = classifyFix(match.tests_ok, match.tests_total, match.baseline_passing, match.broken_by_bug)
+  const testsLabel = (match.tests_ok === 0 && match.tests_total === 0) ? 'no score' : fixLabel(outcome)
+  const testsColor = (match.tests_ok === 0 && match.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
+
+  return (
+    <Link href={`/attempts/${match.run_id}`} className="block bg-card p-4 transition-colors hover:bg-card/80">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Badge
+            variant="outline"
+            className={cn(
+              'font-mono text-xs shrink-0',
+              isPerfect
+                ? 'border-success/50 bg-success/10 text-success'
+                : 'border-destructive/50 bg-destructive/10 text-destructive'
+            )}
+          >
+            {isPerfect ? 'PASS' : 'FAIL'}
+          </Badge>
+          <span className="font-mono text-base font-medium text-foreground truncate">
+            {match.challenge_id}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={cn(
+            'font-mono text-xl font-semibold tabular-nums',
+            totalDelta > 0 ? 'text-success' : 'text-muted-foreground'
+          )}>
+            {totalDelta > 0 ? '+' : ''}{totalDelta}
+          </span>
+          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+      <div className="mt-1 font-mono text-sm text-muted-foreground">
+        <span className={cn('tabular-nums', testsColor)}>{testsLabel}</span>
+        <span> · </span>
+        <span className="tabular-nums">{fmtTime(match.agent_time)}</span>
+        <span> · </span>
+        <span className="tabular-nums">{fmtCost(match.cost_usd)}</span>
+        <span> · </span>
+        <span>{date}</span>
+      </div>
+    </Link>
   )
 }
 
@@ -325,25 +412,25 @@ function MatchRow({ match }: { match: MatchEntry }) {
       <td className="py-4 pr-4">
         <Link
           href={`/challenges/${match.challenge_id}`}
-          className="font-mono text-[15px] font-medium text-foreground hover:text-primary"
+          className="font-mono text-base font-medium text-foreground hover:text-primary"
         >
           {match.challenge_id}
         </Link>
       </td>
       <td className="py-4 pr-4">
-        <span className={cn('font-mono text-[14px] tabular-nums whitespace-nowrap', testsColor)}>
+        <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', testsColor)}>
           {testsLabel}
         </span>
       </td>
-      <td className="py-4 pr-4 font-mono text-[14px] text-muted-foreground whitespace-nowrap">
+      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
         {fmtTime(match.agent_time)}
       </td>
-      <td className="py-4 pr-4 font-mono text-[14px] text-muted-foreground whitespace-nowrap">
+      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
         {fmtCost(match.cost_usd)}
       </td>
       <td className="py-4 pr-4 text-right">
         <span className={cn(
-          'font-mono text-[15px] font-semibold tabular-nums whitespace-nowrap',
+          'font-mono text-base font-semibold tabular-nums whitespace-nowrap',
           totalDelta > 0 ? 'text-success' : 'text-muted-foreground'
         )}>
           {totalDelta > 0 ? '+' : ''}{totalDelta}
@@ -351,7 +438,7 @@ function MatchRow({ match }: { match: MatchEntry }) {
       </td>
       <td className="py-4">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[12px] text-muted-foreground">{date}</span>
+          <span className="font-mono text-xs text-muted-foreground">{date}</span>
           <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
             <Link href={`/attempts/${match.run_id}`}>
               <ArrowRight className="h-4 w-4" />

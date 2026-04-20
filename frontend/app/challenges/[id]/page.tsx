@@ -60,11 +60,11 @@ export default function ChallengePage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header — L6 metadata above L1 hero title */}
+      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-mono text-[12px] uppercase tracking-wider text-muted-foreground">
+            <p className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
               {challenge.repo}
             </p>
             <Badge
@@ -77,43 +77,43 @@ export default function ChallengePage({ params }: PageProps) {
               {challenge.lang}
             </Badge>
           </div>
-          <h1 className="mt-2 font-mono text-3xl font-bold tracking-tight text-foreground">
+          <h1 className="mt-2 font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
             {challenge.title}
           </h1>
         </div>
       </div>
 
-      {/* Stats — 4-cell grid matching agent page pattern */}
+      {/* Stats */}
       <div className="mt-6 grid grid-cols-2 gap-px sm:grid-cols-4 bg-border rounded-lg overflow-hidden border border-border">
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">TESTS TO FIX</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground">
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">TESTS TO FIX</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">
             {brokenByBug > 0 ? brokenByBug : '—'}
           </p>
           {baselinePassing > 0 && brokenByBug > 0 && (
-            <p className="font-mono text-[12px] text-muted-foreground">of {baselinePassing + brokenByBug} total</p>
+            <p className="font-mono text-xs text-muted-foreground">of {baselinePassing + brokenByBug} total</p>
           )}
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">SOLVE RATE</p>
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">SOLVE RATE</p>
           <p className={cn(
-            'font-mono text-[20px] font-semibold tabular-nums',
+            'font-mono text-xl font-semibold tabular-nums',
             solveRate > 0 ? 'text-success' : 'text-muted-foreground'
           )}>
             {solveRate}%
           </p>
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">ATTEMPTS</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground">{challenge.att}</p>
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">ATTEMPTS</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">{challenge.att}</p>
         </div>
         <div className="bg-card p-4">
-          <p className="font-mono text-[14px] uppercase tracking-[0.12em] text-muted-foreground">AVG TIME</p>
-          <p className="font-mono text-[20px] font-semibold tabular-nums text-foreground whitespace-nowrap">
+          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">AVG TIME</p>
+          <p className="font-mono text-xl font-semibold tabular-nums text-foreground whitespace-nowrap">
             {challenge.avgt || '—'}
           </p>
           {challenge.test_command && (
-            <p className="font-mono text-[12px] text-muted-foreground truncate" title={challenge.test_command}>
+            <p className="font-mono text-xs text-muted-foreground truncate" title={challenge.test_command}>
               {challenge.test_command}
             </p>
           )}
@@ -128,7 +128,7 @@ export default function ChallengePage({ params }: PageProps) {
           </h2>
           <div className="mt-4 rounded-lg border border-border bg-card p-5">
             <div className="border-l border-border pl-4">
-              <pre className="whitespace-pre-wrap text-[15px] leading-7 text-foreground/90">{challenge.body}</pre>
+              <pre className="whitespace-pre-wrap text-base leading-7 text-foreground/90">{challenge.body}</pre>
             </div>
           </div>
         </div>
@@ -141,84 +141,135 @@ export default function ChallengePage({ params }: PageProps) {
         </h2>
 
         {challenge.attempts.length > 0 ? (
-          <div className="relative mt-4">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px]">
-                <thead>
-                  <tr className="border-b border-border text-left text-[14px] font-medium text-muted-foreground">
-                    <th className="pb-3 pr-4">Status</th>
-                    <th className="pb-3 pr-4">Agent</th>
-                    <th className="pb-3 pr-4">Harness</th>
-                    <th className="pb-3 pr-4">Model</th>
-                    <th className="pb-3 pr-4">Tests</th>
-                    <th className="pb-3 pr-4">Time</th>
-                    <th className="pb-3 pr-4">Cost</th>
-                    <th className="pb-3">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {challenge.attempts.map((att) => {
-                    const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
-                    const testsLabel = (att.tests_ok === 0 && att.tests_total === 0) ? 'no score' : fixLabel(outcome)
-                    const testsColor = (att.tests_ok === 0 && att.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
-                    return (
-                      <tr key={att.run_id} className="group transition-colors hover:bg-card/50">
-                        <td className="py-3 pr-4">
-                          <div className={cn(
-                            'flex h-6 w-6 items-center justify-center rounded',
-                            att.passed
-                              ? 'bg-success/10 text-success'
-                              : 'bg-destructive/10 text-destructive'
-                          )}>
-                            {att.passed ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
-                          </div>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <Link
-                            href={`/agents/${att.agent_name}`}
-                            className="font-mono text-[15px] text-foreground hover:text-primary"
-                          >
-                            {att.agent_name}
-                          </Link>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <Badge variant="outline" className="text-xs">{att.harness}</Badge>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{att.model}</Badge>
-                        </td>
-                        <td className="py-3 pr-4">
-                          <span className={cn('font-mono text-[14px] tabular-nums whitespace-nowrap', testsColor)}>
-                            {testsLabel}
-                          </span>
-                        </td>
-                        <td className="py-3 pr-4 font-mono text-[14px] text-muted-foreground whitespace-nowrap">
-                          {att.time}
-                        </td>
-                        <td className="py-3 pr-4 font-mono text-[14px] text-muted-foreground whitespace-nowrap">
-                          {att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}
-                        </td>
-                        <td className="py-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-[12px] text-muted-foreground">
-                              {att.created_at ? new Date(att.created_at).toLocaleDateString() : '\u2014'}
-                            </span>
-                            <Link
-                              href={`/attempts/${att.run_id}`}
-                              className="text-muted-foreground hover:text-primary"
-                            >
-                              <ArrowRight className="h-4 w-4" />
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+          <>
+            {/* Mobile cards */}
+            <div className="mt-4 md:hidden">
+              <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
+                {challenge.attempts.map((att) => {
+                  const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
+                  const testsLabel = (att.tests_ok === 0 && att.tests_total === 0) ? 'no score' : fixLabel(outcome)
+                  const testsColor = (att.tests_ok === 0 && att.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
+                  return (
+                    <Link
+                      key={att.run_id}
+                      href={`/attempts/${att.run_id}`}
+                      className="block bg-card p-4 transition-colors hover:bg-card/80"
+                    >
+                      {/* Status + agent name */}
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded shrink-0',
+                          att.passed ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
+                        )}>
+                          {att.passed ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                        </div>
+                        <span className="font-mono text-base font-medium text-foreground truncate">
+                          {att.agent_name}
+                        </span>
+                      </div>
+                      {/* Badges */}
+                      <div className="mt-1.5 ml-9 flex flex-wrap gap-1">
+                        <Badge variant="outline" className="text-xs">{att.harness}</Badge>
+                        <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{att.model}</Badge>
+                      </div>
+                      {/* Meta + link arrow */}
+                      <div className="mt-1.5 ml-9 flex items-center justify-between gap-2">
+                        <span className="font-mono text-sm text-muted-foreground">
+                          <span className={cn('tabular-nums', testsColor)}>{testsLabel}</span>
+                          <span> · </span>
+                          <span className="tabular-nums">{att.time}</span>
+                          <span> · </span>
+                          <span className="tabular-nums">{att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}</span>
+                          <span> · </span>
+                          <span>{att.created_at ? new Date(att.created_at).toLocaleDateString() : '\u2014'}</span>
+                        </span>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
             </div>
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent sm:hidden" />
-          </div>
+
+            {/* Desktop table */}
+            <div className="relative mt-4 hidden md:block">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
+                      <th className="pb-3 pr-4">Status</th>
+                      <th className="pb-3 pr-4">Agent</th>
+                      <th className="pb-3 pr-4">Harness</th>
+                      <th className="pb-3 pr-4">Model</th>
+                      <th className="pb-3 pr-4">Tests</th>
+                      <th className="pb-3 pr-4">Time</th>
+                      <th className="pb-3 pr-4">Cost</th>
+                      <th className="pb-3">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {challenge.attempts.map((att) => {
+                      const outcome = classifyFix(att.tests_ok, att.tests_total, att.baseline_passing, att.broken_by_bug)
+                      const testsLabel = (att.tests_ok === 0 && att.tests_total === 0) ? 'no score' : fixLabel(outcome)
+                      const testsColor = (att.tests_ok === 0 && att.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
+                      return (
+                        <tr key={att.run_id} className="group transition-colors hover:bg-card/50">
+                          <td className="py-3 pr-4">
+                            <div className={cn(
+                              'flex h-6 w-6 items-center justify-center rounded',
+                              att.passed
+                                ? 'bg-success/10 text-success'
+                                : 'bg-destructive/10 text-destructive'
+                            )}>
+                              {att.passed ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+                            </div>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <Link
+                              href={`/agents/${att.agent_name}`}
+                              className="font-mono text-base text-foreground hover:text-primary"
+                            >
+                              {att.agent_name}
+                            </Link>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <Badge variant="outline" className="text-xs">{att.harness}</Badge>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <Badge variant="secondary" className="bg-primary/10 text-xs text-primary">{att.model}</Badge>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', testsColor)}>
+                              {testsLabel}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
+                            {att.time}
+                          </td>
+                          <td className="py-3 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
+                            {att.cost_usd > 0 ? (att.cost_usd < 0.01 ? '<$0.01' : '$' + att.cost_usd.toFixed(2)) : '\u2014'}
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {att.created_at ? new Date(att.created_at).toLocaleDateString() : '\u2014'}
+                              </span>
+                              <Link
+                                href={`/attempts/${att.run_id}`}
+                                className="text-muted-foreground hover:text-primary"
+                              >
+                                <ArrowRight className="h-4 w-4" />
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
         ) : (
           <div className="mt-4 rounded-lg border border-border bg-card p-8 text-center">
             <p className="text-muted-foreground">No submissions yet</p>

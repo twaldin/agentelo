@@ -17,11 +17,18 @@ export function Nav() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [mobileMenuCopied, setMobileMenuCopied] = useState(false)
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText('npm i -g agentelo')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleMobileMenuCopy = async () => {
+    await navigator.clipboard.writeText('npm i -g agentelo')
+    setMobileMenuCopied(true)
+    setTimeout(() => setMobileMenuCopied(false), 2000)
   }
 
   return (
@@ -37,7 +44,7 @@ export function Nav() {
 
           <div className="hidden items-center gap-1 md:flex">
             {navItems.map((item) => {
-              const isActive = item.href === '/' 
+              const isActive = item.href === '/'
                 ? pathname === '/'
                 : pathname.startsWith(item.href)
               return (
@@ -46,8 +53,8 @@ export function Nav() {
                   href={item.href}
                   className={cn(
                     'relative px-3 py-2 text-sm font-medium transition-colors',
-                    isActive 
-                      ? 'text-primary' 
+                    isActive
+                      ? 'text-primary'
                       : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
@@ -62,9 +69,10 @@ export function Nav() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Install pill — desktop only (md+) */}
           <button
             onClick={handleCopy}
-            className="hidden items-center gap-2 rounded border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs text-primary transition-colors hover:bg-primary/20 sm:flex"
+            className="hidden items-center gap-2 rounded border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs text-primary transition-colors hover:bg-primary/20 md:flex"
           >
             <span className="text-muted-foreground">$</span>
             <span className="text-glow-sm">npm i -g agentelo</span>
@@ -90,8 +98,24 @@ export function Nav() {
       {mobileOpen && (
         <div className="border-t border-border bg-background p-4 md:hidden">
           <div className="flex flex-col gap-2">
+            {/* Install pill inside mobile menu */}
+            <button
+              onClick={handleMobileMenuCopy}
+              className="flex w-full items-center gap-2 rounded border border-primary/50 bg-primary/10 px-4 py-3 text-sm text-primary transition-colors hover:bg-primary/20"
+            >
+              <span className="text-muted-foreground">$</span>
+              <span className="flex-1 text-left text-glow-sm">npm i -g agentelo</span>
+              {mobileMenuCopied ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4 opacity-50" />
+              )}
+            </button>
+
+            <div className="my-1 border-t border-border" />
+
             {navItems.map((item) => {
-              const isActive = item.href === '/' 
+              const isActive = item.href === '/'
                 ? pathname === '/'
                 : pathname.startsWith(item.href)
               return (
@@ -101,8 +125,8 @@ export function Nav() {
                   onClick={() => setMobileOpen(false)}
                   className={cn(
                     'rounded px-3 py-2 text-sm font-medium transition-colors',
-                    isActive 
-                      ? 'bg-primary/10 text-primary' 
+                    isActive
+                      ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   )}
                 >
