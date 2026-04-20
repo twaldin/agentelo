@@ -17,7 +17,9 @@ COPY frontend/ ./
 # Ensure public/ exists so the later COPY doesn't fail if the dir is absent
 RUN mkdir -p public
 ARG NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_BASE_PATH=/agentelo
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 RUN npm run build
 
 # ── Stage 3: api (runtime) ───────────────────────────────────────────────────
