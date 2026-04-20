@@ -2,15 +2,12 @@
 
 import { use, useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ArrowRight } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { fetchAgent, type AgentDetail, type MatchEntry } from '@/lib/api'
 import AgentPicker from '@/components/AgentPicker'
-import { classifyFix, fixLabel, fixColor } from '@/lib/score'
+import { classifyFix } from '@/lib/score'
+import { MatchRow, HarnessChip, buildBadge, fmtDate, type ResultKind } from '@/components/MatchRow'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -23,15 +20,26 @@ function fmtTime(secs: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
-function fmtCost(usd: number): string {
+function fmtCost(usd: number | null): string {
   if (!usd || usd === 0) return '\u2014'
   if (usd < 0.01) return '<$0.01'
   return '$' + usd.toFixed(2)
 }
 
+function StatRow({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <dt className="font-mono text-xs uppercase tracking-wider text-muted-foreground shrink-0">{label}</dt>
+      <span className="flex-1 border-b border-dotted border-muted-foreground/30 translate-y-[-4px]" aria-hidden />
+      <dd className={cn('font-mono text-sm tabular-nums text-foreground whitespace-nowrap', valueClass)}>
+        {value}
+      </dd>
+    </div>
+  )
+}
+
 export default function AgentPage({ params }: PageProps) {
   const { id } = use(params)
-  const router = useRouter()
   const [agent, setAgent] = useState<AgentDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -67,8 +75,16 @@ export default function AgentPage({ params }: PageProps) {
 
   const winPct = Math.round(agent.wr * 100)
   const d7Rounded = Math.round(agent.d7)
+  const d7Display = d7Rounded > 0 ? `▲ +${d7Rounded}` : d7Rounded < 0 ? `▼ ${d7Rounded}` : '▬ 0'
+  const d7Color = d7Rounded > 0 ? 'text-success' : d7Rounded < 0 ? 'text-destructive' : 'text-muted-foreground'
   const displayName = (agent.display_name || agent.id).trim()
   const inPlacement = agent.rank === null
+
+  const subCount = agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length
+  const matchesWithCost = agent.matches.filter(m => m.cost_usd > 0)
+  const avgCostCalc = matchesWithCost.length > 0
+    ? matchesWithCost.reduce((sum, m) => sum + m.cost_usd, 0) / matchesWithCost.length
+    : null
 
   const chartData = agent.ratingHistory.map((point, idx) => {
     const d = point.ts ? new Date(point.ts) : null
@@ -90,41 +106,45 @@ export default function AgentPage({ params }: PageProps) {
     }
   }
 
-  const rankPill = agent.rank !== null && (
-    <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-center">
-      <span className="font-mono text-2xl font-bold tabular-nums text-primary">#{agent.rank}</span>
-      <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Global</p>
+  const rankBadge = agent.rank !== null && (
+    <div
+      className={cn(
+        'flex flex-col items-center px-5 py-2 border-y border-r',
+        agent.rank <= 3 ? 'bg-primary/20 border-primary/40' : 'bg-muted/20 border-border',
+      )}
+      style={{ clipPath: 'polygon(0.75rem 0, 100% 0, 100% 100%, 0 100%)' }}
+    >
+      <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground">GLOBAL</span>
+      <span className={cn(
+        'font-mono text-2xl font-bold tabular-nums',
+        agent.rank <= 3 ? 'text-primary' : 'text-muted-foreground'
+      )}>
+        #{agent.rank}
+      </span>
     </div>
   )
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header — single column on mobile, split on md+ */}
+      {/* Hero */}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
-            {agent.harness}
-          </p>
-          <h1 className="mt-1 font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            {displayName}
-          </h1>
-          {displayName !== agent.id && (
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {agent.id}
-            </p>
-          )}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline" className="text-xs">
-              {agent.harness}
-            </Badge>
-            <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
-              {agent.model}
-            </Badge>
+        <div className="min-w-0 flex-1">
+          {/* Name row */}
+          <div className="flex items-center gap-3">
+            <HarnessChip harness={agent.harness} />
+            <div className="min-w-0">
+              <h1 className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl truncate">
+                {displayName}
+              </h1>
+              {displayName !== agent.id && (
+                <p className="font-mono text-xs text-muted-foreground truncate">{agent.id}</p>
+              )}
+            </div>
           </div>
 
-          {/* Rank pill + picker: visible on mobile only (between chips and ELO) */}
+          {/* Mobile: rank + picker */}
           <div className="mt-3 flex flex-wrap items-center gap-2 md:hidden">
-            {rankPill}
+            {rankBadge}
             <AgentPicker
               currentAgentId={id}
               currentElo={agent.elo}
@@ -134,76 +154,54 @@ export default function AgentPage({ params }: PageProps) {
             />
           </div>
 
-          {/* ELO / Placement dominant stat */}
+          {/* ELO / Placement hero */}
           {inPlacement ? (
-            <>
-              <div className="mt-3 flex items-baseline gap-3">
+            <div className="mt-4">
+              <div className="flex items-baseline gap-3">
                 <span className="font-mono text-5xl font-bold tabular-nums text-primary sm:text-6xl">
                   {agent.placement?.attempted ?? 0}/{agent.placement?.required ?? 10}
                 </span>
+                <span className="font-mono text-sm text-muted-foreground">placement</span>
               </div>
-              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                Placement Matches
-              </p>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="font-mono text-2xl tabular-nums text-muted-foreground">
-                  {agent.elo}
-                </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="font-mono text-2xl tabular-nums text-muted-foreground">{agent.elo}</span>
                 <span className="font-mono text-xs text-muted-foreground">provisional ELO</span>
               </div>
-            </>
+            </div>
           ) : (
-            <>
-              <div className="mt-3 flex items-baseline gap-2">
+            <div className="mt-4">
+              <div className="flex items-baseline gap-3">
                 <span className="font-mono text-5xl font-bold tabular-nums text-primary sm:text-6xl">
                   {agent.elo}
                 </span>
+                <span className="font-mono text-sm text-muted-foreground">ELO</span>
               </div>
-              <p className="mt-1 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
-                ELO Rating
+              <p className={cn('mt-1 font-mono text-sm tabular-nums', d7Color)}>
+                {d7Display} last 7 days
               </p>
-            </>
+            </div>
           )}
         </div>
 
-        {/* Desktop right column */}
+        {/* Desktop right: rank + picker */}
         <div className="hidden flex-col items-end gap-2 md:flex">
-          {rankPill}
+          {rankBadge}
           <AgentPicker currentAgentId={id} currentElo={agent.elo} placeholder="Compare with…" />
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="mt-6 grid grid-cols-2 gap-px sm:grid-cols-4 bg-border rounded-lg overflow-hidden border border-border">
-        <div className="bg-card p-4">
-          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">RECORD</p>
-          <p className="font-mono text-xl font-semibold tabular-nums text-foreground whitespace-nowrap">
-            {agent.wins}W·{agent.losses}L·{agent.draws}D
-          </p>
-          <p className="font-mono text-xs text-muted-foreground">{winPct}% win rate</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">7-DAY</p>
-          <p className={cn(
-            'font-mono text-xl font-semibold tabular-nums whitespace-nowrap',
-            d7Rounded > 0 ? 'text-success' : d7Rounded < 0 ? 'text-destructive' : 'text-muted-foreground'
-          )}>
-            {d7Rounded > 0 ? `▲ +${d7Rounded}` : d7Rounded < 0 ? `▼ ${d7Rounded}` : '▬ 0'}
-          </p>
-          <p className="font-mono text-xs text-muted-foreground">last week</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">SUBMISSIONS</p>
-          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">
-            {agent.matches?.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length || 0}
-          </p>
-          <p className="font-mono text-xs text-muted-foreground">unique</p>
-        </div>
-        <div className="bg-card p-4">
-          <p className="font-mono text-sm uppercase tracking-[0.12em] text-muted-foreground">GAMES</p>
-          <p className="font-mono text-xl font-semibold tabular-nums text-foreground">{agent.played}</p>
-          <p className="font-mono text-xs text-muted-foreground">pairwise</p>
-        </div>
+      {/* Stat strip — dotted leader lines */}
+      <div className="mt-6 rounded-lg border border-border bg-card p-5 md:p-6">
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-2 md:grid-cols-2">
+          <StatRow label="RECORD" value={`${agent.wins}W·${agent.losses}L·${agent.draws}D (${winPct}%)`} />
+          <StatRow label="GAMES" value={String(agent.played)} />
+          <StatRow label="7-DAY" value={d7Display} valueClass={d7Color} />
+          <StatRow label="SUBMISSIONS" value={String(subCount)} />
+          {avgCostCalc !== null && (
+            <StatRow label="AVG COST" value={fmtCost(avgCostCalc)} />
+          )}
+          <StatRow label="MODEL" value={agent.model} />
+        </dl>
       </div>
 
       {/* Rating History Chart */}
@@ -272,180 +270,43 @@ export default function AgentPage({ params }: PageProps) {
       {/* Match History */}
       <div className="mt-10">
         <h2 className="font-mono text-sm font-medium uppercase tracking-wider text-primary">
-          Challenge Submissions ({agent.matches.filter(m => !(m.tests_ok === 0 && m.tests_total === 0)).length})
+          Challenge Submissions ({subCount})
         </h2>
 
-        {/* Mobile cards */}
-        <div className="mt-4 md:hidden">
-          {agent.matches.filter((m) => !(m.tests_ok === 0 && m.tests_total === 0)).length > 0 ? (
-            <div className="flex flex-col divide-y divide-border rounded-lg border border-border overflow-hidden">
-              {agent.matches
-                .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
-                .map((match) => (
-                  <MobileMatchCard key={match.submission_id} match={match} />
-                ))}
-            </div>
-          ) : (
-            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
-              <p className="text-muted-foreground">No matches yet.</p>
-            </div>
-          )}
-        </div>
-
-        {/* Desktop table */}
-        <div className="relative mt-4 hidden md:block">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
-                  <th className="pb-3 pr-4">Result</th>
-                  <th className="pb-3 pr-4">Challenge</th>
-                  <th className="pb-3 pr-4">Tests</th>
-                  <th className="pb-3 pr-4">Time</th>
-                  <th className="pb-3 pr-4">Cost</th>
-                  <th className="pb-3 pr-4 text-right">ELO +/-</th>
-                  <th className="pb-3">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {agent.matches
-                  .filter((m) => !(m.tests_ok === 0 && m.tests_total === 0))
-                  .map((match) => (
-                  <MatchRow key={match.submission_id} match={match} />
-                ))}
-              </tbody>
-            </table>
+        {subCount > 0 ? (
+          <div className="mt-4 divide-y divide-border rounded-lg border border-border overflow-hidden">
+            {agent.matches
+              .filter(m => !(m.tests_ok === 0 && m.tests_total === 0))
+              .map(match => {
+                const outcome = classifyFix(match.tests_ok, match.tests_total, match.baseline_passing, match.broken_by_bug)
+                const badge = buildBadge(outcome)
+                const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
+                return (
+                  <MatchRow
+                    key={match.submission_id}
+                    result={badge}
+                    primary={{ prefix: 'vs', label: match.challenge_id, href: `/challenges/${match.challenge_id}` }}
+                    stats={[
+                      { value: fmtTime(match.agent_time), color: 'muted' },
+                      { value: fmtCost(match.cost_usd), color: 'muted' },
+                    ]}
+                    date={fmtDate(match.created_at)}
+                    delta={{
+                      value: totalDelta > 0 ? `+${totalDelta}` : totalDelta < 0 ? String(totalDelta) : '\u00b10',
+                      unit: 'ELO',
+                      kind: totalDelta > 0 ? 'gain' : totalDelta < 0 ? 'loss' : 'neutral',
+                    }}
+                    href={`/attempts/${match.run_id}`}
+                  />
+                )
+              })}
           </div>
-
-          {agent.matches.length === 0 && (
-            <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
-              <p className="text-muted-foreground">No matches yet.</p>
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
+            <p className="text-muted-foreground">No matches yet.</p>
+          </div>
+        )}
       </div>
     </div>
-  )
-}
-
-function MobileMatchCard({ match }: { match: MatchEntry }) {
-  const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
-  const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
-  const isPerfect =
-    match.broken_by_bug != null && match.broken_by_bug > 0 && match.baseline_passing != null
-      ? (match.tests_ok - match.baseline_passing) >= match.broken_by_bug
-      : false
-
-  const outcome = classifyFix(match.tests_ok, match.tests_total, match.baseline_passing, match.broken_by_bug)
-  const testsLabel = (match.tests_ok === 0 && match.tests_total === 0) ? 'no score' : fixLabel(outcome)
-  const testsColor = (match.tests_ok === 0 && match.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
-
-  return (
-    <Link href={`/attempts/${match.run_id}`} className="block bg-card p-4 transition-colors hover:bg-card/80">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Badge
-            variant="outline"
-            className={cn(
-              'font-mono text-xs shrink-0',
-              isPerfect
-                ? 'border-success/50 bg-success/10 text-success'
-                : 'border-destructive/50 bg-destructive/10 text-destructive'
-            )}
-          >
-            {isPerfect ? 'PASS' : 'FAIL'}
-          </Badge>
-          <span className="font-mono text-base font-medium text-foreground truncate">
-            {match.challenge_id}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={cn(
-            'font-mono text-xl font-semibold tabular-nums',
-            totalDelta > 0 ? 'text-success' : 'text-muted-foreground'
-          )}>
-            {totalDelta > 0 ? '+' : ''}{totalDelta}
-          </span>
-          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-        </div>
-      </div>
-      <div className="mt-1 font-mono text-sm text-muted-foreground">
-        <span className={cn('tabular-nums', testsColor)}>{testsLabel}</span>
-        <span> · </span>
-        <span className="tabular-nums">{fmtTime(match.agent_time)}</span>
-        <span> · </span>
-        <span className="tabular-nums">{fmtCost(match.cost_usd)}</span>
-        <span> · </span>
-        <span>{date}</span>
-      </div>
-    </Link>
-  )
-}
-
-function MatchRow({ match }: { match: MatchEntry }) {
-  const date = match.created_at ? new Date(match.created_at).toLocaleDateString() : '\u2014'
-  const totalDelta = Math.abs(match.total_delta) < 1 ? match.total_delta : Math.round(match.total_delta)
-  const isPerfect =
-    match.broken_by_bug != null && match.broken_by_bug > 0 && match.baseline_passing != null
-      ? (match.tests_ok - match.baseline_passing) >= match.broken_by_bug
-      : false
-
-  const outcome = classifyFix(match.tests_ok, match.tests_total, match.baseline_passing, match.broken_by_bug)
-  const testsLabel = (match.tests_ok === 0 && match.tests_total === 0) ? 'no score' : fixLabel(outcome)
-  const testsColor = (match.tests_ok === 0 && match.tests_total === 0) ? 'text-muted-foreground' : fixColor(outcome)
-
-  return (
-    <tr className="group transition-colors hover:bg-card/50">
-      <td className="py-4 pr-4">
-        <Badge
-          variant="outline"
-          className={cn(
-            'font-mono text-xs',
-            isPerfect
-              ? 'border-success/50 bg-success/10 text-success'
-              : 'border-destructive/50 bg-destructive/10 text-destructive'
-          )}
-        >
-          {isPerfect ? 'PASS' : 'FAIL'}
-        </Badge>
-      </td>
-      <td className="py-4 pr-4">
-        <Link
-          href={`/challenges/${match.challenge_id}`}
-          className="font-mono text-base font-medium text-foreground hover:text-primary"
-        >
-          {match.challenge_id}
-        </Link>
-      </td>
-      <td className="py-4 pr-4">
-        <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', testsColor)}>
-          {testsLabel}
-        </span>
-      </td>
-      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
-        {fmtTime(match.agent_time)}
-      </td>
-      <td className="py-4 pr-4 font-mono text-sm text-muted-foreground whitespace-nowrap">
-        {fmtCost(match.cost_usd)}
-      </td>
-      <td className="py-4 pr-4 text-right">
-        <span className={cn(
-          'font-mono text-base font-semibold tabular-nums whitespace-nowrap',
-          totalDelta > 0 ? 'text-success' : 'text-muted-foreground'
-        )}>
-          {totalDelta > 0 ? '+' : ''}{totalDelta}
-        </span>
-      </td>
-      <td className="py-4">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-xs text-muted-foreground">{date}</span>
-          <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-            <Link href={`/attempts/${match.run_id}`}>
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      </td>
-    </tr>
   )
 }

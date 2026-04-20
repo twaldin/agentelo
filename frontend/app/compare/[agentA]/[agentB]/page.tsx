@@ -14,7 +14,8 @@ import {
   type CompareChallengeSubmission,
 } from '@/lib/api'
 import AgentPicker from '@/components/AgentPicker'
-import { classifyFix, fixLabel, fixColor, type FixOutcome } from '@/lib/score'
+import { classifyFix, type FixOutcome } from '@/lib/score'
+import { HarnessChip, ResultBadge, type ResultKind } from '@/components/MatchRow'
 
 interface PageProps {
   params: Promise<{ agentA: string; agentB: string }>
@@ -46,7 +47,6 @@ function statWinner(
   return aVal > bVal ? 'a' : 'b'
 }
 
-// Derives a short display name from a full agent id
 function shortName(n: string): string {
   const parts = n.split('-')
   if (parts.length >= 3) return parts.slice(-2).join('-')
@@ -61,7 +61,14 @@ function fmtTests(
 ): string {
   if (!sub) return '\u2014'
   const outcome = classifyFix(sub.tests_ok, sub.tests_total, baselinePassing, brokenByBug)
-  return fixLabel(outcome)
+  switch (outcome.kind) {
+    case 'full': return `${outcome.delta}/${outcome.goal} \u2714`
+    case 'partial': return `${outcome.delta}/${outcome.goal}`
+    case 'no-progress': return `0/${outcome.goal}`
+    case 'regression': return `${outcome.delta}/${outcome.goal}`
+    case 'no-data': return '\u2014'
+    case 'unbaselined': return `${outcome.ok}/${outcome.total}`
+  }
 }
 
 export default function ComparePage({ params }: PageProps) {
@@ -105,85 +112,25 @@ export default function ComparePage({ params }: PageProps) {
   const { a, b, h2h, challenges } = data
   const aName = (a.display_name || a.id).trim()
   const bName = (b.display_name || b.id).trim()
-  const shortA = shortName(aName)
-  const shortB = shortName(bName)
 
   const h2hTotal = h2h.a_wins + h2h.b_wins + h2h.draws
   const h2hAPct = h2hTotal > 0 ? (h2h.a_wins / h2hTotal) * 100 : 0
   const h2hDrawPct = h2hTotal > 0 ? (h2h.draws / h2hTotal) * 100 : 0
   const h2hBPct = h2hTotal > 0 ? (h2h.b_wins / h2hTotal) * 100 : 0
 
-  const stats: {
-    label: string
-    aVal: string
-    bVal: string
-    winner: 'a' | 'b' | 'tie'
-  }[] = [
-    {
-      label: 'ELO',
-      aVal: String(a.elo),
-      bVal: String(b.elo),
-      winner: statWinner(a.elo, b.elo),
-    },
-    {
-      label: 'Rank',
-      aVal: a.rank !== null ? `#${a.rank}` : 'placement',
-      bVal: b.rank !== null ? `#${b.rank}` : 'placement',
-      winner: (a.rank === null || b.rank === null) ? 'tie' : statWinner(a.rank, b.rank, true),
-    },
-    {
-      label: 'Win Rate',
-      aVal: `${Math.round(a.wr * 100)}%`,
-      bVal: `${Math.round(b.wr * 100)}%`,
-      winner: statWinner(a.wr, b.wr),
-    },
-    {
-      label: 'Games',
-      aVal: String(a.played),
-      bVal: String(b.played),
-      winner: statWinner(a.played, b.played),
-    },
-    {
-      label: 'Avg Cost',
-      aVal: fmtCost(a.avgCost),
-      bVal: fmtCost(b.avgCost),
-      winner: statWinner(a.avgCost, b.avgCost, true),
-    },
-  ]
+  const costWinner = statWinner(a.avgCost, b.avgCost, true)
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-      {/* Header — stacks vertically on mobile, side-by-side on md+ */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
-            Compare
-          </p>
-          {/* Agent names: vertical on mobile, horizontal on md+ */}
-          <h1 className="mt-1 flex flex-col gap-1 font-mono text-lg font-medium text-foreground md:flex-row md:flex-wrap md:items-baseline md:gap-x-3 md:gap-y-1 sm:text-xl md:text-2xl">
-            <Link
-              href={`/agents/${encodeURIComponent(a.id)}`}
-              className="whitespace-nowrap transition-colors hover:text-primary"
-            >
-              {aName}
-            </Link>
-            <span className="text-sm text-muted-foreground">vs</span>
-            <Link
-              href={`/agents/${encodeURIComponent(b.id)}`}
-              className="whitespace-nowrap transition-colors hover:text-primary"
-            >
-              {bName}
-            </Link>
-          </h1>
-        </div>
-        {/* Picker + Swap: full-width on mobile, auto on md+ */}
-        <div className="flex w-full flex-row items-center gap-2 md:w-auto">
+      {/* Topbar */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">Compare</p>
+        <div className="flex items-center gap-2">
           <AgentPicker
             currentAgentId={a.id}
             currentElo={a.elo}
             placeholder="Compare with…"
             buildHref={(t) => `/compare/${encodeURIComponent(a.id)}/${encodeURIComponent(t)}`}
-            className="flex-1 md:flex-none"
             fullWidth
           />
           <Button
@@ -197,33 +144,58 @@ export default function ComparePage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Stat tiles — 1 col mobile, 3 col md, 5 col lg */}
-      <div className="mt-6 grid grid-cols-1 gap-2 md:grid-cols-3 lg:grid-cols-5">
-        {stats.map(s => (
-          <div key={s.label} className="rounded-md border border-border bg-card p-4 md:p-5">
-            <p className="font-mono text-sm text-muted-foreground">
-              {s.label}
-            </p>
-            <div className="mt-2 flex items-baseline justify-between gap-2">
-              <span
-                className={cn(
-                  'font-mono text-xl tabular-nums whitespace-nowrap',
-                  s.winner === 'a' ? 'font-semibold text-success' : 'text-muted-foreground'
-                )}
-              >
-                {s.aVal}
-              </span>
-              <span
-                className={cn(
-                  'font-mono text-xl tabular-nums whitespace-nowrap',
-                  s.winner === 'b' ? 'font-semibold text-success' : 'text-muted-foreground'
-                )}
-              >
-                {s.bVal}
-              </span>
-            </div>
+      {/* Two-panel hero */}
+      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-stretch md:gap-0">
+        {/* Panel A */}
+        <div className="flex-1 rounded-lg border border-border bg-card p-5 md:rounded-r-none">
+          <div className="flex items-center gap-3">
+            <HarnessChip harness={a.harness} />
+            <Link
+              href={`/agents/${encodeURIComponent(a.id)}`}
+              className="font-mono text-lg font-semibold text-foreground hover:text-primary truncate min-w-0"
+            >
+              {aName}
+            </Link>
           </div>
-        ))}
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="font-mono text-2xl font-bold tabular-nums text-primary">{a.elo}</span>
+            <span className="font-mono text-xs text-muted-foreground">ELO</span>
+            {a.rank !== null && (
+              <span className="font-mono text-sm tabular-nums text-muted-foreground">· #{a.rank}</span>
+            )}
+          </div>
+          <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+            {Math.round(a.wr * 100)}% win · {a.played} games
+          </p>
+        </div>
+
+        {/* VS */}
+        <div className="flex items-center justify-center px-6 py-2 md:py-0">
+          <span className="font-display text-xl text-primary text-glow-sm">VS</span>
+        </div>
+
+        {/* Panel B - mirrored */}
+        <div className="flex-1 rounded-lg border border-border bg-card p-5 md:rounded-l-none md:text-right">
+          <div className="flex items-center justify-start gap-3 md:flex-row-reverse">
+            <HarnessChip harness={b.harness} />
+            <Link
+              href={`/agents/${encodeURIComponent(b.id)}`}
+              className="font-mono text-lg font-semibold text-foreground hover:text-primary truncate min-w-0"
+            >
+              {bName}
+            </Link>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2 md:justify-end">
+            <span className="font-mono text-2xl font-bold tabular-nums text-primary">{b.elo}</span>
+            <span className="font-mono text-xs text-muted-foreground">ELO</span>
+            {b.rank !== null && (
+              <span className="font-mono text-sm tabular-nums text-muted-foreground">· #{b.rank}</span>
+            )}
+          </div>
+          <p className="mt-1 font-mono text-xs tabular-nums text-muted-foreground">
+            {Math.round(b.wr * 100)}% win · {b.played} games
+          </p>
+        </div>
       </div>
 
       {/* Head-to-Head */}
@@ -276,6 +248,31 @@ export default function ComparePage({ params }: PageProps) {
                 />
               )}
             </div>
+
+            {/* Cost comparison */}
+            {(a.avgCost != null || b.avgCost != null) && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 font-mono text-sm">
+                <span className="text-muted-foreground uppercase tracking-wider text-xs">AVG COST</span>
+                <span className={cn(
+                  'tabular-nums',
+                  costWinner === 'a' ? 'text-success font-semibold' : 'text-muted-foreground'
+                )}>
+                  {fmtCost(a.avgCost)}
+                </span>
+                <span className="text-muted-foreground text-xs">vs</span>
+                <span className={cn(
+                  'tabular-nums',
+                  costWinner === 'b' ? 'text-success font-semibold' : 'text-muted-foreground'
+                )}>
+                  {fmtCost(b.avgCost)}
+                </span>
+                {a.avgCost != null && b.avgCost != null && (
+                  <span className="text-muted-foreground text-xs">
+                    ({a.avgCost < b.avgCost ? 'A' : 'B'} saves ${Math.abs(a.avgCost - b.avgCost).toFixed(2)}/run)
+                  </span>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -306,53 +303,20 @@ export default function ComparePage({ params }: PageProps) {
           )}
         </div>
 
-        {/* Desktop table */}
+        {/* Desktop list */}
         <div className="relative mt-4 hidden md:block">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
-                  <th className="pb-3 pr-4">Challenge</th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
-                    {' Tests'}
-                  </th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
-                    {' Time'}
-                  </th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortA}</span>
-                    {' Cost'}
-                  </th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
-                    {' Tests'}
-                  </th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
-                    {' Time'}
-                  </th>
-                  <th className="pb-3 pr-4 text-right">
-                    <span className="text-muted-foreground" style={{ opacity: 0.7 }}>{shortB}</span>
-                    {' Cost'}
-                  </th>
-                  <th className="pb-3 text-right">Winner</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {challenges.map(ch => (
-                  <ChallengeRow
-                    key={ch.challenge_id}
-                    ch={ch}
-                    aName={aName}
-                    bName={bName}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {challenges.length === 0 && (
+          {challenges.length > 0 ? (
+            <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+              {challenges.map(ch => (
+                <ChallengeRow
+                  key={ch.challenge_id}
+                  ch={ch}
+                  aName={aName}
+                  bName={bName}
+                />
+              ))}
+            </div>
+          ) : (
             <div className="mt-8 rounded-lg border border-border bg-card p-8 text-center">
               <p className="text-muted-foreground">No shared challenges.</p>
             </div>
@@ -393,13 +357,17 @@ function MobileChallengeCard({
     ? 'text-destructive'
     : rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
 
+  const winnerKind: ResultKind = rowWinner === 'a' ? 'pass' : rowWinner === 'b' ? 'fail' : rowWinner === 'draw' ? 'draw' : 'no-data'
+  const winnerLabel = rowWinner === 'a' ? 'A WINS' : rowWinner === 'b' ? 'B WINS' : rowWinner === 'draw' ? 'DRAW' : '\u2014'
+
   return (
     <div className="bg-card p-4">
-      {/* Title row */}
-      <div className="flex items-center justify-between gap-2">
+      {/* Badge + title + arrow */}
+      <div className="flex items-center gap-3">
+        {ch.game && <ResultBadge kind={winnerKind} label={winnerLabel} />}
         <Link
           href={`/challenges/${ch.challenge_id}`}
-          className="font-mono text-sm text-muted-foreground hover:text-primary truncate"
+          className="flex-1 min-w-0 font-mono text-sm text-muted-foreground hover:text-primary truncate"
         >
           {ch.title || ch.challenge_id}
         </Link>
@@ -409,8 +377,6 @@ function MobileChallengeCard({
           </Link>
         )}
       </div>
-
-      <div className="mt-2 border-t border-border/50" />
 
       {/* Agent A row */}
       <div className="mt-2 flex items-center justify-between gap-2">
@@ -441,22 +407,6 @@ function MobileChallengeCard({
           </span>
         </div>
       </div>
-
-      {/* Winner badge */}
-      {ch.game && (
-        <div className="mt-2 flex justify-end">
-          <span className={cn(
-            'font-mono text-xs px-2 py-0.5 rounded border',
-            rowWinner === 'a'
-              ? 'border-success/50 bg-success/10 text-success'
-              : rowWinner === 'b'
-                ? 'border-muted-foreground/30 bg-muted/20 text-muted-foreground'
-                : 'border-muted-foreground/30 bg-muted/20 text-muted-foreground'
-          )}>
-            {rowWinner === 'a' ? 'A wins' : rowWinner === 'b' ? 'B wins' : 'Draw'}
-          </span>
-        </div>
-      )}
     </div>
   )
 }
@@ -490,71 +440,60 @@ function ChallengeRow({
   const bTestColor = bOutcome.kind === 'regression'
     ? 'text-destructive'
     : rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
-
   const aColor = rowWinner === 'a' ? 'text-success' : 'text-muted-foreground'
   const bColor = rowWinner === 'b' ? 'text-success' : 'text-muted-foreground'
 
-  const cellBase = 'font-mono text-base tabular-nums whitespace-nowrap'
+  const winnerKind: ResultKind = rowWinner === 'a' ? 'pass' : rowWinner === 'b' ? 'fail' : rowWinner === 'draw' ? 'draw' : 'no-data'
+  const winnerLabel = rowWinner === 'a' ? 'A WINS' : rowWinner === 'b' ? 'B WINS' : rowWinner === 'draw' ? 'DRAW' : '\u2014'
 
   return (
-    <tr className="group transition-colors hover:bg-card/50">
-      <td className="py-3 pr-4">
+    <div className="flex items-stretch gap-3 py-1.5 transition-colors hover:bg-card/50 group">
+      {/* Winner badge */}
+      <ResultBadge kind={winnerKind} label={winnerLabel} />
+
+      {/* Challenge title */}
+      <div className="flex min-w-0 flex-1 items-center">
         <Link
           href={`/challenges/${ch.challenge_id}`}
-          className="font-mono text-sm text-muted-foreground hover:text-primary"
+          className="truncate font-mono text-sm text-foreground hover:text-primary"
         >
           {ch.title || ch.challenge_id}
         </Link>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, aTestColor)}>
+      </div>
+
+      {/* A stats */}
+      <div className="hidden items-center gap-1 md:flex">
+        <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', aTestColor)}>
           {fmtTests(ch.a, ch.baseline_passing, ch.broken_by_bug)}
         </span>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, aColor)}>
-          {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'}
+        <span className={cn('font-mono text-xs tabular-nums whitespace-nowrap', aColor)}>
+          · {ch.a ? fmtTime(ch.a.agent_time) : '\u2014'} · {ch.a ? fmtCost(ch.a.cost_usd) : '\u2014'}
         </span>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, aColor)}>
-          {ch.a ? fmtCost(ch.a.cost_usd) : '\u2014'}
-        </span>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, bTestColor)}>
+      </div>
+
+      <span className="hidden self-center font-mono text-xs text-muted-foreground md:block">·</span>
+
+      {/* B stats */}
+      <div className="hidden items-center gap-1 md:flex">
+        <span className={cn('font-mono text-sm tabular-nums whitespace-nowrap', bTestColor)}>
           {fmtTests(ch.b, ch.baseline_passing, ch.broken_by_bug)}
         </span>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, bColor)}>
-          {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'}
+        <span className={cn('font-mono text-xs tabular-nums whitespace-nowrap', bColor)}>
+          · {ch.b ? fmtTime(ch.b.agent_time) : '\u2014'} · {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}
         </span>
-      </td>
-      <td className="py-3 pr-4 text-right">
-        <span className={cn(cellBase, bColor)}>
-          {ch.b ? fmtCost(ch.b.cost_usd) : '\u2014'}
-        </span>
-      </td>
-      <td className="py-3 text-right">
-        {ch.game ? (
-          <Link
-            href={`/games/${ch.game.id}`}
-            className={cn(
-              'font-mono text-base hover:underline',
-              rowWinner === 'a'
-                ? 'text-success'
-                : rowWinner === 'b'
-                  ? 'text-muted-foreground'
-                  : 'text-muted-foreground'
-            )}
-          >
-            {ch.game.score === 1 ? 'A' : ch.game.score === 0 ? 'B' : '\u2014'}
-          </Link>
-        ) : (
-          <span className="font-mono text-base text-muted-foreground">{'\u2014'}</span>
-        )}
-      </td>
-    </tr>
+      </div>
+
+      {/* View arrow */}
+      {ch.game ? (
+        <Link
+          href={`/games/${ch.game.id}`}
+          className="self-center font-mono text-xs text-muted-foreground hover:text-primary shrink-0 pr-2"
+        >
+          →
+        </Link>
+      ) : (
+        <span className="self-center font-mono text-xs text-muted-foreground shrink-0 pr-2">→</span>
+      )}
+    </div>
   )
 }

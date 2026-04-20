@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Circle } from 'lucide-react'
 import { fetchLeaderboard, type LeaderboardAgent } from '@/lib/api'
-import { Sparkline } from '@/components/Sparkline'
 
 type HarnessFilter = string
 type ModelFilter = string
@@ -308,9 +307,9 @@ export default function LeaderboardPage() {
                 >
                   <div className="pt-0.5 shrink-0">
                     {agent.rank <= 3 ? (
-                      <span className="font-display text-xs text-primary">[ {rankStr} ]</span>
+                      <span className="font-display text-xs text-primary">#{agent.rank}</span>
                     ) : (
-                      <span className="font-mono text-sm tabular-nums text-muted-foreground">{rankStr}.</span>
+                      <span className="font-mono text-sm tabular-nums text-muted-foreground">#{agent.rank}</span>
                     )}
                   </div>
                   <div className="min-w-0">
@@ -329,12 +328,11 @@ export default function LeaderboardPage() {
                         {trendSymbol}{agent.d7}
                       </span>
                     </div>
-                    {/* Row 3: meta + sparkline */}
-                    <div className="mt-1 flex items-center justify-between gap-2">
+                    {/* Row 3: meta */}
+                    <div className="mt-1 flex items-center gap-2">
                       <span className="font-mono text-sm text-muted-foreground tabular-nums">
                         {winPct}% · {agent.played} games · {fmtCost(agent.avgCost)}
                       </span>
-                      <Sparkline data={agent.hist} />
                     </div>
                   </div>
                 </Link>
@@ -356,10 +354,10 @@ export default function LeaderboardPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-left text-sm font-medium text-muted-foreground">
-                <th className="pb-3 pr-4">#</th>
+                <th className="pb-3 pr-4 text-right">#</th>
                 <th className="pb-3 pr-4">Agent</th>
                 <th className="pb-3 pr-4 text-right">ELO</th>
-                <th className="pb-3 pr-4 text-right">Trend</th>
+                <th className="pb-3 pr-4 text-right">7d</th>
                 <th className="pb-3 pr-4 text-right">Win %</th>
                 <th className="pb-3 pr-4 text-right">Played</th>
                 <th className="pb-3 text-right">Avg Cost</th>
@@ -371,15 +369,11 @@ export default function LeaderboardPage() {
                 const displayName = (agent.display_name || agent.name || agent.id).trim()
                 return (
                   <tr key={agent.id} className="group transition-colors hover:bg-card/50">
-                    <td className="py-4 pr-4">
+                    <td className="py-4 pr-4 text-right">
                       {agent.rank <= 3 ? (
-                        <span className="font-display text-xs text-primary">
-                          [{' '}{String(agent.rank).padStart(2, '0')}{' '}]
-                        </span>
+                        <span className="font-display text-sm text-primary">#{agent.rank}</span>
                       ) : (
-                        <span className="font-mono text-base tabular-nums text-muted-foreground">
-                          {String(agent.rank).padStart(2, '0')}.
-                        </span>
+                        <span className="font-mono text-sm tabular-nums text-muted-foreground">#{agent.rank}</span>
                       )}
                     </td>
                     <td className="py-4 pr-4">
@@ -387,13 +381,8 @@ export default function LeaderboardPage() {
                         <div className="font-mono text-base font-medium text-foreground group-hover:text-primary">
                           {displayName}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <Badge variant="outline" className="text-xs">
-                            {agent.harness}
-                          </Badge>
-                          <Badge variant="secondary" className="bg-muted/50 text-xs text-muted-foreground">
-                            {agent.model}
-                          </Badge>
+                        <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+                          {agent.harness} · {agent.model}
                         </div>
                       </Link>
                     </td>
@@ -401,15 +390,12 @@ export default function LeaderboardPage() {
                       <div className="font-mono text-xl font-semibold tabular-nums text-primary whitespace-nowrap">{agent.elo}</div>
                     </td>
                     <td className="py-4 pr-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <Sparkline data={agent.hist} />
-                        <span className={cn(
-                          'font-mono text-sm tabular-nums whitespace-nowrap',
-                          agent.d7 > 0 ? 'text-success' : agent.d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
-                        )}>
-                          {agent.d7 > 0 ? '▲ +' : agent.d7 < 0 ? '▼ ' : '▬ '}{agent.d7}
-                        </span>
-                      </div>
+                      <span className={cn(
+                        'font-mono text-sm tabular-nums whitespace-nowrap',
+                        agent.d7 > 0 ? 'text-success' : agent.d7 < 0 ? 'text-destructive' : 'text-muted-foreground'
+                      )}>
+                        {agent.d7 > 0 ? '▲ +' : agent.d7 < 0 ? '▼ ' : '▬ '}{agent.d7}
+                      </span>
                     </td>
                     <td className="py-4 pr-4 text-right">
                       <div className="flex items-center justify-end gap-2">
