@@ -158,11 +158,20 @@ function parseArgs(argv) {
 function getBaseUrl(flags) {
   const baseUrl = (flags && flags.server)
     ? flags.server.replace(/\/+$/, '')
-    : (process.env.AGENTELO_URL || 'https://api.agentelo.io').replace(/\/+$/, '');
+    : (process.env.AGENTELO_URL || 'https://tim.waldin.net/agentelo').replace(/\/+$/, '');
   if (!baseUrl.startsWith('https://') && !baseUrl.includes('localhost')) {
     console.error('[agentelo] WARNING: Using non-HTTPS connection. API key transmitted in plaintext.');
   }
   return baseUrl;
+}
+
+// Join baseUrl + path, preserving base pathname. WHATWG `new URL('/p', base)`
+// replaces the base pathname, which breaks deployments where the API is served
+// under a path prefix (e.g. https://tim.waldin.net/agentelo → /agentelo/api/…).
+function apiUrl(baseUrl, pathAndQuery) {
+  const base = baseUrl.replace(/\/+$/, '');
+  const rest = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+  return new URL(base + rest);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +308,7 @@ function slugify(str) {
 async function postRegister(body, baseUrl) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
-    const url = new URL('/api/register', baseUrl);
+    const url = apiUrl(baseUrl, '/api/register');
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, {
       method: 'POST',
@@ -322,7 +331,7 @@ async function postRegister(body, baseUrl) {
 async function patchAgent(agentId, body, baseUrl) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
-    const url = new URL(`/api/agents/${encodeURIComponent(agentId)}`, baseUrl);
+    const url = apiUrl(baseUrl, `/api/agents/${encodeURIComponent(agentId)}`);
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, {
       method: 'PATCH',
@@ -375,8 +384,19 @@ async function cmdRegister(flags) {
     process.exit(1);
   }
 
+  if (res.status === 403 && res.body && /CAPTCHA/i.test(res.body.error || '')) {
+    const webUrl = baseUrl.replace(/\/api\/?$/, '') + '/register';
+    console.error('[agentelo] This server requires a CAPTCHA for registration.');
+    console.error(`[agentelo] Register via ${webUrl}, then save your API key with:`);
+    console.error(`[agentelo]   export AGENTELO_KEY=ael_sk_...`);
+    console.error('[agentelo] (or paste it into ~/.agentelo/credentials.json under agents.<name>.api_key)');
+    process.exit(1);
+  }
+
   if (res.status === 409) {
-    console.error('[agentelo] Agent name already taken');
+    console.error(`[agentelo] Agent name "${flags.name}" is already taken.`);
+    console.error('[agentelo] Pick a different --name, or if this agent is yours, retrieve your API key from the');
+    console.error(`[agentelo]   /register page of the server and set AGENTELO_KEY / credentials.json manually.`);
     process.exit(1);
   }
 
@@ -493,7 +513,7 @@ function cmdAgents() {
 async function postToApi(result, baseUrl) {
   return new Promise((resolve) => {
     const body = JSON.stringify(result);
-    const url = new URL('/api/submissions', baseUrl);
+    const url = apiUrl(baseUrl, '/api/submissions');
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, {
       method: 'POST',
@@ -502,11 +522,30 @@ async function postToApi(result, baseUrl) {
         'Content-Length': Buffer.byteLength(body),
       },
     }, (res) => {
-      res.resume();
-      res.on('end', () => resolve());
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        const status = res.statusCode || 0;
+        if (status >= 200 && status < 300) {
+          console.log(`[agentelo] Submission posted (HTTP ${status}) → ${url.href}`);
+        } else {
+          const snippet = data.slice(0, 240).replace(/\s+/g, ' ');
+          console.error(`[agentelo] Submission POST failed (HTTP ${status}) → ${url.href}`);
+          console.error(`[agentelo]   Response: ${snippet}`);
+        }
+        resolve();
+      });
     });
-    req.on('error', () => resolve());
-    req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    req.on('error', (err) => {
+      console.error(`[agentelo] Submission POST error: ${err.message}`);
+      resolve();
+    });
+    req.setTimeout(30000, () => {
+      console.error('[agentelo] Submission POST timed out after 30s');
+      req.destroy();
+      resolve();
+    });
     req.write(body);
     req.end();
   });
@@ -517,7 +556,7 @@ async function postToApi(result, baseUrl) {
 // ---------------------------------------------------------------------------
 async function fetchRecommendedChallenges(baseUrl) {
   return new Promise((resolve) => {
-    const url = new URL('/api/challenges/recommended', baseUrl);
+    const url = apiUrl(baseUrl, '/api/challenges/recommended');
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, { method: 'GET' }, (res) => {
       let data = '';
@@ -538,7 +577,7 @@ async function fetchRecommendedChallenges(baseUrl) {
 // ---------------------------------------------------------------------------
 async function fetchChallengeFromApi(challengeId, baseUrl) {
   return new Promise((resolve) => {
-    const url = new URL(`/api/challenges/${encodeURIComponent(challengeId)}`, baseUrl);
+    const url = apiUrl(baseUrl, `/api/challenges/${encodeURIComponent(challengeId)}`);
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, { method: 'GET' }, (res) => {
       let data = '';
@@ -559,7 +598,7 @@ async function fetchChallengeFromApi(challengeId, baseUrl) {
 // ---------------------------------------------------------------------------
 async function fetchLeaderboard(baseUrl) {
   return new Promise((resolve) => {
-    const url = new URL('/api/leaderboard', baseUrl);
+    const url = apiUrl(baseUrl, '/api/leaderboard');
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, { method: 'GET' }, (res) => {
       let data = '';
@@ -1186,8 +1225,10 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
       gitDiffNames = diffNameOut.split('\n').filter(Boolean);
     } catch (_) {}
 
-    // Detect tampered files (exclude harness artifacts)
-    const HARNESS_ARTIFACTS = /^\.(agentelo-|aider\.|claude|opencode|codex|gemini|swe_agent)/;
+    // Detect tampered files (exclude harness artifacts).
+    // Includes per-harness instruction files that the harness itself may rewrite
+    // mid-session (Claude Code mutates CLAUDE.md, Codex AGENTS.md, Gemini GEMINI.md).
+    const HARNESS_ARTIFACTS = /^(\.(agentelo-|aider\.|claude|opencode|codex|gemini|swe_agent)|CLAUDE\.md$|AGENTS\.md$|GEMINI\.md$)/;
     const tamperedFiles = [];
     for (const [relpath, beforeHash] of Object.entries(beforeChecksums)) {
       if (afterChecksums[relpath] !== beforeHash && !gitDiffNames.includes(relpath) && !HARNESS_ARTIFACTS.test(relpath)) {
@@ -1572,7 +1613,7 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
     const result = {
       run_id: runId,
       challenge_id: challenge.id,
-      agent_id: normalizeAgentId(harness, model),
+      agent_id: process.env.AGENTELO_AGENT_ID || normalizeAgentId(harness, model),
       repo: challenge.repo,
       harness,
       model,
@@ -1639,8 +1680,38 @@ async function runAgentPlay(flags, { isBaseline = false, isRanked = true } = {})
 
 // ---------------------------------------------------------------------------
 // subcommand: play (ranked, server picks challenge)
+// Supports --loop (run until SIGINT) and --count N (run N iterations).
 // ---------------------------------------------------------------------------
 async function cmdPlay(flags) {
+  if (flags.loop && flags.count) {
+    console.error('[agentelo] --loop and --count are mutually exclusive.');
+    process.exit(1);
+  }
+  if (flags.loop) {
+    let interrupted = false;
+    const onInt = () => { interrupted = true; console.log('\n[agentelo] SIGINT — finishing current run, then stopping.'); };
+    process.on('SIGINT', onInt);
+    let i = 0;
+    while (!interrupted) {
+      i += 1;
+      console.log(`\n[agentelo] --loop iteration ${i}`);
+      await runAgentPlay(flags, { isBaseline: false, isRanked: true });
+    }
+    process.off('SIGINT', onInt);
+    return;
+  }
+  if (flags.count) {
+    const n = parseInt(flags.count, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      console.error('[agentelo] --count must be a positive integer.');
+      process.exit(1);
+    }
+    for (let i = 1; i <= n; i += 1) {
+      console.log(`\n[agentelo] --count iteration ${i}/${n}`);
+      await runAgentPlay(flags, { isBaseline: false, isRanked: true });
+    }
+    return;
+  }
   return runAgentPlay(flags, { isBaseline: false, isRanked: true });
 }
 
@@ -1712,6 +1783,8 @@ function printUsage() {
   console.log('Commands:');
   console.log('  register     Register an agent and save API credentials');
   console.log('  rename       Update your agent display name');
+  console.log('  agents       List locally registered agents');
+  console.log('  default      Set the default agent for play');
   console.log('  play         Ranked match (server picks challenge)');
   console.log('  practice     Unranked run with a specific challenge');
   console.log('  seed         Run agent with isolated HOME (baseline seeding only)');
@@ -1720,7 +1793,7 @@ function printUsage() {
   console.log('  leaderboard  Show ELO-ranked leaderboard from server');
   console.log('');
   console.log('Global options:');
-  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://api.agentelo.io)');
+  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://tim.waldin.net/agentelo)');
   console.log('');
   console.log('Options for register:');
   console.log('  --name <username>   Agent username');
@@ -1734,16 +1807,22 @@ function printUsage() {
   console.log('Options for play:');
   console.log('  --harness <name>    Agent harness (e.g. claude-code)');
   console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
+  console.log('  --agent <name>      Registered agent to play as (default: creds.default)');
+  console.log('  --loop              Run ranked matches until Ctrl-C');
+  console.log('  --count <N>         Run N ranked matches then exit');
+  console.log('  --instructions <f>  Inject a CLAUDE.md / AGENTS.md / GEMINI.md into the run');
   console.log('');
   console.log('Options for practice:');
   console.log('  --harness <name>    Agent harness (e.g. claude-code)');
   console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
   console.log('  --challenge <id>    Challenge ID (required)');
+  console.log('  --instructions <f>  Inject a CLAUDE.md / AGENTS.md / GEMINI.md into the run');
   console.log('');
   console.log('Options for seed:');
   console.log('  --harness <name>    Agent harness (e.g. claude-code)');
   console.log('  --model <model>     Model name (e.g. claude-sonnet-4-6)');
   console.log('  --challenge <id>    Challenge ID (random if omitted)');
+  console.log('  --instructions <f>  Inject a CLAUDE.md / AGENTS.md / GEMINI.md into the run');
 }
 
 switch (subcommand) {
@@ -1804,7 +1883,7 @@ switch (subcommand) {
     const base = getBaseUrl(flags);
     const agentId = getActiveAgentId(flags);
     const body = JSON.stringify({ api_key: apiKey, display_name: flags.name });
-    const url = new URL(`/api/agents/${agentId}`, base);
+    const url = apiUrl(base, `/api/agents/${agentId}`);
     const mod = url.protocol === 'https:' ? require('https') : require('http');
     const req = mod.request(url, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
       let data = '';

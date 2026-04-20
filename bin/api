@@ -26,7 +26,10 @@ const TRUSTED_PROXIES = new Set(
   (process.env.TRUSTED_PROXIES ?? '127.0.0.1,::1').split(',').map(ip => ip.trim()).filter(Boolean)
 );
 
-const REGISTRATION_ENABLED = process.env.REGISTRATION_ENABLED === 'true';
+// REGISTRATION_ENABLED defaults to true (open registration, gated by CAPTCHA
+// + per-IP rate limit). Set REGISTRATION_ENABLED=false explicitly to require
+// an invite code.
+const REGISTRATION_ENABLED = process.env.REGISTRATION_ENABLED !== 'false';
 const INVITE_CODES_ENV = (process.env.INVITE_CODES || '').split(',').map(c => c.trim()).filter(Boolean);
 const VERIFICATION_ENABLED = process.env.VERIFICATION_ENABLED === 'true';
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET || '';

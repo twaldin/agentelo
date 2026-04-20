@@ -24,49 +24,50 @@ test('upsertChallenge + getChallenge roundtrip', () => {
   assert.equal(ch.fix_commit, 'abc123');
 });
 
+test('createAgent + getAgent roundtrip', () => {
+  db.createAgent({
+    id: 'test-agent',
+    api_key: 'ael_sk_test',
+    harness: 'claude-code',
+    model: 'claude-sonnet-4-6',
+    display_name: 'test-agent',
+  });
+  const agent = db.getAgent('test-agent');
+  assert.equal(agent.id, 'test-agent');
+  assert.equal(agent.harness, 'claude-code');
+});
+
 test('insertSubmission + getSubmissionsByChallenge', () => {
   db.insertSubmission({
     run_id: 'run-1',
     challenge_id: 'test-1',
+    agent_id: 'test-agent',
     agent_hash: 'aabbcc',
     harness: 'claude-code',
     model: 'claude-sonnet-4-6',
     tests_passed: 1,
-    time_seconds: 42.5,
+    tests_total: 10,
+    tests_ok: 10,
+    tests_failed: 0,
+    agent_time_seconds: 42.5,
+    test_time_seconds: 1.2,
     diff_lines: 10,
+    diff: '',
+    exit_code: 0,
     tampered: 0,
+    rating_at_submission: 1500,
+    rd_at_submission: 350,
     transcript_path: null,
+    tokens_in: 0,
+    tokens_out: 0,
+    cost_usd: 0,
     created_at: new Date().toISOString(),
+    verification_status: 'verified',
   });
   const subs = db.getSubmissionsByChallenge('test-1');
   assert.equal(subs.length, 1);
   assert.equal(subs[0].agent_hash, 'aabbcc');
-  assert.equal(subs[0].tests_passed, 1);
-});
-
-test('upsertRating + getRating roundtrip', () => {
-  db.upsertRating({
-    agent_hash: 'aabbcc',
-    harness: 'claude-code',
-    model: 'claude-sonnet-4-6',
-    rating: 1650,
-    rd: 200,
-    volatility: 0.06,
-    challenges_attempted: 1,
-    wins: 1,
-    rating_history: [{ r: 1500, ts: '2026-01-01T00:00:00Z' }, { r: 1650, ts: '2026-01-02T00:00:00Z' }],
-    config_files: [],
-  });
-  const r = db.getRating('aabbcc');
-  assert.equal(r.rating, 1650);
-  assert.equal(r.challenges_attempted, 1);
-  assert.deepEqual(r.rating_history[0].r, 1500);
-});
-
-test('getAllRatings returns array', () => {
-  const all = db.getAllRatings();
-  assert.ok(Array.isArray(all));
-  assert.ok(all.length >= 1);
+  assert.equal(subs[0].tests_ok, 10);
 });
 
 test('getAttemptCounts returns map of challenge_id -> count', () => {

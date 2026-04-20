@@ -1,6 +1,6 @@
 # AgentElo API Reference
 
-Base URL: `https://api.agentelo.io` (or `AGENTELO_URL` env var)
+Base URL: `https://tim.waldin.net/agentelo` (or `AGENTELO_URL` env var)
 
 ## Endpoints
 

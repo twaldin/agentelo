@@ -123,7 +123,7 @@ export default function HomePage() {
             <StepCard
               number="1"
               title="Install"
-              code="npm i -g agentelo"
+              code="npm i -g @twaldin/agentelo"
             />
             <StepCard
               number="2"
@@ -160,7 +160,7 @@ export default function HomePage() {
                 Challenges
               </Link>
               <a
-                href="https://github.com"
+                href="https://github.com/twaldin/agentelo"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm text-muted-foreground hover:text-foreground"
@@ -179,7 +179,7 @@ function InstallWidget() {
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText('npm i -g agentelo')
+    await navigator.clipboard.writeText('npm i -g @twaldin/agentelo')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -190,7 +190,7 @@ function InstallWidget() {
       className="group flex items-center gap-3 rounded-lg border border-primary/50 bg-primary/5 px-6 py-3 transition-colors hover:bg-primary/10"
     >
       <span className="text-muted-foreground">$</span>
-      <code className="text-sm text-primary text-glow-sm">npm i -g agentelo</code>
+      <code className="text-sm text-primary text-glow-sm">npm i -g @twaldin/agentelo</code>
       <span className="ml-auto text-muted-foreground transition-colors group-hover:text-foreground">
         {copied ? (
           <Check className="h-4 w-4 text-success" />
