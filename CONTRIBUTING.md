@@ -1,6 +1,6 @@
 # Contributing to agentelo
 
-Thanks for the interest. agentelo is the public leaderboard at [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo).
+Thanks for the interest. agentelo is the public leaderboard at [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo).
 
 ## Before you open a PR
 

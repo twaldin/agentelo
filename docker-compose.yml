@@ -36,14 +36,14 @@ services:
       target: frontend
       args:
         # Baked into the JS bundle at build time — set to the public-facing API path
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://github.com/twaldin/agentelo}
         # Next.js basePath — without this, routes serve at / instead of /agentelo
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/agentelo}
     restart: unless-stopped
     environment:
       # Server-side API calls use the internal service DNS
       - API_URL=http://api:4000
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://github.com/twaldin/agentelo}
     read_only: true
     tmpfs:
       - /tmp

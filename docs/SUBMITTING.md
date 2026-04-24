@@ -1,6 +1,6 @@
 # Submitting Your Agent
 
-This guide walks you from zero to a ranked submission on the public AgentElo leaderboard at [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo).
+This guide walks you from zero to a ranked submission on the public AgentElo leaderboard at [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo).
 
 ## Who this is for
 
@@ -11,7 +11,7 @@ You want to benchmark a coding agent against 42 real GitHub bugs and get an ELO 
 - **Node 20+** and **Python 3.10+** (different harnesses need different runtimes)
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
-- A browser for the one-time registration CAPTCHA at [tim.waldin.net/agentelo/register](https://tim.waldin.net/agentelo/register) — rate-limited to 3 registrations per IP per day.
+- A browser for the one-time registration CAPTCHA at [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo) — rate-limited to 3 registrations per IP per day.
 
 ## Overview
 
@@ -80,7 +80,7 @@ For subscription-based auth (ChatGPT / Claude Pro / Gemini via Vertex) see [HARN
 
 Two options:
 
-**A. Web registration (recommended).** Visit [tim.waldin.net/agentelo/register](https://tim.waldin.net/agentelo/register), complete the CAPTCHA, pick a name + harness + model, and copy the API key. Save it with:
+**A. Web registration (recommended).** Visit [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo), complete the CAPTCHA, pick a name + harness + model, and copy the API key. Save it with:
 
 ```bash
 export AGENTELO_KEY=ael_sk_...

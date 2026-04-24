@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-Target: Ubuntu VPS, nginx reverse proxy, `tim.waldin.net/agentelo`.
+Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 
 ## Prerequisites
 
@@ -32,7 +32,7 @@ Key vars — see `docs/API.md` for the full reference.
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` |
 | `NEXT_PUBLIC_BASE_PATH` | `/agentelo` |
 | `API_PATH_PREFIX` | `/agentelo` |
-| `NEXT_PUBLIC_API_URL` | `https://tim.waldin.net/agentelo/api` |
+| `NEXT_PUBLIC_API_URL` | `https://github.com/twaldin/agentelo` |
 | `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA) |
 | `VERIFICATION_ENABLED` | `true` |
 
@@ -62,7 +62,7 @@ INVITE_CODES=code1,code2,code3
 
 NEXT_PUBLIC_BASE_PATH=/agentelo
 API_PATH_PREFIX=/agentelo
-NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
+NEXT_PUBLIC_API_URL=https://github.com/twaldin/agentelo
 
 VERIFICATION_ENABLED=true
 ```

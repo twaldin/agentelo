@@ -26,7 +26,7 @@
   },
   "author": "Tim Waldin",
   "license": "MIT",
-  "homepage": "https://tim.waldin.net/agentelo",
+  "homepage": "https://github.com/twaldin/agentelo",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/twaldin/agentelo.git"

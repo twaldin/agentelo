@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr350",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 350,
+    "title": "`stringify`: fix arrayFormat comma with empty array/objects",
+    "body": "Fixed #310 \r\n\r\ncontinued from PR #317\n\n--- Linked Issue #310: arrayformat as comma with empty array or objects ---\n```javascript\r\nconst options = {\r\n  encode: false,\r\n  strictNullHandling: true,\r\n  arrayFormat: 'comma',\r\n  allowDots: true,\r\n  addQueryPrefix: true\r\n};\r\n\r\nconst params = {\r\n  foo: [],\r\n  bar: [null],\r\n  baz: ['abc'],\r\n};\r\n\r\n// with arrayFormat: 'comma'\r\nqs.stringify(params, options);\r\n// = ?foo=&bar=&baz=abc\r\n\r\n// with arrayFormat: 'brackets'\r\n// = ?bar[]&baz[]=abc\r\n```\r\n\r\n`stringify` will produce `?foo=&bar=&baz=abc`. But using `brackets`, `indices`, `repeat` as array format will not concat `foo` cause it's an empty array. `comma` is the only one which keep foo. Is it a bug or a conception choice ?\r\n\r\nIn `lib/stringify.js`, line 67, maybe you could test if it's an array with values ?"
+  },
+  "pr": {
+    "number": 350,
+    "url": "https://github.com/ljharb/qs/pull/350"
+  },
+  "buggyCommit": "af9bf4812b9ff0c943975d6db1977f4879b976ae",
+  "fixCommit": "deada9450273f397a011f402b91a3a4216a62f0b",
+  "fixDiff": "diff --git a/lib/stringify.js b/lib/stringify.js\nindex 5d22260c..da5380a8 100644\n--- a/lib/stringify.js\n+++ b/lib/stringify.js\n@@ -80,7 +80,7 @@ var stringify = function stringify(\n                 return serializeDate(value);\n             }\n             return value;\n-        }).join(',');\n+        });\n     }\n \n     if (obj === null) {\n@@ -106,7 +106,10 @@ var stringify = function stringify(\n     }\n \n     var objKeys;\n-    if (isArray(filter)) {\n+    if (generateArrayPrefix === 'comma' && isArray(obj)) {\n+        // we need to join elements in\n+        objKeys = [{ value: obj.length > 0 ? obj.join(',') || null : undefined }];\n+    } else if (isArray(filter)) {\n         objKeys = filter;\n     } else {\n         var keys = Object.keys(obj);\n@@ -115,7 +118,7 @@ var stringify = function stringify(\n \n     for (var i = 0; i < objKeys.length; ++i) {\n         var key = objKeys[i];\n-        var value = obj[key];\n+        var value = typeof key === 'object' && key.value !== undefined ? key.value : obj[key];\n \n         if (skipNulls && value === null) {\n             continue;\ndiff --git a/test/stringify.js b/test/stringify.js\nindex 49692184..cbd90b2c 100644\n--- a/test/stringify.js\n+++ b/test/stringify.js\n@@ -336,6 +336,27 @@ test('stringify()', function (t) {\n         st.end();\n     });\n \n+    t.test('stringifies an empty array in different arrayFormat', function (st) {\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false }), 'b[0]=&c=c');\n+        // arrayFormat default\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'indices' }), 'b[0]=&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'brackets' }), 'b[]=&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'repeat' }), 'b=&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'comma' }), 'b=&c=c');\n+        // with strictNullHandling\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'indices', strictNullHandling: true }), 'b[0]&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'brackets', strictNullHandling: true }), 'b[]&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'repeat', strictNullHandling: true }), 'b&c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'comma', strictNullHandling: true }), 'b&c=c');\n+        // with skipNulls\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'indices', skipNulls: true }), 'c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'brackets', skipNulls: true }), 'c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'repeat', skipNulls: true }), 'c=c');\n+        st.equal(qs.stringify({ a: [], b: [null], c: 'c' }, { encode: false, arrayFormat: 'comma', skipNulls: true }), 'c=c');\n+\n+        st.end();\n+    });\n+\n     t.test('stringifies a null object', { skip: !Object.create }, function (st) {\n         var obj = Object.create(null);\n         obj.a = 'b';\n",
+  "testCommand": "node test",
+  "baseline_passing": 427,
+  "fix_passing": 430,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 27,
+    "linesRemoved": 3
+  },
+  "minedAt": "2026-04-06T03:52:09.477Z"
+}

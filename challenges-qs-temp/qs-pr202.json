@@ -1,0 +1,27 @@
+{
+  "id": "qs-pr202",
+  "repo": "ljharb/qs",
+  "repoUrl": "https://github.com/ljharb/qs",
+  "issue": {
+    "number": 202,
+    "title": "fix: support key with starting brackets",
+    "body": ""
+  },
+  "pr": {
+    "number": 202,
+    "url": "https://github.com/ljharb/qs/pull/202"
+  },
+  "buggyCommit": "4a7de7e59fcb1fade6d1e60137428b0b6ed5f79b",
+  "fixCommit": "12152db995bd07a5483fa14e01c52bf20687e617",
+  "fixDiff": "diff --git a/lib/parse.js b/lib/parse.js\nindex 9530ad41..1307e9d7 100644\n--- a/lib/parse.js\n+++ b/lib/parse.js\n@@ -84,26 +84,27 @@ var parseKeys = function parseQueryStringKeys(givenKey, val, options) {\n \n     // The regex chunks\n \n-    var parent = /^([^[]*)/;\n+    var brackets = /(\\[[^[\\]]*])/;\n     var child = /(\\[[^[\\]]*])/g;\n \n     // Get the parent\n \n-    var segment = parent.exec(key);\n+    var segment = brackets.exec(key);\n+    var parent = segment ? key.slice(0, segment.index) : key;\n \n     // Stash the parent if it exists\n \n     var keys = [];\n-    if (segment[1]) {\n+    if (parent) {\n         // If we aren't using plain objects, optionally prefix keys\n         // that would overwrite object prototype properties\n-        if (!options.plainObjects && has.call(Object.prototype, segment[1])) {\n+        if (!options.plainObjects && has.call(Object.prototype, parent)) {\n             if (!options.allowPrototypes) {\n                 return;\n             }\n         }\n \n-        keys.push(segment[1]);\n+        keys.push(parent);\n     }\n \n     // Loop through children appending to the array until we hit depth\ndiff --git a/test/parse.js b/test/parse.js\nindex 2e1116ec..e451e91f 100644\n--- a/test/parse.js\n+++ b/test/parse.js\n@@ -439,16 +439,15 @@ test('parse()', function (t) {\n \n     t.test('params starting with a closing bracket', function (st) {\n         st.deepEqual(qs.parse(']=toString'), { ']': 'toString' });\n+        st.deepEqual(qs.parse(']]=toString'), { ']]': 'toString' });\n+        st.deepEqual(qs.parse(']hello]=toString'), { ']hello]': 'toString' });\n         st.end();\n     });\n \n     t.test('params starting with a starting bracket', function (st) {\n-        st.deepEqual(qs.parse('[=toString'), {});\n-        st.end();\n-    });\n-\n-    t.test('params starting with a starting bracket', function (st) {\n-        st.deepEqual(qs.parse('[=toString'), {});\n+        st.deepEqual(qs.parse('[=toString'), { '[': 'toString' });\n+        st.deepEqual(qs.parse('[[=toString'), { '[[': 'toString' });\n+        st.deepEqual(qs.parse('[hello[=toString'), { '[hello[': 'toString' });\n         st.end();\n     });\n \n",
+  "testCommand": "node test",
+  "baseline_passing": 265,
+  "fix_passing": 268,
+  "broken_by_bug": 3,
+  "difficulty": {
+    "filesChanged": 2,
+    "linesAdded": 11,
+    "linesRemoved": 11
+  },
+  "minedAt": "2026-04-06T22:41:51.393Z"
+}

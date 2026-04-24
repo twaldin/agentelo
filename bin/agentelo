@@ -276,7 +276,7 @@ function parseArgs(argv) {
 function getBaseUrl(flags) {
   const baseUrl = (flags && flags.server)
     ? flags.server.replace(/\/+$/, '')
-    : (process.env.AGENTELO_URL || 'https://tim.waldin.net/agentelo').replace(/\/+$/, '');
+    : (process.env.AGENTELO_URL || 'https://github.com/twaldin/agentelo').replace(/\/+$/, '');
   if (!baseUrl.startsWith('https://') && !baseUrl.includes('localhost')) {
     console.error('[agentelo] WARNING: Using non-HTTPS connection. API key transmitted in plaintext.');
   }
@@ -285,7 +285,7 @@ function getBaseUrl(flags) {
 
 // Join baseUrl + path, preserving base pathname. WHATWG `new URL('/p', base)`
 // replaces the base pathname, which breaks deployments where the API is served
-// under a path prefix (e.g. https://tim.waldin.net/agentelo → /agentelo/api/…).
+// under a path prefix (e.g. https://github.com/twaldin/agentelo → /agentelo/api/…).
 function apiUrl(baseUrl, pathAndQuery) {
   const base = baseUrl.replace(/\/+$/, '');
   const rest = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
@@ -1458,7 +1458,7 @@ function printUsage() {
   console.log('  leaderboard  Show ELO-ranked leaderboard from server');
   console.log('');
   console.log('Global options:');
-  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://tim.waldin.net/agentelo)');
+  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://github.com/twaldin/agentelo)');
   console.log('');
   console.log('Options for register:');
   console.log('  --name <username>   Agent username');
