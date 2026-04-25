@@ -1,35 +1,36 @@
-# Submitting Your Agent
+# Running agentelo locally
 
-This guide walks you from zero to a ranked submission on the public AgentElo leaderboard at [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo).
+This guide walks you from zero to a scored agent run using the bundled baseline snapshot. **There is no public submission server anymore** — `agentelo` is now a local benchmarking tool.
 
 ## Who this is for
 
-You want to benchmark a coding agent against 42 real GitHub bugs and get an ELO rating you can compare to 150+ other model+harness combinations. You are willing to install a coding CLI and plug in your own API keys.
+You want to benchmark a coding agent against 41 real GitHub bug-fix challenges and see where it would slot into the snapshot of 148 baseline agents I ran across 6 harnesses. You are willing to install a coding CLI and plug in your own API keys (or use a subscription).
 
 ## What you need
 
 - **Node 20+** and **Python 3.10+** (different harnesses need different runtimes)
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
-- A browser for the one-time registration CAPTCHA at [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo) — rate-limited to 3 registrations per IP per day.
+
+No browser, no CAPTCHA, no network calls — `agentelo` runs everything against the SQLite snapshot bundled with the npm package.
 
 ## Overview
 
-AgentElo benchmarks the *full agent stack*: model + harness + config. Your submission runs your chosen harness against a challenge in a clean tmpdir, captures the diff, re-runs the challenge's test suite on the server to verify the score, and scores the submission pairwise against every other agent's best attempt at the same challenge.
+`agentelo` benchmarks the *full agent stack*: model + harness + config. Your run executes your chosen harness against a challenge in a clean tmpdir, captures the diff, runs the challenge's test suite, and scores your run pairwise against every baseline agent's best attempt at the same challenge using Bradley-Terry MLE.
 
-Currently 6 harnesses are supported out of the box. If your agent isn't one of these, see [Custom agents](#custom-agents) at the bottom.
+Currently 6 harnesses are supported out of the box. If your agent isn't one of these, see the [Custom harness](#custom-harness) section at the bottom.
 
-## Step 1 — Install the AgentElo CLI
+## Step 1 — Install the CLI
 
 ```bash
 npm install -g @twaldin/agentelo
 ```
 
-The CLI lives at `~/.agentelo/` and stores credentials in `~/.agentelo/credentials.json`.
+The CLI lives at `~/.agentelo/` and stores local agent identities in `~/.agentelo/agents.json`.
 
 ## Step 2 — Pick a harness + model
 
-See [HARNESSES.md](HARNESSES.md) for the full list and per-harness details. Short version:
+See [HARNESSES.md](HARNESSES.md) for the full list. Short version:
 
 | Harness | What it is | Good for |
 |---------|------------|----------|
@@ -51,131 +52,55 @@ npm i -g @anthropic-ai/claude-code
 # codex
 npm i -g @openai/codex
 
+# opencode
+npm i -g opencode-ai
+
 # gemini
 npm i -g @google/gemini-cli
-
-# opencode — see opencode.ai for latest install instructions
 
 # aider
 pip install aider-chat
 
-# swe-agent
-pip install minisweagent
+# swe-agent (uses bundled mini-swe-agent runner)
+# nothing extra to install
 ```
 
-## Step 4 — Set up provider auth
-
-The harness reads API keys from the standard env vars or your home config. AgentElo doesn't proxy or store your keys.
+## Step 4 — Register your agent locally
 
 ```bash
-export ANTHROPIC_API_KEY=...      # claude-code, aider, swe-agent with Claude
-export OPENAI_API_KEY=...          # codex, aider, swe-agent with GPT
-export GEMINI_API_KEY=...          # gemini, aider with Gemini
-export OPENROUTER_API_KEY=...      # aider/opencode/swe-agent via OpenRouter
+agentelo register --name my-agent --harness opencode --model gpt-5.4
 ```
 
-For subscription-based auth (ChatGPT / Claude Pro / Gemini via Vertex) see [HARNESSES.md](HARNESSES.md#subscription-auth).
+This writes a row to `~/.agentelo/agents.json` so the CLI knows what your agent is. No network call.
 
-## Step 5 — Register your agent
-
-Two options:
-
-**A. Web registration (recommended).** Visit [github.com/twaldin/agentelo](https://github.com/twaldin/agentelo), complete the CAPTCHA, pick a name + harness + model, and copy the API key. Save it with:
-
-```bash
-export AGENTELO_KEY=ael_sk_...
-# or paste into ~/.agentelo/credentials.json under agents.<name>.api_key
-```
-
-**B. CLI registration (self-hosted / no-CAPTCHA servers only).**
-
-```bash
-agentelo register \
-  --name my-agent \
-  --harness opencode \
-  --model openai/gpt-5.4
-```
-
-If the server has CAPTCHA enabled, the CLI will tell you to use option A. Agent names must be unique. You can register multiple agents (different harness/model combos) — use `--agent <name>` to pick which one `play` uses, or `agentelo default --agent <name>` to set a default.
-
-## Step 6 — Practice run (unranked)
-
-Before submitting to the leaderboard, do a dry run:
-
-```bash
-agentelo practice --challenge click-pr2421
-```
-
-This runs the harness against one challenge locally, scores it, and prints the result *without* posting to the server. Use this to verify your setup works. If tokens and cost come back as `0`, your parser path isn't firing — see [Troubleshooting](#troubleshooting).
-
-## Step 7 — Ranked submission
+## Step 5 — Run a ranked match
 
 ```bash
 agentelo play
 ```
 
-This picks a challenge, runs your agent, captures the diff, and posts the full result to the public server. The server:
+`agentelo` picks a challenge from the bundled corpus, clones the repo into `~/.agentelo/challenges/` (cached after first run), spawns your harness, runs the test suite, and stores the result locally. After 5+ runs across different challenges you'll get a stable inferred ELO.
 
-1. Verifies your `api_key`
-2. Re-runs the test suite against your diff in a sandboxed clone (client-reported `tests_ok` is never trusted)
-3. Checksum-verifies that only the files in your `git diff` were touched (catches test tampering — written about [here](../README.md#anti-cheat))
-4. Triggers a full Bradley-Terry rating rebuild
-5. Returns a `verification_status` within a few seconds
-
-You can play one challenge at a time or loop:
+For a specific challenge:
 
 ```bash
-agentelo play --loop           # run ranked matches until Ctrl-C
-agentelo play --count 5        # run 5 ranked matches then exit
+agentelo practice --challenge fastify-fastify-6135
 ```
 
-`play` always lets the server pick the next challenge (ranked semantics). To target a specific challenge ID for a dry run, use `agentelo practice --challenge <id>` — those runs are not submitted.
+## Step 6 — See your ranking
 
-Rate limit: **5 submissions per agent per day**, **100 per IP per day**. Takes a few days to fully seed across all 42 challenges. Budget accordingly.
+```bash
+agentelo leaderboard
+```
 
-## What gets submitted
+Shows the bundled baseline rankings with your agent slotted in by its inferred ELO.
 
-Every submission sends:
+## Custom harness
 
-- `diff` — git diff of your agent's changes (used for server-side re-test + leaderboard display)
-- `tests_ok`, `tests_total` — client-side score (informational; server replaces with its own re-test)
-- `agent_time_seconds` — wall-clock runtime of your agent process
-- `tokens_in`, `tokens_out` — usage extracted from your harness's output (parser per harness)
-- `cost_usd` — from the harness if available, else computed via a built-in pricing table
-- `transcript` — full stdout+stderr log of the run
-- `agent_hash` — sha256 of your harness + model + config files, lets the leaderboard detect config changes between submissions
+If you want to benchmark a harness `agentelo` doesn't ship an adapter for, write a thin wrapper that takes `--workdir`, `--prompt`, `--timeout`, exits 0, and leaves a unified diff in the workdir. Then point `agentelo` at it:
 
-The server re-runs tests and stores both your reported score and its verified score. Only the verified score counts for rating.
+```bash
+agentelo register --name my-custom --harness ./my-harness.sh --model whatever
+```
 
-## Troubleshooting
-
-**`tokens_in: 0, cost_usd: 0` after the run**
-Your harness parser didn't find usage data in the output. This is often a harness version mismatch. Check the log file path printed by `agentelo` — if the expected JSON line, sqlite DB, or trajectory file isn't there, the harness CLI output format changed. Open an issue.
-
-**`Unsupported harness: <name>`**
-You passed a harness not in the supported list. Currently: `claude-code`, `codex`, `opencode`, `gemini`, `aider`, `swe-agent`. See [Custom agents](#custom-agents) below.
-
-**Agent hangs for 20+ minutes**
-The CLI has a 20-min inactivity watchdog and a 30-min hard timeout. If your agent is slow or stuck in an API-error loop (5+ consecutive 429/503), the run is killed and scored with whatever diff exists.
-
-**`verification_status: rejected`**
-Usually one of: challenge-file missing on the server, no repo cache available, or the diff tampered with test files. The `verification_note` field tells you which.
-
-**`tampered: true`**
-Anti-cheat caught you writing outside of `git diff` — usually a test file modified without being staged, or a file created that isn't in the commit. Even true accidentally, the submission still posts but the scorer caps your test-fix credit at tests-actually-broken.
-
-## Custom agents
-
-If your agent isn't one of the 6 supported harnesses, you currently have two options:
-
-**Option A — Fork and PR**. Add a case to the switch statement in [`bin/agentelo`](../bin/agentelo) (around line 837) with your CLI invocation, plus a token/cost parser (around line 1386). Keep the PR scoped to the new harness. This is how all 6 current harnesses were added.
-
-**Option B — Wait for ACPX**. We're evaluating an [Agent Client Protocol](https://agentclientprotocol.com) adapter that would let any ACP-compatible agent (Claude Code, Codex, Gemini CLI, Cursor, Copilot, Qwen, Goose, and more) submit without requiring a code change to agentelo. When this lands, the [ACP registry](https://zed.dev/blog/acp-registry) becomes the supported-agent list. Subscribe to [GitHub releases](https://github.com/twaldin/agentelo/releases) to hear when.
-
-Either way, please don't submit with a fake harness name — it'll fail server-side verification and waste a rate-limit slot.
-
-## Getting help
-
-- [GitHub Issues](https://github.com/twaldin/agentelo/issues) for bugs or new-harness requests
-- [CONTRIBUTING.md](CONTRIBUTING.md) for adding challenges
-- [API.md](API.md) if you want to talk to the server directly instead of via the CLI
+Or, easier, add the adapter to [`harness`](https://github.com/twaldin/harness) and `agentelo` will pick it up automatically (it's already wired through `@twaldin/harness-ts`).

@@ -15,8 +15,8 @@ const pressStart2P = Press_Start_2P({
 });
 
 export const metadata: Metadata = {
-  title: 'AgentElo - Ranked Ladder for AI Coding Agents',
-  description: 'Objective scoring and Bradley-Terry rankings for AI coding agents. Real GitHub bugs, autonomous solves, head-to-head competition.',
+  title: 'AgentElo — Local benchmarking for AI coding agents',
+  description: 'Frozen baseline snapshot of 148 AI coding agents across 6 harnesses, scored on real GitHub bug-fix challenges with Bradley-Terry MLE. Public submissions are closed; the CLI now runs locally and ranks your agent against the bundled baseline.',
   // icon auto-detected from app/icon.svg — Next.js convention applies basePath
   // automatically. Don't set `icons.icon` here: Metadata URLs bypass basePath.
 }

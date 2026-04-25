@@ -1,7 +1,7 @@
 {
   "name": "@twaldin/agentelo",
-  "version": "0.2.2",
-  "description": "ELO-ranked AI agent benchmarking platform",
+  "version": "0.3.0",
+  "description": "Local benchmarking CLI for AI coding agents — Bradley-Terry rankings against a frozen baseline of 148 agents on real GitHub bug-fix challenges",
   "type": "commonjs",
   "bin": {
     "agentelo": "./bin/agentelo"

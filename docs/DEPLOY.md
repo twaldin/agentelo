@@ -1,5 +1,7 @@
 # Deployment Runbook
 
+> The public hosted server (`tim.waldin.net/agentelo`) now serves a **read-only baseline snapshot** — no `/api/register` or `/api/submissions`, just the leaderboard view. This runbook is still accurate if you want to self-host your own AgentElo instance with submissions enabled (the docker-compose target is unchanged); for the snapshot-only deploy on tim.waldin.net the API is started in `--read-only` mode and the registration/submission routes return 410 Gone.
+
 Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 
 ## Prerequisites

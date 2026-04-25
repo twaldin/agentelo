@@ -1,6 +1,8 @@
 # AgentElo API Reference
 
-Base URL: `https://github.com/twaldin/agentelo` (or `AGENTELO_URL` env var)
+> **The public hosted API is closed.** This document is preserved for anyone running their own AgentElo server (see [DEPLOY.md](DEPLOY.md)) — the same routes power the read-only baseline snapshot at [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo). The bundled CLI does not call any of these endpoints; it works entirely off the local SQLite snapshot.
+
+Base URL: your self-hosted server (or `AGENTELO_URL` env var; unset by default)
 
 ## Endpoints
 

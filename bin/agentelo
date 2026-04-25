@@ -273,10 +273,15 @@ function parseArgs(argv) {
 // ---------------------------------------------------------------------------
 // Server URL resolution
 // ---------------------------------------------------------------------------
+// Default base URL points at the read-only snapshot mirror at tim.waldin.net.
+// Public submissions/registration are closed there (server returns 410); the
+// CLI uses the snapshot for `leaderboard` reads and runs everything else
+// locally. Override with --server <url> or AGENTELO_URL=<url> if you self-host.
+const DEFAULT_BASE_URL = 'https://tim.waldin.net/agentelo';
 function getBaseUrl(flags) {
   const baseUrl = (flags && flags.server)
     ? flags.server.replace(/\/+$/, '')
-    : (process.env.AGENTELO_URL || 'https://github.com/twaldin/agentelo').replace(/\/+$/, '');
+    : (process.env.AGENTELO_URL || DEFAULT_BASE_URL).replace(/\/+$/, '');
   if (!baseUrl.startsWith('https://') && !baseUrl.includes('localhost')) {
     console.error('[agentelo] WARNING: Using non-HTTPS connection. API key transmitted in plaintext.');
   }
@@ -495,11 +500,36 @@ async function cmdRegister(flags) {
 
   const baseUrl = getBaseUrl(flags);
   let res;
+  let networkOk = true;
   try {
     res = await postRegister({ name: flags.name, harness: flags.harness, model: flags.model }, baseUrl);
   } catch (err) {
-    console.error('[agentelo] Registration failed:', err.message);
-    process.exit(1);
+    networkOk = false;
+    console.error(`[agentelo] Could not reach ${baseUrl} — registering locally only.`);
+  }
+
+  // Snapshot/local mode: server returned 410 Gone, or we couldn't reach it at all.
+  // Save credentials with a locally-generated key so play/practice still work.
+  if (!networkOk || (res && res.status === 410)) {
+    if (res && res.status === 410 && res.body && res.body.error) {
+      console.error(`[agentelo] ${res.body.error}`);
+    }
+    const agent_id = String(flags.name).toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const api_key = `local-${crypto.randomBytes(16).toString('hex')}`;
+    fs.mkdirSync(AGENTELO_DIR, { recursive: true });
+    let creds = {};
+    try { creds = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')); } catch {}
+    if (creds.agent_id && creds.api_key && !creds.agents) {
+      creds = { agents: { [creds.agent_id]: { api_key: creds.api_key } }, default: creds.agent_id };
+    }
+    if (!creds.agents) creds.agents = {};
+    creds.agents[agent_id] = { api_key, harness: flags.harness, model: flags.model, local: true };
+    if (!creds.default || Object.keys(creds.agents).length === 1) creds.default = agent_id;
+    fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
+    console.log(`Local agent registered: ${agent_id}`);
+    console.log(`Saved to ~/.agentelo/credentials.json`);
+    console.log(`Run: agentelo play   # picks a challenge from the bundled corpus`);
+    return;
   }
 
   if (res.status === 403 && res.body && /CAPTCHA/i.test(res.body.error || '')) {
@@ -534,7 +564,7 @@ async function cmdRegister(flags) {
     creds = { agents: { [creds.agent_id]: { api_key: creds.api_key } }, default: creds.agent_id };
   }
   if (!creds.agents) creds.agents = {};
-  creds.agents[agent_id] = { api_key, harness, model };
+  creds.agents[agent_id] = { api_key, harness: flags.harness, model: flags.model };
   // Set as default if it's the first or only agent
   if (!creds.default || Object.keys(creds.agents).length === 1) creds.default = agent_id;
   fs.writeFileSync(CREDS_FILE, JSON.stringify(creds, null, 2));
@@ -647,6 +677,10 @@ async function postToApi(result, baseUrl) {
         const status = res.statusCode || 0;
         if (status >= 200 && status < 300) {
           console.log(`[agentelo] Submission posted (HTTP ${status}) → ${url.href}`);
+        } else if (status === 410) {
+          // Read-only snapshot deployment — submissions are intentionally closed.
+          // Treat as success (results stay local) and don't spam the user.
+          console.log('[agentelo] Submissions are closed on the snapshot mirror — result kept locally.');
         } else {
           const snippet = data.slice(0, 240).replace(/\s+/g, ' ');
           console.error(`[agentelo] Submission POST failed (HTTP ${status}) → ${url.href}`);
@@ -656,7 +690,7 @@ async function postToApi(result, baseUrl) {
       });
     });
     req.on('error', (err) => {
-      console.error(`[agentelo] Submission POST error: ${err.message}`);
+      console.log(`[agentelo] No server reachable (${err.message}) — result kept locally.`);
       resolve();
     });
     req.setTimeout(30000, () => {
@@ -1445,20 +1479,24 @@ const flags = parseArgs(process.argv.slice(3));
 function printUsage() {
   console.log('Usage: agentelo <command> [options]');
   console.log('');
+  console.log('agentelo runs locally. Public submissions are closed; the default server');
+  console.log('https://tim.waldin.net/agentelo serves a read-only baseline snapshot for');
+  console.log('the leaderboard view. All scoring happens on your machine.');
+  console.log('');
   console.log('Commands:');
-  console.log('  register     Register an agent and save API credentials');
+  console.log('  register     Register an agent locally (no network call required)');
   console.log('  rename       Update your agent display name');
   console.log('  agents       List locally registered agents');
   console.log('  default      Set the default agent for play');
-  console.log('  play         Ranked match (server picks challenge)');
+  console.log('  play         Pick a challenge from the bundled corpus, run, score, save locally');
   console.log('  practice     Unranked run with a specific challenge');
   console.log('  seed         Run agent with isolated HOME (baseline seeding only)');
   console.log('  mine         Mine new challenges from GitHub repos');
   console.log('  results      Show all past run results');
-  console.log('  leaderboard  Show ELO-ranked leaderboard from server');
+  console.log('  leaderboard  Show the read-only baseline snapshot from the default server');
   console.log('');
   console.log('Global options:');
-  console.log('  --server <url>      Server URL (default: $AGENTELO_URL or https://github.com/twaldin/agentelo)');
+  console.log('  --server <url>      Override server URL (default: $AGENTELO_URL or https://tim.waldin.net/agentelo)');
   console.log('');
   console.log('Options for register:');
   console.log('  --name <username>   Agent username');

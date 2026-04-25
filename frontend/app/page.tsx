@@ -16,16 +16,19 @@ export default function HomePage() {
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
             <div className="flex flex-col gap-6">
               <h1 className="font-display text-xl leading-[1.15] tracking-tight sm:text-3xl sm:leading-[1.25] lg:text-4xl">
-                <span className="block text-foreground">Ranked ladder for</span>
+                <span className="block text-foreground">Local benchmarking for</span>
                 <span className="block text-primary text-glow">AI coding agents</span>
               </h1>
               <p className="max-w-prose text-pretty text-base text-muted-foreground leading-relaxed">
-                Real GitHub bugs. Autonomous solves. Bradley-Terry rankings. Not which model — which <span className="text-primary text-glow-sm">full agent setup</span>: model + harness + config.
+                Browse the frozen baseline: 148 agents, 6 harnesses, 41 real GitHub bug-fix challenges, Bradley-Terry rankings. Run the CLI locally to see where <span className="text-primary text-glow-sm">your agent</span> would slot in — model + harness + config.
+              </p>
+              <p className="max-w-prose text-pretty text-sm text-muted-foreground/80 leading-relaxed">
+                Public submissions are closed. The snapshot is read-only — the CLI does the ranking on your machine, against the bundled baseline.
               </p>
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Button asChild size="lg" className="glow-primary-sm">
                   <Link href="/leaderboard">
-                    View Leaderboard
+                    View Baseline Snapshot
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
@@ -41,7 +44,7 @@ export default function HomePage() {
               <div className="space-y-2">
                 <TerminalLine prompt="$" command="agentelo play" />
                 <TerminalOutput>
-                  Assigned challenge: fastify/fastify-6135 [easy]
+                  Picked challenge: fastify/fastify-6135 [easy]
                 </TerminalOutput>
                 <TerminalOutput>
                   Using cached repo for fastify-fastify
@@ -57,7 +60,7 @@ export default function HomePage() {
                   Tests: 2070/2076 passed - 4m 12s - 48 diff lines
                 </TerminalOutput>
                 <TerminalOutput variant="success">
-                  {'ELO: 1500 \u2192 1538 (+38) - rank #4 \u2192 rank #2'}
+                  {'Inferred ELO: 1538 \u2014 would rank #14 / 149 vs. baseline'}
                 </TerminalOutput>
                 <div className="h-2" />
                 <div className="flex items-center gap-2">
@@ -77,7 +80,7 @@ export default function HomePage() {
             HOW IT WORKS
           </h2>
           <p className="mt-4 max-w-2xl text-2xl font-medium tracking-tight sm:text-3xl text-foreground">
-            Objective benchmarking through real bugs
+            Score your agent against a frozen baseline
           </p>
 
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -85,19 +88,19 @@ export default function HomePage() {
               number="01"
               icon={GitBranch}
               title="Real Bugs, No Hints"
-              description="Challenges come from real open source repos -- fastify, koa, svelte, deno, ripgrep, jq. Your agent gets the buggy commit and failing tests. Nothing else."
+              description="Challenges come from real open-source repos — click, fastify, flask, jinja, koa, marshmallow, qs. Your agent gets the buggy commit and failing tests. Nothing else."
             />
             <FeatureCard
               number="02"
               icon={Bot}
-              title="Fully Autonomous"
-              description="stdin is /dev/null. No human in the loop. Your full agent setup -- model, harness, config, skills -- runs on its own."
+              title="Runs Fully Locally"
+              description="No registration server, no submission, no API keys for AgentElo itself. The CLI runs your harness, scores against the bundled corpus, and stores results in ~/.agentelo."
             />
             <FeatureCard
               number="03"
               icon={Target}
-              title="Head-to-Head Bradley-Terry"
-              description="Each submission is matched pairwise against all others on the same challenge. Bradley-Terry solves all outcomes simultaneously — no ordering artifacts."
+              title="Bradley-Terry vs. Baseline"
+              description="Your run is paired against every baseline agent's best attempt at the same challenge. Bradley-Terry MLE gives you a single inferred ELO and the agents you'd beat."
             />
           </div>
         </div>
@@ -137,8 +140,8 @@ export default function HomePage() {
             />
             <StepCard
               number="4"
-              title="Climb"
-              description="View your ranking on the leaderboard"
+              title="Rank"
+              description="See your inferred ELO vs. the bundled baseline"
             />
           </div>
         </div>
@@ -150,7 +153,7 @@ export default function HomePage() {
           <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <p className="text-sm text-muted-foreground">
               <span className="font-display text-xs text-primary text-glow-sm">AGENTELO</span>
-              <span className="ml-2">Ranked ladder for AI coding agents</span>
+              <span className="ml-2">Local benchmarking for AI coding agents · snapshot read-only</span>
             </p>
             <div className="flex items-center gap-6">
               <Link href="/leaderboard" className="text-sm text-muted-foreground hover:text-foreground">

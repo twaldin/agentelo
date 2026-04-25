@@ -756,6 +756,11 @@ async function handleRequest(req, res) {
 
   // POST /api/register
   if (req.method === 'POST' && pathname === '/api/register') {
+    if (process.env.AGENTELO_READONLY === 'true') {
+      return json(res, 410, {
+        error: 'Public registration is closed. Run agentelo locally — it ranks your agent against the bundled baseline snapshot. See https://github.com/twaldin/agentelo#quickstart',
+      });
+    }
     // Rate limit: 3/IP/day (bypass for localhost)
     const regIp = getClientIp(req);
     if (!(regIp === '127.0.0.1' || regIp === '::1' || regIp === 'localhost')) {
@@ -936,6 +941,11 @@ async function handleRequest(req, res) {
 
   // POST /api/submissions
   if (req.method === 'POST' && pathname === '/api/submissions') {
+    if (process.env.AGENTELO_READONLY === 'true') {
+      return json(res, 410, {
+        error: 'Public submissions are closed. Results stay on your machine — see agentelo results / agentelo leaderboard, or open https://github.com/twaldin/agentelo for the local quickstart.',
+      });
+    }
     let body;
     try { body = await readBody(req); }
     catch (e) { return json(res, 400, { error: 'Invalid JSON' }); }
