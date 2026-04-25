@@ -3,6 +3,7 @@ services:
     build:
       context: .
       target: api
+    container_name: agentelo-api
     restart: unless-stopped
     volumes:
       - ./data:/data
@@ -17,12 +18,13 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "10001:10001"
-    # Bind to loopback only — nginx on the host reaches this, not the public internet
+    # Bind to loopback for direct host access; also reachable inside the
+    # term-site external network as DNS name `agentelo-api` (used by nginx).
     ports:
       - "127.0.0.1:4000:4000"
     networks:
       - internal
-      - external
+      - shared-web
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/api/leaderboard"]
       interval: 30s
@@ -36,14 +38,15 @@ services:
       target: frontend
       args:
         # Baked into the JS bundle at build time — set to the public-facing API path
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://github.com/twaldin/agentelo}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
         # Next.js basePath — without this, routes serve at / instead of /agentelo
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/agentelo}
+    container_name: agentelo-frontend
     restart: unless-stopped
     environment:
       # Server-side API calls use the internal service DNS
       - API_URL=http://api:4000
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://github.com/twaldin/agentelo}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://tim.waldin.net/agentelo/api}
     read_only: true
     tmpfs:
       - /tmp
@@ -53,7 +56,8 @@ services:
     security_opt:
       - no-new-privileges:true
     user: "10001:10001"
-    # Bind to loopback only — nginx on the host reaches this, not the public internet
+    # Bind to loopback for direct host access; also reachable inside the
+    # term-site external network as DNS name `agentelo-frontend` (used by nginx).
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:
@@ -61,7 +65,7 @@ services:
         condition: service_healthy
     networks:
       - internal
-      - external
+      - shared-web
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001"]
       interval: 30s
@@ -74,6 +78,7 @@ networks:
   internal:
     driver: bridge
     internal: true
-  # Reachable from host (nginx); frontend binds 127.0.0.1:3001 on host
-  external:
-    driver: bridge
+  # Shared with term-site stack so nginx can proxy by container DNS name
+  shared-web:
+    name: term-site_external-net
+    external: true
