@@ -26,7 +26,7 @@ def main():
     args = parser.parse_args()
 
     # Force litellm to use chat/completions (not responses API) for codex models.
-    # The OAuth proxy only supports /v1/chat/completions, not /v1/responses.
+    # Proxy source: https://github.com/twaldin/openai-oauth
     # litellm routes codex models to responses API by default — override that.
     import litellm
     for codex_model in ['gpt-5.3-codex', 'openai/gpt-5.3-codex', 'gpt-5.3-codex-spark', 'openai/gpt-5.3-codex-spark']:

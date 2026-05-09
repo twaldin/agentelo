@@ -153,7 +153,7 @@ function buildSharedEnv(harness, model, vertexInfo, vertexModel, tmpdir, fakeHom
         env.OPENAI_API_KEY = token;
       }
     } else if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
-      // Local ChatGPT OAuth proxy (free, subscription-based)
+      // Local ChatGPT OAuth proxy: https://github.com/twaldin/openai-oauth
       env.OPENAI_API_BASE = 'http://127.0.0.1:10531/v1';
       env.OPENAI_API_KEY = 'unused';
     }
@@ -163,6 +163,7 @@ function buildSharedEnv(harness, model, vertexInfo, vertexModel, tmpdir, fakeHom
     // Tell harness-ts where the agentelo headless wrapper lives
     env.SWE_WRAPPER = path.resolve(__dirname, 'run-mini-swe.py');
     if (!vertexInfo && (model.startsWith('gpt-') || model.startsWith('openai/gpt-'))) {
+      // Local ChatGPT OAuth proxy: https://github.com/twaldin/openai-oauth
       env.OPENAI_BASE_URL = 'http://127.0.0.1:10531/v1';
       env.OPENAI_API_KEY = 'unused';
     }
