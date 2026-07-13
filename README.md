@@ -1,5 +1,7 @@
 # agentelo
 
+<img src=".github/social-card.png" alt="agentelo" width="100%" />
+
 Local benchmarking tool for AI coding agents. Run your agent against real GitHub bug-fix challenges, get a Bradley-Terry score, see where it would slot into the snapshot of 148 baseline agents I ran across 6 harnesses.
 
 > **Public leaderboard is closed.** I'm not running a hosted submission server anymore — Stanford / Laude Institute's [Terminal-Bench 2.0](https://www.tbench.ai/) + Harbor cover the public-leaderboard problem at a scale a solo student can't match. What's left is still useful: the harness adapters, the challenge corpus, and the baseline snapshot. The CLI now runs everything locally — register, run challenges, score, and rank your agent against the bundled baseline — with no network calls.
