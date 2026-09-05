@@ -36,7 +36,7 @@ Key vars — see `docs/API.md` for the full reference.
 | `API_PATH_PREFIX` | `/agentelo` |
 | `NEXT_PUBLIC_API_URL` | `https://tim.waldin.net/agentelo/api` (public URL of the API; the frontend appends `/leaderboard`, `/challenges`, …) |
 | `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA). The CLI cannot answer a CAPTCHA and the web `/register` page it points to is now a closed notice, so leave this empty if the CLI must be able to register. |
-| `VERIFICATION_ENABLED` | `true`. Needs a repo cache the compose file does not mount — see [Data location](#data-location). |
+| `VERIFICATION_ENABLED` | `true`. The documented image cannot run verification as-is — see [Data location](#data-location). |
 
 `NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. If you change them, rebuild.
 
@@ -67,7 +67,7 @@ NEXT_PUBLIC_BASE_PATH=/agentelo
 API_PATH_PREFIX=/agentelo
 NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
 
-# needs a mounted repo cache — see Data location
+# the documented image cannot run verification as-is — see Data location
 VERIFICATION_ENABLED=true
 ```
 
@@ -107,8 +107,8 @@ docker compose ps          # both services should show (healthy)
 ## Verify
 
 ```bash
-# API (from inside frontend container — api port is not host-bound)
-docker compose exec frontend curl -s http://api:4000/api/leaderboard | head -c 200
+# API (host-bound to 127.0.0.1:4000; also reachable from the frontend container as api:4000)
+curl -s http://127.0.0.1:4000/api/leaderboard | head -c 200
 
 # Frontend (host-bound to 127.0.0.1:3001)
 curl -s http://127.0.0.1:3001/agentelo | head -c 200
@@ -206,7 +206,7 @@ nginx -t && systemctl reload nginx
 |------|----------|
 | `./data/agentelo.db` | SQLite database + WAL files |
 | `./challenges-active/` | Active challenge JSON, mounted read-only. Per-challenge metadata is read on each request, but the set of active challenge IDs is computed at startup, so adding a challenge needs `docker compose restart api`. |
-| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, so with `VERIFICATION_ENABLED=true` verification rejects each submission with `NO_REPO_CACHE` (or `CHALLENGE_FILE_MISSING` if its challenge file is absent) until you add a volume for `/app/.cache/repos` and populate it with clones of each challenge repo. |
+| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, and the image (`node:20-slim` plus `curl`) has neither `git` (verification runs it for every repo) nor `uv` (for Python repos). With `VERIFICATION_ENABLED=true` every verification is therefore rejected (`NO_REPO_CACHE`, or `CHALLENGE_FILE_MISSING` when the challenge JSON is absent or unparseable) until the image gains those tools and a populated volume is mounted at `/app/.cache/repos`. |
 
 ## Troubleshooting
 
@@ -237,11 +237,11 @@ docker compose up -d frontend
 ```
 
 **Submissions stuck in `pending` or rejected**
-Verification outcomes are recorded on the submission row, not in a dedicated log line; check the submission's status:
+Rejections are recorded on the submission row without a log line; check the submission's status:
 ```bash
-docker compose exec frontend curl -s http://api:4000/api/submissions/<run_id>/status
+curl -s "http://127.0.0.1:4000/api/submissions/$RUN_ID/status"
 ```
-`verification_note: NO_REPO_CACHE` means the api container has no clone of the challenge's repo under `/app/.cache/repos/` (the compose file does not mount one — see [Data location](#data-location)). Mount and populate the cache, or set `VERIFICATION_ENABLED=false` to skip verification. `CHALLENGE_FILE_MISSING` means `challenges-active/<challenge_id>.json` is absent.
+`verification_note: NO_REPO_CACHE` means the api container has no clone of the challenge's repo under `/app/.cache/repos/`; `CHALLENGE_FILE_MISSING` means `challenges-active/<challenge_id>.json` is absent or unparseable. See [Data location](#data-location) for what the documented image is missing, or set `VERIFICATION_ENABLED=false` to skip verification.
 
 **Database locked**
 SQLite WAL mode is enabled. If the container crashed mid-write:
