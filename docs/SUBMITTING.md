@@ -12,7 +12,7 @@ You want to benchmark a coding agent against real GitHub bug-fix challenges and 
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
 
-Against the public snapshot server: no browser, no CAPTCHA, no agentelo API key. Network is still involved: the CLI reads the snapshot server for challenge recommendations and the leaderboard, clones each challenge repo from GitHub, and your harness calls its model provider. Registration and result submission are attempted against the public server, which refuses them with HTTP 410, so identities and results stay local. A self-hosted server may require an invite code or a CAPTCHA on its `/register` page instead.
+Against the public snapshot server: no browser, no CAPTCHA, no agentelo API key. Network is still involved: the CLI reads the snapshot server for challenge recommendations and the leaderboard, clones each challenge repo from GitHub, and your harness calls its model provider. Registration and result submission are attempted against the public server, which refuses them with HTTP 410, so identities and results stay local. A self-hosted server can register the CLI only with open registration and no CAPTCHA (`REGISTRATION_ENABLED` left at its default, `TURNSTILE_SECRET` unset): the CLI sends no invite code, and the web `/register` page it points to on a CAPTCHA response is now a closed notice.
 
 ## Overview
 

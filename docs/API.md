@@ -24,7 +24,7 @@ Save the `api_key` — it's your auth token for submissions. Stored automaticall
 
 ### `POST /api/submissions`
 
-Submit a ranked challenge result. When `VERIFICATION_ENABLED=true` the server re-runs tests on the submitted diff before the result counts, and client-reported `tests_ok` is never trusted for leaderboard scoring; when `false` (the default) the submission is accepted as reported and marked verified immediately.
+Submit a ranked challenge result. When `VERIFICATION_ENABLED=true` the server re-runs tests on the submitted diff before the result counts; the client-reported `tests_ok` is kept only if it is within 2 of the server's count (flakiness tolerance), otherwise the server's count replaces it. When `false` (the default) the submission is accepted as reported and marked verified immediately.
 
 **Request:**
 ```json
