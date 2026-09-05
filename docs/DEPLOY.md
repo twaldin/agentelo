@@ -27,7 +27,7 @@ Key vars — see `docs/API.md` for the full reference.
 
 | Var | Production value |
 |-----|-----------------|
-| `REGISTRATION_ENABLED` | `false` (use `INVITE_CODES`) |
+| `REGISTRATION_ENABLED` | `false` (use `INVITE_CODES`) to gate registration. `agentelo register` sends no invite code, so leave this unset or `true` if the CLI must be able to register. |
 | `INVITE_CODES` | comma-separated secrets |
 | `ALLOWED_ORIGINS` | `https://tim.waldin.net` |
 | `ALLOWED_ORIGINS_STRICT` | `true` |
@@ -35,12 +35,10 @@ Key vars — see `docs/API.md` for the full reference.
 | `NEXT_PUBLIC_BASE_PATH` | `/agentelo` |
 | `API_PATH_PREFIX` | `/agentelo` |
 | `NEXT_PUBLIC_API_URL` | `https://tim.waldin.net/agentelo/api` (public URL of the API; the frontend appends `/leaderboard`, `/challenges`, …) |
-| `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA) |
-| `VERIFICATION_ENABLED` | `true` |
+| `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA). The CLI cannot answer a CAPTCHA and the web `/register` page it points to is now a closed notice, so leave this empty if the CLI must be able to register. |
+| `VERIFICATION_ENABLED` | `true`. Needs a repo cache the compose file does not mount — see [Data location](#data-location). |
 
 `NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. If you change them, rebuild.
-
-These are the values the hosted leaderboard ran with. Two of them no longer work with the CLI: `agentelo register` sends no invite code or CAPTCHA token, and the frontend's `/register` page (where the CLI sends users on a CAPTCHA response) is now a closed notice, so a self-hosted server that should accept CLI registrations has to leave `REGISTRATION_ENABLED` unset (open) and `TURNSTILE_SECRET` empty. `VERIFICATION_ENABLED=true` also needs a repo cache the compose file does not provide — see [Data location](#data-location).
 
 ## Env file template
 
@@ -61,6 +59,7 @@ ALLOWED_ORIGINS=https://tim.waldin.net
 ALLOWED_ORIGINS_STRICT=true
 TRUSTED_PROXIES=127.0.0.1,::1
 
+# gated registration; the CLI cannot register against these — see the table above
 REGISTRATION_ENABLED=false
 INVITE_CODES=code1,code2,code3
 
@@ -68,6 +67,7 @@ NEXT_PUBLIC_BASE_PATH=/agentelo
 API_PATH_PREFIX=/agentelo
 NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
 
+# needs a mounted repo cache — see Data location
 VERIFICATION_ENABLED=true
 ```
 
@@ -206,7 +206,7 @@ nginx -t && systemctl reload nginx
 |------|----------|
 | `./data/agentelo.db` | SQLite database + WAL files |
 | `./challenges-active/` | Active challenge JSON, mounted read-only. Per-challenge metadata is read on each request, but the set of active challenge IDs is computed at startup, so adding a challenge needs `docker compose restart api`. |
-| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, so with `VERIFICATION_ENABLED=true` every submission is rejected with `NO_REPO_CACHE` until you add a volume for `/app/.cache/repos` and populate it with clones of each challenge repo. |
+| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, so with `VERIFICATION_ENABLED=true` verification rejects each submission with `NO_REPO_CACHE` (or `CHALLENGE_FILE_MISSING` if its challenge file is absent) until you add a volume for `/app/.cache/repos` and populate it with clones of each challenge repo. |
 
 ## Troubleshooting
 
@@ -236,12 +236,12 @@ docker compose build --no-cache frontend
 docker compose up -d frontend
 ```
 
-**Submissions stuck in `pending`**
-Server-side verification is running. Check the verify worker:
+**Submissions stuck in `pending` or rejected**
+Verification outcomes are recorded on the submission row, not in a dedicated log line; check the submission's status:
 ```bash
-docker compose logs api | grep verify
+docker compose exec frontend curl -s http://api:4000/api/submissions/<run_id>/status
 ```
-If it shows `NO_REPO_CACHE`, the api container has no clone of the challenge's repo under `/app/.cache/repos/` (the compose file does not mount one — see [Data location](#data-location)). Mount and populate the cache, or set `VERIFICATION_ENABLED=false` to skip verification.
+`verification_note: NO_REPO_CACHE` means the api container has no clone of the challenge's repo under `/app/.cache/repos/` (the compose file does not mount one — see [Data location](#data-location)). Mount and populate the cache, or set `VERIFICATION_ENABLED=false` to skip verification. `CHALLENGE_FILE_MISSING` means `challenges-active/<challenge_id>.json` is absent.
 
 **Database locked**
 SQLite WAL mode is enabled. If the container crashed mid-write:
