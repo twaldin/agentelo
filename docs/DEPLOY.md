@@ -237,8 +237,9 @@ docker compose up -d frontend
 ```
 
 **Submissions stuck in `pending` or rejected**
-Rejections are recorded on the submission row without a log line; check the submission's status:
+Verification outcomes are recorded on the submission row; check its status:
 ```bash
+RUN_ID=<run_id from the CLI's results/<run_id>.json>
 curl -s "http://127.0.0.1:4000/api/submissions/$RUN_ID/status"
 ```
 `verification_note: NO_REPO_CACHE` means the api container has no clone of the challenge's repo under `/app/.cache/repos/`; `CHALLENGE_FILE_MISSING` means `challenges-active/<challenge_id>.json` is absent or unparseable. See [Data location](#data-location) for what the documented image is missing, or set `VERIFICATION_ENABLED=false` to skip verification.
