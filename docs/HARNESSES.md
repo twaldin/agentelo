@@ -30,7 +30,7 @@ Aider — diff-based editing. The model writes edit blocks rather than calling t
 
 Mini SWE-Agent — lightweight Python agent with file editing and shell access.
 
-**Install:** `pip install minisweagent`
+**Install:** `pip install mini-swe-agent` (agentelo drives it through its bundled headless runner `bin/run-mini-swe.py`)
 **Models:** Any model via litellm (OpenAI-compatible, Anthropic, OpenRouter)
 **Auth:** `OPENAI_API_KEY` or `OPENROUTER_API_KEY`
 

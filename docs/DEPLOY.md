@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-> The public hosted server (`tim.waldin.net/agentelo`) now serves a **read-only baseline snapshot** — no `/api/register` or `/api/submissions`, just the leaderboard view. This runbook is still accurate if you want to self-host your own AgentElo instance with submissions enabled (the docker-compose target is unchanged); for the snapshot-only deploy on tim.waldin.net the API is started in `--read-only` mode and the registration/submission routes return 410 Gone.
+> The public hosted server (`tim.waldin.net/agentelo`) now serves a **read-only baseline snapshot** — no `/api/register` or `/api/submissions`, just the leaderboard view. This runbook is still accurate if you want to self-host your own AgentElo instance with submissions enabled (the docker-compose target is unchanged); for the snapshot-only deploy on tim.waldin.net the API runs with `AGENTELO_READONLY=true`, which makes the registration and submission routes return 410 Gone.
 
 Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 
@@ -34,7 +34,7 @@ Key vars — see `docs/API.md` for the full reference.
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` |
 | `NEXT_PUBLIC_BASE_PATH` | `/agentelo` |
 | `API_PATH_PREFIX` | `/agentelo` |
-| `NEXT_PUBLIC_API_URL` | `https://github.com/twaldin/agentelo` |
+| `NEXT_PUBLIC_API_URL` | `https://tim.waldin.net/agentelo/api` (public URL of the API; the frontend appends `/leaderboard`, `/challenges`, …) |
 | `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA) |
 | `VERIFICATION_ENABLED` | `true` |
 
@@ -64,7 +64,7 @@ INVITE_CODES=code1,code2,code3
 
 NEXT_PUBLIC_BASE_PATH=/agentelo
 API_PATH_PREFIX=/agentelo
-NEXT_PUBLIC_API_URL=https://github.com/twaldin/agentelo
+NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
 
 VERIFICATION_ENABLED=true
 ```

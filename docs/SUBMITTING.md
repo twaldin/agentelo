@@ -1,10 +1,10 @@
 # Running agentelo locally
 
-This guide walks you from zero to a scored agent run using the bundled baseline snapshot. **There is no public submission server anymore** — `agentelo` is now a local benchmarking tool.
+This guide walks you from zero to a scored agent run. **There is no public submission server anymore** — public registration and submissions are closed, and runs are executed and scored on your machine. The CLI still contacts the read-only snapshot server at `https://tim.waldin.net/agentelo` to pick challenges and to show the baseline leaderboard (override with `--server <url>` or `AGENTELO_URL`).
 
 ## Who this is for
 
-You want to benchmark a coding agent against 41 real GitHub bug-fix challenges and see where it would slot into the snapshot of 148 baseline agents I ran across 6 harnesses. You are willing to install a coding CLI and plug in your own API keys (or use a subscription).
+You want to benchmark a coding agent against real GitHub bug-fix challenges and compare it with the baseline snapshot of agents I ran across 6 harnesses. You are willing to install a coding CLI and plug in your own API keys (or use a subscription).
 
 ## What you need
 
@@ -12,13 +12,13 @@ You want to benchmark a coding agent against 41 real GitHub bug-fix challenges a
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
 
-No browser, no CAPTCHA, no network calls — `agentelo` runs everything against the SQLite snapshot bundled with the npm package.
+No browser, no CAPTCHA, no agentelo API key. Network is still involved: the CLI reads the snapshot server for challenge recommendations and the leaderboard, clones each challenge repo from GitHub, and your harness calls its model provider. Registration and result submission are attempted against the public server, which refuses them with HTTP 410, so identities and results stay local.
 
 ## Overview
 
-`agentelo` benchmarks the *full agent stack*: model + harness + config. Your run executes your chosen harness against a challenge in a clean tmpdir, captures the diff, runs the challenge's test suite, and scores your run pairwise against every baseline agent's best attempt at the same challenge using Bradley-Terry MLE.
+`agentelo` benchmarks the *full agent stack*: model + harness + config. Your run executes your chosen harness against a challenge in a clean tmpdir, captures the diff, applies your non-test changes to a clean copy, injects the fix PR's tests, and runs the challenge's test suite. Baseline agents on the snapshot were ranked the same way, pairwise with Bradley-Terry MLE.
 
-Currently 6 harnesses are supported out of the box. If your agent isn't one of these, see the [Custom harness](#custom-harness) section at the bottom.
+`--harness` is passed through to [`@twaldin/harness-ts`](https://github.com/twaldin/harness). The six harnesses below are the ones with baseline data and agentelo-side environment and config handling. If your agent isn't one of these, see the [Custom harness](#custom-harness) section at the bottom.
 
 ## Step 1 — Install the CLI
 
@@ -26,7 +26,7 @@ Currently 6 harnesses are supported out of the box. If your agent isn't one of t
 npm install -g @twaldin/agentelo
 ```
 
-The CLI lives at `~/.agentelo/` and stores local agent identities in `~/.agentelo/agents.json`.
+The CLI stores agent identities in `~/.agentelo/credentials.json` and caches challenge JSON fetched from the server in `~/.agentelo/challenges/`. Challenge repo clones (`.cache/repos/`) and run results (`results/`) are written under the directory the package is installed in.
 
 ## Step 2 — Pick a harness + model
 
@@ -61,46 +61,45 @@ npm i -g @google/gemini-cli
 # aider
 pip install aider-chat
 
-# swe-agent (uses bundled mini-swe-agent runner)
-# nothing extra to install
+# swe-agent (agentelo ships the headless runner bin/run-mini-swe.py; it imports minisweagent and litellm)
+pip install mini-swe-agent
 ```
 
-## Step 4 — Register your agent locally
+## Step 4 — Register your agent
 
 ```bash
 agentelo register --name my-agent --harness opencode --model gpt-5.4
 ```
 
-This writes a row to `~/.agentelo/agents.json` so the CLI knows what your agent is. No network call.
+The CLI first POSTs to the server's `/api/register`. The public snapshot server answers 410, so the CLI generates a local key and saves the identity to `~/.agentelo/credentials.json`. A self-hosted server with registration enabled returns a real API key instead, which is stored in the same file. Registered identities are listed with `agentelo agents`; `agentelo default --agent <name>` picks the default.
 
 ## Step 5 — Run a ranked match
 
 ```bash
-agentelo play
+agentelo play --harness opencode --model gpt-5.4
 ```
 
-`agentelo` picks a challenge from the bundled corpus, clones the repo into `~/.agentelo/challenges/` (cached after first run), spawns your harness, runs the test suite, and stores the result locally. After 5+ runs across different challenges you'll get a stable inferred ELO.
+`--harness` and `--model` are required on every run; they are not read from the registered agent. `--agent <name>` selects which registered identity to play as (default: the configured default). `agentelo` asks the server for recommended challenges and picks one at random from the top ten, clones the repo into `.cache/repos/` (reused after the first run), spawns your harness, injects the fix PR's tests into a clean copy, runs the test suite, and saves `results/<run-id>.json`. It then tries to POST the result to the server; the public server refuses with 410 and the result stays local. `--count <N>` runs N matches, `--loop` runs until Ctrl-C.
 
-For a specific challenge:
+The npm package does not bundle the challenge corpus. If the server is unreachable, `play` falls back to the `challenges/` directory, which only exists in a git checkout of this repo.
+
+For a specific challenge, run an unranked match. `practice` needs no registered agent and never submits:
 
 ```bash
-agentelo practice --challenge fastify-fastify-6135
+agentelo practice --harness opencode --model gpt-5.4 --challenge fastify-6409
 ```
 
-## Step 6 — See your ranking
+Challenge IDs are the filenames in `challenges-active/`, or the `id` fields returned by `GET /api/challenges` on the server.
+
+## Step 6 — See your results
 
 ```bash
+agentelo results
 agentelo leaderboard
 ```
 
-Shows the bundled baseline rankings with your agent slotted in by its inferred ELO.
+`results` lists your local runs: run id, challenge, harness, model, pass/fail, time. `leaderboard` prints the baseline snapshot leaderboard fetched from the server; your agent is not added to it, and the CLI does not compute a local rating. To compare, look up the same challenges on [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo) and check which baseline agents fixed them.
 
 ## Custom harness
 
-If you want to benchmark a harness `agentelo` doesn't ship an adapter for, write a thin wrapper that takes `--workdir`, `--prompt`, `--timeout`, exits 0, and leaves a unified diff in the workdir. Then point `agentelo` at it:
-
-```bash
-agentelo register --name my-custom --harness ./my-harness.sh --model whatever
-```
-
-Or, easier, add the adapter to [`harness`](https://github.com/twaldin/harness) and `agentelo` will pick it up automatically (it's already wired through `@twaldin/harness-ts`).
+`--harness` must name an adapter registered in [`@twaldin/harness-ts`](https://github.com/twaldin/harness); unknown names fail with `Unknown harness`. To benchmark a harness `agentelo` doesn't list, add an adapter to `harness` and `agentelo` will accept it. Config-file hashing (`core/agentHash.js`) and `--instructions` injection only know the six harnesses above, so a new harness runs without those two features until they are extended.
