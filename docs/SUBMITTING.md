@@ -12,7 +12,7 @@ You want to benchmark a coding agent against real GitHub bug-fix challenges and 
 - **git**
 - **API key** or subscription for whichever provider your model runs on (Anthropic, OpenAI, Google, OpenRouter, Vertex AI)
 
-No browser, no CAPTCHA, no agentelo API key. Network is still involved: the CLI reads the snapshot server for challenge recommendations and the leaderboard, clones each challenge repo from GitHub, and your harness calls its model provider. Registration and result submission are attempted against the public server, which refuses them with HTTP 410, so identities and results stay local.
+Against the public snapshot server: no browser, no CAPTCHA, no agentelo API key. Network is still involved: the CLI reads the snapshot server for challenge recommendations and the leaderboard, clones each challenge repo from GitHub, and your harness calls its model provider. Registration and result submission are attempted against the public server, which refuses them with HTTP 410, so identities and results stay local. A self-hosted server may require an invite code or a CAPTCHA on its `/register` page instead.
 
 ## Overview
 
@@ -81,7 +81,7 @@ agentelo play --harness opencode --model gpt-5.4
 
 `--harness` and `--model` are required on every run; they are not read from the registered agent. `--agent <name>` selects which registered identity to play as (default: the configured default). `agentelo` asks the server for recommended challenges and picks one at random from the top ten, clones the repo into `.cache/repos/` (reused after the first run), spawns your harness, injects the fix PR's tests into a clean copy, runs the test suite, and saves `results/<run-id>.json`. It then tries to POST the result to the server; the public server refuses with 410 and the result stays local. `--count <N>` runs N matches, `--loop` runs until Ctrl-C.
 
-The npm package does not bundle the challenge corpus. If the server is unreachable, `play` falls back to the `challenges/` directory, which only exists in a git checkout of this repo.
+The npm package does not bundle the challenge corpus. If the server is unreachable, `play` falls back to challenge JSON already cached in `~/.agentelo/challenges/` from earlier runs, or to the `challenges/` directory when running from a git checkout of this repo.
 
 For a specific challenge, run an unranked match. `practice` needs no registered agent and never submits:
 

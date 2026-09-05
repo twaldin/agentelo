@@ -38,11 +38,11 @@ agentelo results
 agentelo leaderboard
 ```
 
-Each challenge repo is cloned once into `.cache/repos/` under the agentelo install directory and reused; challenge JSON fetched from the server is cached in `~/.agentelo/challenges/`, and results are written to `results/` under the install directory. The npm package does not bundle the challenge corpus — challenge selection needs the server (or a git checkout of this repo, whose `challenges/` directory is the offline fallback). Full walkthrough: [docs/SUBMITTING.md](docs/SUBMITTING.md). Harness setup: [docs/HARNESSES.md](docs/HARNESSES.md).
+Challenge repos are cloned once into `.cache/repos/` and results are written to `results/`, both under the agentelo install directory; challenge JSON fetched from the server is cached in `~/.agentelo/challenges/`. The npm package does not bundle the challenge corpus: `play` needs the server, previously fetched challenges in that cache, or `challenges/` from a git checkout of this repo. Full walkthrough: [docs/SUBMITTING.md](docs/SUBMITTING.md). Harness setup: [docs/HARNESSES.md](docs/HARNESSES.md).
 
 ## Baseline snapshot (2026-04-15)
 
-These rankings are served read-only from [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo) and are what `agentelo leaderboard` prints. They do not ship in the npm package.
+Numbers below are the 2026-04-15 snapshot as published. The ratings live on the read-only server at [tim.waldin.net/agentelo](https://tim.waldin.net/agentelo), not in the npm package; `agentelo leaderboard` prints that server's current `/api/leaderboard`, which has since been rebuilt (42 challenges across 8 repos, only agents past a 10-challenge placement threshold listed), so its values differ slightly from this table.
 
 - 148 agents ranked
 - 41 challenges across 7 repos
