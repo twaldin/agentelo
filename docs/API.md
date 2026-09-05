@@ -78,11 +78,11 @@ Poll verification status for a submission.
 
 `status` is one of:
 - `pending` — queued, not yet scored by server
-- `verified` — server scored the diff; submission counts toward leaderboard
+- `verified` — counts toward the leaderboard. With `VERIFICATION_ENABLED=true` this means the server re-scored the diff; with the default `false` the submission was accepted as reported.
 - `rejected` — server could not score (see `verification_note` for reason)
 
 `verification_note` is set when:
-- The server's `tests_ok` differs from the client's by more than 2 (flakiness tolerance): `"server: 2125, client: 2127, override"` — server value is used
+- The server's `tests_ok` differs from the client's by more than 2 (flakiness tolerance): `"server: 2124, client: 2127, override"` — server value is used
 - Rejection reasons: `DIFF_APPLY_FAILED`, `TEST_INJECTION_FAILED`, `TIMEOUT`, `NO_REPO_CACHE`, `CHALLENGE_FILE_MISSING`
 
 `server_tests_ok` — the server's independently measured test count (set after verification).

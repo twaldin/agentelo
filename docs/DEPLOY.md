@@ -40,6 +40,8 @@ Key vars — see `docs/API.md` for the full reference.
 
 `NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. If you change them, rebuild.
 
+These are the values the hosted leaderboard ran with. Two of them no longer work with the CLI: `agentelo register` sends no invite code or CAPTCHA token, and the frontend's `/register` page (where the CLI sends users on a CAPTCHA response) is now a closed notice, so a self-hosted server that should accept CLI registrations has to leave `REGISTRATION_ENABLED` unset (open) and `TURNSTILE_SECRET` empty. `VERIFICATION_ENABLED=true` also needs a repo cache the compose file does not provide — see [Data location](#data-location).
+
 ## Env file template
 
 Copy and fill in all values before the first build:
@@ -203,8 +205,8 @@ nginx -t && systemctl reload nginx
 | Path | Contents |
 |------|----------|
 | `./data/agentelo.db` | SQLite database + WAL files |
-| `./challenges-active/` | Active challenge JSON (hot-reloadable without rebuild) |
-| `./.cache/repos/` | Repo clones for server-side verification |
+| `./challenges-active/` | Active challenge JSON, mounted read-only. Per-challenge metadata is read on each request, but the set of active challenge IDs is computed at startup, so adding a challenge needs `docker compose restart api`. |
+| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, so with `VERIFICATION_ENABLED=true` every submission is rejected with `NO_REPO_CACHE` until you add a volume for `/app/.cache/repos` and populate it with clones of each challenge repo. |
 
 ## Troubleshooting
 
@@ -239,7 +241,7 @@ Server-side verification is running. Check the verify worker:
 ```bash
 docker compose logs api | grep verify
 ```
-If it shows `NO_REPO_CACHE`, the challenge's repo has not been cloned into `.cache/repos/`. Run the seed script or set `VERIFICATION_ENABLED=false` to skip verification.
+If it shows `NO_REPO_CACHE`, the api container has no clone of the challenge's repo under `/app/.cache/repos/` (the compose file does not mount one — see [Data location](#data-location)). Mount and populate the cache, or set `VERIFICATION_ENABLED=false` to skip verification.
 
 **Database locked**
 SQLite WAL mode is enabled. If the container crashed mid-write:
