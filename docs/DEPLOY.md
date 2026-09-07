@@ -10,6 +10,7 @@ Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 - nginx on the host (`apt install nginx`)
 - certbot for TLS (`apt install certbot python3-certbot-nginx`)
 - `./data/` directory writable by UID 10001
+- The Docker network `term-site_external-net` must already exist: `docker-compose.yml` declares it `external` (shared with the term-site stack), so `docker compose up` refuses to start without it. If it is not already present, run `docker network create term-site_external-net` first.
 
 ```bash
 mkdir -p data
