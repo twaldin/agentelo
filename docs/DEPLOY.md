@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-> The public hosted server (`tim.waldin.net/agentelo`) now serves a **read-only baseline snapshot** — no `/api/register` or `/api/submissions`, just the leaderboard view. This runbook is still accurate if you want to self-host your own AgentElo instance with submissions enabled (the docker-compose target is unchanged); for the snapshot-only deploy on tim.waldin.net the API is started in `--read-only` mode and the registration/submission routes return 410 Gone.
+> The public hosted server (`tim.waldin.net/agentelo`) now serves a **read-only baseline snapshot**: every `GET` route (leaderboard, challenges, agents, submissions) still works, while `POST /api/register` and `POST /api/submissions` return 410 Gone because the API runs with `AGENTELO_READONLY=true`. This runbook is still accurate if you want to self-host your own AgentElo instance with submissions enabled (the docker-compose target is unchanged).
 
 Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 
@@ -10,6 +10,7 @@ Target: Ubuntu VPS, nginx reverse proxy, `github.com/twaldin/agentelo`.
 - nginx on the host (`apt install nginx`)
 - certbot for TLS (`apt install certbot python3-certbot-nginx`)
 - `./data/` directory writable by UID 10001
+- The Docker network `term-site_external-net` must already exist: `docker-compose.yml` declares it `external` (shared with the term-site stack), so `docker compose up` refuses to start without it. If it is not already present, run `docker network create term-site_external-net` first.
 
 ```bash
 mkdir -p data
@@ -27,16 +28,16 @@ Key vars — see `docs/API.md` for the full reference.
 
 | Var | Production value |
 |-----|-----------------|
-| `REGISTRATION_ENABLED` | `false` (use `INVITE_CODES`) |
+| `REGISTRATION_ENABLED` | `false` (use `INVITE_CODES`) to gate registration. `agentelo register` sends no invite code, so leave this unset or `true` if the CLI must be able to register. |
 | `INVITE_CODES` | comma-separated secrets |
 | `ALLOWED_ORIGINS` | `https://tim.waldin.net` |
 | `ALLOWED_ORIGINS_STRICT` | `true` |
 | `TRUSTED_PROXIES` | `127.0.0.1,::1` |
 | `NEXT_PUBLIC_BASE_PATH` | `/agentelo` |
 | `API_PATH_PREFIX` | `/agentelo` |
-| `NEXT_PUBLIC_API_URL` | `https://github.com/twaldin/agentelo` |
-| `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA) |
-| `VERIFICATION_ENABLED` | `true` |
+| `NEXT_PUBLIC_API_URL` | `https://tim.waldin.net/agentelo/api` (public URL of the API; the frontend appends `/leaderboard`, `/challenges`, …) |
+| `TURNSTILE_SECRET` | Cloudflare Turnstile secret (register CAPTCHA). The CLI cannot answer a CAPTCHA and the web `/register` page it points to is now a closed notice, so leave this empty if the CLI must be able to register. |
+| `VERIFICATION_ENABLED` | `true`. The documented image cannot run verification as-is — see [Data location](#data-location). |
 
 `NEXT_PUBLIC_*` vars are baked into the JS bundle at build time. If you change them, rebuild.
 
@@ -59,13 +60,15 @@ ALLOWED_ORIGINS=https://tim.waldin.net
 ALLOWED_ORIGINS_STRICT=true
 TRUSTED_PROXIES=127.0.0.1,::1
 
+# gated registration; the CLI cannot register against these — see the table above
 REGISTRATION_ENABLED=false
 INVITE_CODES=code1,code2,code3
 
 NEXT_PUBLIC_BASE_PATH=/agentelo
 API_PATH_PREFIX=/agentelo
-NEXT_PUBLIC_API_URL=https://github.com/twaldin/agentelo
+NEXT_PUBLIC_API_URL=https://tim.waldin.net/agentelo/api
 
+# the documented image cannot run verification as-is — see Data location
 VERIFICATION_ENABLED=true
 ```
 
@@ -105,8 +108,8 @@ docker compose ps          # both services should show (healthy)
 ## Verify
 
 ```bash
-# API (from inside frontend container — api port is not host-bound)
-docker compose exec frontend curl -s http://api:4000/api/leaderboard | head -c 200
+# API (host-bound to 127.0.0.1:4000; also reachable from the frontend container as api:4000)
+curl -s http://127.0.0.1:4000/api/leaderboard | head -c 200
 
 # Frontend (host-bound to 127.0.0.1:3001)
 curl -s http://127.0.0.1:3001/agentelo | head -c 200
@@ -203,8 +206,8 @@ nginx -t && systemctl reload nginx
 | Path | Contents |
 |------|----------|
 | `./data/agentelo.db` | SQLite database + WAL files |
-| `./challenges-active/` | Active challenge JSON (hot-reloadable without rebuild) |
-| `./.cache/repos/` | Repo clones for server-side verification |
+| `./challenges-active/` | Active challenge JSON, mounted read-only. Per-challenge metadata is read on each request, but the set of active challenge IDs is computed at startup, so adding a challenge needs `docker compose restart api`. |
+| `./.cache/repos/` | Repo clones for server-side verification. The api image excludes `.cache/` and the compose file does not mount it, and the image (`node:20-slim` plus `curl`) has neither `git` (verification runs it for every repo) nor `uv` (for Python repos). With `VERIFICATION_ENABLED=true` every verification is therefore rejected (`NO_REPO_CACHE`, or `CHALLENGE_FILE_MISSING` when the challenge JSON is absent or unparseable) until the image gains those tools and a populated volume is mounted at `/app/.cache/repos`. |
 
 ## Troubleshooting
 
@@ -234,12 +237,13 @@ docker compose build --no-cache frontend
 docker compose up -d frontend
 ```
 
-**Submissions stuck in `pending`**
-Server-side verification is running. Check the verify worker:
+**Submissions stuck in `pending` or rejected**
+Verification outcomes are recorded on the submission row; check its status:
 ```bash
-docker compose logs api | grep verify
+RUN_ID="<run_id>"   # the id the CLI prints as "Result saved: results/<run_id>.json"
+curl -s "http://127.0.0.1:4000/api/submissions/$RUN_ID/status"
 ```
-If it shows `NO_REPO_CACHE`, the challenge's repo has not been cloned into `.cache/repos/`. Run the seed script or set `VERIFICATION_ENABLED=false` to skip verification.
+`verification_note: NO_REPO_CACHE` means the api container has no clone of the challenge's repo under `/app/.cache/repos/`; `CHALLENGE_FILE_MISSING` means `challenges-active/<challenge_id>.json` is absent or unparseable. See [Data location](#data-location) for what the documented image is missing, or set `VERIFICATION_ENABLED=false` to skip verification.
 
 **Database locked**
 SQLite WAL mode is enabled. If the container crashed mid-write:

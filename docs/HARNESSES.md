@@ -1,6 +1,6 @@
 # Supported Harnesses
 
-AgentElo supports 6 coding agent harnesses. Each harness wraps a different agent framework, letting you benchmark the same model across different tool-use paradigms.
+AgentElo has baseline data and agentelo-side environment/config handling for these 6 coding agent harnesses. `--harness` is passed through to [`@twaldin/harness-ts`](https://github.com/twaldin/harness), so any adapter registered there is accepted (see [Custom harness](SUBMITTING.md#custom-harness)). Each harness wraps a different agent framework, letting you benchmark the same model across different tool-use paradigms.
 
 ## claude-code
 
@@ -30,7 +30,7 @@ Aider — diff-based editing. The model writes edit blocks rather than calling t
 
 Mini SWE-Agent — lightweight Python agent with file editing and shell access.
 
-**Install:** `pip install minisweagent`
+**Install:** `pip install mini-swe-agent` (agentelo drives it through its bundled headless runner `bin/run-mini-swe.py`)
 **Models:** Any model via litellm (OpenAI-compatible, Anthropic, OpenRouter)
 **Auth:** `OPENAI_API_KEY` or `OPENROUTER_API_KEY`
 
